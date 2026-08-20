@@ -1,0 +1,32 @@
+[package]
+name = "qookix-launcher"
+version = "0.1.0"
+description = "QookiX Launcher - a modern, clean and ad-free Minecraft launcher"
+authors = ["QookiX"]
+edition = "2021"
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "qookix_launcher_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "process", "time", "sync", "signal"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "gzip", "brotli"] }
+futures-util = "0.3"
+uuid = { version = "1", features = ["v3", "v4"] }
+sha1 = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+directories = "5"
+percent-encoding = "2"
+base64 = "0.22"

@@ -1,0 +1,496 @@
+use crate::models::{InstalledContent, Instance, LoaderType};
+use crate::state::AppState;
+use serde_json::{json, Value};
+use tauri::Emitter;
+
+const API: &str = "https://api.curseforge.com/v1";
+const GAME_ID: u32 = 432; // Minecraft
+
+/// CurseForge class ids for Minecraft content.
+pub fn class_id_for(kind: &str) -> u32 {
+    match kind {
+        "modpack" => 4471,
+        "resourcepack" => 12,
+        "shader" => 6552,
+        _ => 6, // mods
+    }
+}
+
+fn api_key(state: &AppState) -> Result<String, String> {
+    let s = state.settings.read().unwrap();
+    s.curseforge_api_key
+        .clone()
+        .filter(|k| !k.is_empty())
+        .ok_or("未配置 CurseForge API Key，请在设置中填写（可前往 console.curseforge.com 免费申请）".into())
+}
+
+async fn get(state: &AppState, path: &str, params: &[(&str, String)]) -> Result<Value, String> {
+    let key = api_key(state)?;
+    let mut url = format!("{API}{path}");
+    if !params.is_empty() {
+        url.push('?');
+        url.push_str(
+            &params
+                .iter()
+                .map(|(k, v)| format!("{k}={}", crate::modrinth::urlencode(v)))
+                .collect::<Vec<_>>()
+                .join("&"),
+        );
+    }
+    let resp = state
+        .client
+        .get(&url)
+        .header("x-api-key", key)
+        .send()
+        .await
+        .map_err(|e| format!("CurseForge 请求失败: {e}"))?;
+    let status = resp.status();
+    let body: Value = resp.json().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        let msg = body
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("未知错误");
+        return Err(format!("CurseForge API 错误 (HTTP {status}): {msg}"));
+    }
+    Ok(body)
+}
+
+/// Search CurseForge mods/modpacks/resourcepacks/shaders.
+pub async fn search(
+    state: &AppState,
+    query: &str,
+    kind: &str,
+    category_id: u32,
+    page: usize,
+) -> Result<Value, String> {
+    let class_id = class_id_for(kind);
+    let mut params: Vec<(&str, String)> = vec![
+        ("gameId", GAME_ID.to_string()),
+        ("classId", class_id.to_string()),
+        ("pageSize", "20".into()),
+        ("index", (page * 20).to_string()),
+        ("sortField", "2".into()), // total downloads
+    ];
+    if !query.trim().is_empty() {
+        params.push(("searchFilter", query.trim().to_string()));
+    }
+    if category_id > 0 {
+        params.push(("categoryId", category_id.to_string()));
+    }
+    let body = get(state, "/mods/search", &params).await?;
+    let data = body.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default();
+    let out: Vec<Value> = data
+        .iter()
+        .map(|m| {
+            let logo = m.get("logo").and_then(|l| l.get("url")).and_then(|v| v.as_str()).unwrap_or("");
+            json!({
+                "provider": "curseforge",
+                "id": m.get("id").and_then(|v| v.as_u64()).unwrap_or(0).to_string(),
+                "slug": m.get("slug").and_then(|v| v.as_str()).unwrap_or(""),
+                "title": m.get("name").and_then(|v| v.as_str()).unwrap_or(""),
+                "description": m.get("summary").and_then(|v| v.as_str()).unwrap_or(""),
+                "author": m.get("authors").and_then(|a| a.as_array()).and_then(|a| a.first()).and_then(|x| x.get("name")).and_then(|v| v.as_str()).unwrap_or(""),
+                "downloads": m.get("downloadCount").and_then(|v| v.as_u64()).unwrap_or(0),
+                "follows": 0,
+                "icon_url": logo,
+                "project_type": kind,
+                "categories": m.get("categories").and_then(|c| c.as_array()).map(|c| c.iter().filter_map(|x| x.get("name").and_then(|v| v.as_str()).map(|s| s.to_string())).collect::<Vec<_>>()).unwrap_or_default(),
+                "latest_version": "",
+                "game_versions": m.get("gameVersions").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+            })
+        })
+        .collect();
+    let total = body.get("pagination").and_then(|p| p.get("totalCount")).and_then(|v| v.as_u64()).unwrap_or(0);
+    Ok(json!({ "hits": out, "total": total }))
+}
+
+/// Categories for a content class (for the filter dropdown).
+pub async fn categories(state: &AppState, kind: &str) -> Result<Vec<Value>, String> {
+    let body = get(state, "/categories", &[("gameId", GAME_ID.to_string())]).await?;
+    let class_id = class_id_for(kind);
+    let data = body.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default();
+    Ok(data
+        .iter()
+        .filter(|c| c.get("classId").and_then(|v| v.as_u64()).unwrap_or(0) == class_id as u64)
+        .map(|c| {
+            json!({
+                "id": c.get("id").and_then(|v| v.as_u64()).unwrap_or(0),
+                "name": c.get("name").and_then(|v| v.as_str()).unwrap_or(""),
+            })
+        })
+        .collect())
+}
+
+/// Files of a mod, optionally filtered by game version.
+pub async fn files(state: &AppState, mod_id: &str, mc_version: &str) -> Result<Vec<Value>, String> {
+    let mut params: Vec<(&str, String)> = vec![("pageSize", "100".into())];
+    if !mc_version.is_empty() {
+        params.push(("gameVersion", mc_version.to_string()));
+    }
+    let body = get(state, &format!("/mods/{mod_id}/files"), &params).await?;
+    let data = body.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default();
+    Ok(data
+        .iter()
+        .map(|f| {
+            json!({
+                "id": f.get("id").and_then(|v| v.as_u64()).unwrap_or(0).to_string(),
+                "name": f.get("displayName").and_then(|v| v.as_str()).unwrap_or(""),
+                "filename": f.get("fileName").and_then(|v| v.as_str()).unwrap_or(""),
+                "size": f.get("fileLength").and_then(|v| v.as_u64()).unwrap_or(0),
+                "download_url": f.get("downloadUrl").and_then(|v| v.as_str()).unwrap_or(""),
+                "date": f.get("fileDate").and_then(|v| v.as_str()).unwrap_or(""),
+                "release_type": f.get("releaseType").and_then(|v| v.as_u64()).unwrap_or(0),
+                "game_versions": f.get("gameVersions").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+            })
+        })
+        .collect())
+}
+
+/// Download URL for a CurseForge file (edge CDN fallback when downloadUrl is absent).
+fn file_download_url(file: &Value) -> String {
+    if let Some(u) = file.get("download_url").and_then(|v| v.as_str()) {
+        if !u.is_empty() {
+            return u.to_string();
+        }
+    }
+    let id = file.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+    let filename = file.get("filename").and_then(|v| v.as_str()).unwrap_or("file.jar");
+    let a = id / 1000;
+    let b = id % 1000;
+    format!("https://edge.forgecdn.net/files/{a}/{b}/{filename}")
+}
+
+pub fn kind_folder(kind: &str) -> &'static str {
+    crate::modrinth::kind_folder(kind)
+}
+
+/// Install a CurseForge file (mod / resourcepack / shader).
+pub async fn install_file(
+    app: tauri::AppHandle,
+    state: &AppState,
+    instance: &Instance,
+    mod_id: &str,
+    file_id: &str,
+    kind: &str,
+) -> Result<Value, String> {
+    let body = get(state, &format!("/mods/{mod_id}/files/{file_id}"), &[]).await?;
+    let file = body.get("data").ok_or("未找到该文件")?;
+    let filename = file
+        .get("fileName")
+        .and_then(|v| v.as_str())
+        .unwrap_or("file.jar")
+        .to_string();
+    let url = file_download_url(file);
+    let size = file.get("fileLength").and_then(|v| v.as_u64()).unwrap_or(0);
+    let project_name = file
+        .get("displayName")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&filename)
+        .to_string();
+
+    let dest = state
+        .instances_dir()
+        .join(&instance.id)
+        .join(kind_folder(kind))
+        .join(&filename);
+    let items = vec![crate::download::DownloadItem {
+        url,
+        dest: dest.clone(),
+        sha1: None,
+        size: if size > 0 { Some(size) } else { None },
+        label: filename.clone(),
+    }];
+    let task_id = state.next_task_id();
+    let source = format!("CurseForge：{project_name}");
+    crate::install::emit_progress(
+        &app,
+        task_id,
+        "content",
+        &format!("正在下载 {filename}…"),
+        0,
+        1,
+        instance,
+        &source,
+    );
+    crate::download::download_many(app.clone(), state, task_id, "content", items).await?;
+
+    let record = InstalledContent {
+        filename: filename.clone(),
+        source: "curseforge".into(),
+        project_id: Some(mod_id.to_string()),
+        version_id: Some(file_id.to_string()),
+        name: Some(project_name.clone()),
+        version: Some(file_id.to_string()),
+        installed_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        size,
+        icon: cf_mod_logo(state, mod_id).await,
+        enabled: true,
+    };
+    crate::instances::add_content(state, &instance.id, kind, record)?;
+    crate::install::emit_progress(&app, task_id, "done", "安装完成", 1, 1, instance, &format!("CurseForge：{project_name}"));
+    Ok(json!({ "ok": true, "filename": filename }))
+}
+
+/// Best-effort CurseForge mod logo URL.
+async fn cf_mod_logo(state: &AppState, mod_id: &str) -> Option<String> {
+    let body = get(state, &format!("/mods/{mod_id}"), &[]).await.ok()?;
+    body.get("data")
+        .and_then(|d| d.get("logo"))
+        .and_then(|l| l.get("url"))
+        .and_then(|u| u.as_str())
+        .map(|s| s.to_string())
+}
+
+/// Install a CurseForge modpack (Forge-style zip with manifest.json).
+pub async fn install_modpack(
+    app: tauri::AppHandle,
+    state: &AppState,
+    modpack_id: &str,
+    file_id: &str,
+) -> Result<Value, String> {
+    let task_id = state.next_task_id();
+    let app_err = app.clone();
+    let result = install_modpack_inner(app, state, task_id, modpack_id, file_id).await;
+    if let Err(ref e) = result {
+        let _ = app_err.emit(
+            "install://progress",
+            serde_json::json!({
+                "taskId": task_id,
+                "stage": "done",
+                "message": format!("安装失败：{e}"),
+                "done": 0,
+                "total": 0,
+                "instanceId": "",
+                "instanceName": "",
+                "source": "整合包安装",
+                "ok": false,
+            }),
+        );
+    }
+    result
+}
+
+async fn install_modpack_inner(
+    app: tauri::AppHandle,
+    state: &AppState,
+    task_id: u64,
+    modpack_id: &str,
+    file_id: &str,
+) -> Result<Value, String> {
+    let body = get(state, &format!("/mods/{modpack_id}/files/{file_id}"), &[]).await?;
+    let file = body.get("data").ok_or("未找到该文件")?;
+    let filename = file
+        .get("fileName")
+        .and_then(|v| v.as_str())
+        .unwrap_or("modpack.zip")
+        .to_string();
+    let url = file_download_url(file);
+    let size = file.get("fileLength").and_then(|v| v.as_u64()).unwrap_or(0);
+
+    let dl_dir = state.root.join("runtimes");
+    std::fs::create_dir_all(&dl_dir).map_err(|e| e.to_string())?;
+    let pack_path = dl_dir.join(&filename);
+    let _ = std::fs::remove_file(&pack_path);
+    let items = vec![crate::download::DownloadItem {
+        url,
+        dest: pack_path.clone(),
+        sha1: None,
+        size: if size > 0 { Some(size) } else { None },
+        label: filename.clone(),
+    }];
+    let source = "整合包：CurseForge".to_string();
+    let placeholder = Instance {
+        id: String::new(),
+        name: "CurseForge 整合包".into(),
+        mc_version: String::new(),
+        loader: LoaderType::Vanilla,
+        loader_version: None,
+        created: 0,
+        last_played: None,
+        installed: false,
+        icon: None,
+        max_memory_mb: None,
+        jvm_args: None,
+        game_args: None,
+        java_path: None,
+        account_id: None,
+        resolution: None,
+        mods: Vec::new(),
+        resource_packs: Vec::new(),
+        shaders: Vec::new(),
+    };
+    crate::install::emit_progress(
+        &app,
+        task_id,
+        "modpack",
+        &format!("正在下载整合包 {filename}…"),
+        0,
+        1,
+        &placeholder,
+        &source,
+    );
+    crate::download::download_many(app.clone(), state, task_id, "modpack", vec![items[0].clone()]).await?;
+
+    // detect pack metadata and create a new instance
+    let (pack_name, mc_version, loader, loader_version) =
+        crate::modpack::detect(&pack_path).await
+            .map_err(|e| format!("解析整合包失败: {e}（文件: {}）", pack_path.display()))?;
+    let instance = crate::instances::create_instance(
+        state,
+        pack_name.clone(),
+        mc_version,
+        loader,
+        if loader_version.is_empty() { None } else { Some(loader_version) },
+    )?;
+    let source = format!("整合包：{pack_name}");
+
+    // Extract modpack icon if available
+    let instance_dir = state.instances_dir().join(&instance.id);
+    if let Some(icon_path) = crate::util::extract_modpack_icon(&pack_path, &instance_dir) {
+        let mut inst = instance.clone();
+        inst.icon = Some(format!("img:{icon_path}"));
+        let _ = crate::instances::save_instance(state, &inst);
+    }
+
+    let manifest_bytes = crate::util::read_zip_entry(&pack_path, "manifest.json")
+        .map_err(|e| format!("整合包缺少 manifest.json: {e}"))?;
+    let manifest: Value = serde_json::from_slice(&manifest_bytes).map_err(|e| e.to_string())?;
+    let files = manifest.get("files").and_then(|f| f.as_array()).cloned().unwrap_or_default();
+    let total_files = files.len();
+
+    // Phase 1: fetch metadata for all mods, collect download items + records
+    let mut dl_items: Vec<crate::download::DownloadItem> = Vec::new();
+    let mut mod_records: Vec<InstalledContent> = Vec::new();
+    let mut fetched = 0usize;
+    for f in &files {
+        let Some(pid) = f.get("projectID").and_then(|v| v.as_u64()) else { continue };
+        let Some(fid) = f.get("fileID").and_then(|v| v.as_u64()) else { continue };
+        fetched += 1;
+        let _ = crate::install::emit_progress(
+            &app,
+            task_id,
+            "modpack",
+            &format!("正在获取模组信息…（{}/{total_files}）", fetched),
+            fetched,
+            total_files,
+            &instance,
+            &source,
+        );
+        let fbody = get(state, &format!("/mods/{pid}/files/{fid}"), &[]).await?;
+        let Some(fdata) = fbody.get("data") else { continue };
+        let fname = fdata.get("fileName").and_then(|v| v.as_str()).unwrap_or("mod.jar").to_string();
+        if !fname.ends_with(".jar") {
+            continue;
+        }
+        let fsize = fdata.get("fileLength").and_then(|v| v.as_u64()).unwrap_or(0);
+        dl_items.push(crate::download::DownloadItem {
+            url: file_download_url(fdata),
+            dest: state
+                .instances_dir()
+                .join(&instance.id)
+                .join("mods")
+                .join(&fname),
+            sha1: None,
+            size: if fsize > 0 { Some(fsize) } else { None },
+            label: fname.clone(),
+        });
+        mod_records.push(InstalledContent {
+            filename: fname.clone(),
+            source: "curseforge".into(),
+            project_id: Some(pid.to_string()),
+            version_id: Some(fid.to_string()),
+            name: Some(fname),
+            version: Some(fid.to_string()),
+            installed_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+            size: fsize,
+            icon: None,
+            enabled: true,
+        });
+    }
+
+    // Phase 2: download all mods in one batch (progress bar won't reset)
+    let _ = crate::install::emit_progress(
+        &app,
+        task_id,
+        "modpack",
+        &format!("正在下载 {} 个模组…", dl_items.len()),
+        0,
+        dl_items.len(),
+        &instance,
+        &source,
+    );
+    crate::download::download_many(app.clone(), state, task_id, "modpack", dl_items).await?;
+
+    // batch-add all mod records in one save
+    let mods_count = mod_records.len();
+    if !mod_records.is_empty() {
+        if let Ok(mut inst) = crate::instances::get_instance(state, &instance.id) {
+            for rec in mod_records {
+                inst.mods.retain(|c| c.filename != rec.filename);
+                inst.mods.push(rec);
+            }
+            if let Err(e) = crate::instances::save_instance(state, &inst) {
+                eprintln!("[modpack] save_instance failed: {e}");
+            }
+        }
+    }
+
+    // extract overrides (apply with prefix stripped) + progress
+    crate::install::emit_progress(
+        &app,
+        task_id,
+        "modpack-install",
+        "正在写入整合包文件…",
+        0,
+        1,
+        &instance,
+        &source,
+    );
+    let _ = crate::util::extract_zip(
+        &pack_path,
+        &instance_dir,
+        &["manifest.json", "META-INF/", "overrides/"],
+    )
+    .map_err(|e| format!("解压整合包失败: {e}"))?;
+    let _ = crate::util::extract_zip_strip(
+        &pack_path,
+        &instance_dir,
+        "overrides/",
+        &["manifest.json", "META-INF/"],
+    )?;
+    let _ = std::fs::remove_dir_all(instance_dir.join("overrides"));
+    crate::install::emit_progress(
+        &app,
+        task_id,
+        "modpack-install",
+        "整合包文件已写入",
+        1,
+        1,
+        &instance,
+        &source,
+    );
+
+    // auto-install game files (client jar, libraries, assets...)
+    let _ = crate::install::install_game(app.clone(), state, &instance).await;
+    let _ = crate::instances::mark_installed(state, &instance.id);
+
+    crate::install::emit_progress(
+        &app,
+        task_id,
+        "done",
+        "整合包安装完成",
+        1,
+        1,
+        &instance,
+        &source,
+    );
+
+    Ok(json!({ "ok": true, "mods": mods_count, "instanceId": instance.id }))
+}

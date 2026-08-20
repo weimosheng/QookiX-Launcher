@@ -1,0 +1,197 @@
+import { defineStore } from "pinia";
+import { listen } from "@tauri-apps/api/event";
+import type {
+  DownloadProgressEvent,
+  InstallProgressEvent,
+  LaunchLogEvent,
+  LaunchStateEvent,
+} from "../types";
+
+interface LogEntry {
+  stream: "out" | "err";
+  line: string;
+}
+
+export interface TaskFile {
+  name: string;
+  ok: boolean;
+}
+
+export interface TaskEntry {
+  id: number;
+  stage: string;
+  message: string;
+  // download phase (files + bytes)
+  fileDone: number;
+  fileTotal: number;
+  bytesDone: number;
+  bytesTotal: number;
+  // install phase (steps)
+  stepDone: number;
+  stepTotal: number;
+  current?: string;
+  lastCurrent?: string;
+  speed: number; // bytes/sec (average over a rolling window)
+  samples: { ts: number; bytes: number }[];
+  files: TaskFile[];
+  instanceId?: string;
+  instanceName?: string;
+  source?: string;
+  startedAt: number;
+  finished: boolean;
+  ok?: boolean;
+  activity: "download" | "install";
+}
+
+function nowMs() {
+  return Date.now();
+}
+
+/** Install-side stages that are not pure downloads. */
+const INSTALL_STAGES = ["manifest", "natives", "modpack-install", "done"];
+
+export const useTasksStore = defineStore("tasks", {
+  state: () => ({
+    tasks: {} as Record<number, TaskEntry>,
+    order: [] as number[],
+    logs: {} as Record<string, LogEntry[]>,
+    runningInstance: null as string | null,
+    gameRunning: false,
+    lastExit: null as { instanceId: string; code: number | null } | null,
+  }),
+  getters: {
+    taskList(): TaskEntry[] {
+      return this.order
+        .map((id) => this.tasks[id])
+        .filter(Boolean)
+        .sort((a, b) => b.startedAt - a.startedAt);
+    },
+    activeCount(): number {
+      return this.taskList.filter((t) => !t.finished).length;
+    },
+  },
+  actions: {
+    init() {
+      listen<InstallProgressEvent>("install://progress", (e) => {
+        const p = e.payload;
+        this.upsert(p.taskId, (t) => {
+          t.stage = p.stage;
+          t.message = p.message;
+          t.stepDone = p.done;
+          t.stepTotal = p.total;
+          t.activity = INSTALL_STAGES.includes(p.stage) ? "install" : "download";
+          if (p.instanceId) t.instanceId = p.instanceId;
+          if (p.instanceName) t.instanceName = p.instanceName;
+          if (p.source) t.source = p.source;
+          if (p.stage === "done") {
+            t.finished = true;
+            t.ok = p.ok !== false;
+            t.speed = 0;
+            // flush the last tracked file
+            if (t.lastCurrent) {
+              t.files.push({ name: t.lastCurrent, ok: t.ok ?? true });
+              t.lastCurrent = undefined;
+            }
+          }
+        });
+      });
+      listen<DownloadProgressEvent>("download://progress", (e) => {
+        const p = e.payload;
+        this.upsert(p.taskId, (t) => {
+          t.activity = "download";
+          t.stage = p.phase;
+          t.fileDone = p.done;
+          t.fileTotal = p.total;
+          t.bytesDone = Math.max(t.bytesDone, p.bytesDone ?? 0);
+          if (p.bytesTotal && p.bytesTotal > 0) t.bytesTotal = Math.max(t.bytesTotal, p.bytesTotal);
+          t.ok = p.ok;
+          if (p.current) {
+            if (t.lastCurrent && t.lastCurrent !== p.current) {
+              t.files.push({ name: t.lastCurrent, ok: t.ok ?? true });
+              if (t.files.length > 100) t.files.splice(0, t.files.length - 100);
+            }
+            t.lastCurrent = p.current;
+            t.current = p.current;
+          }
+          // rolling average speed over the last ~5s with smoothing
+          const ts = nowMs();
+          t.samples.push({ ts, bytes: p.bytesDone ?? 0 });
+          t.samples = t.samples.filter((s) => ts - s.ts <= 5000);
+          if (t.samples.length >= 3) {
+            const first = t.samples[0];
+            const last = t.samples[t.samples.length - 1];
+            const dt = (last.ts - first.ts) / 1000;
+            if (dt > 0.5) {
+              const newSpeed = Math.max(0, (last.bytes - first.bytes) / dt);
+              t.speed = t.speed > 0 ? t.speed * 0.7 + newSpeed * 0.3 : newSpeed;
+            }
+          }
+          if (t.samples.length > 60) t.samples.splice(0, t.samples.length - 60);
+        });
+      });
+      listen<LaunchLogEvent>("launch://log", (e) => {
+        const { instanceId, stream, line } = e.payload;
+        if (!this.logs[instanceId]) this.logs[instanceId] = [];
+        const buf = this.logs[instanceId];
+        buf.push({ stream, line });
+        if (buf.length > 4000) buf.splice(0, buf.length - 4000);
+      });
+      listen<LaunchStateEvent>("launch://state", (e) => {
+        const p = e.payload;
+        if (p.state === "running") {
+          this.runningInstance = p.instanceId;
+          this.gameRunning = true;
+        } else {
+          this.runningInstance = null;
+          this.gameRunning = false;
+          this.lastExit = { instanceId: p.instanceId, code: p.code };
+        }
+      });
+    },
+    upsert(id: number, patch: (t: TaskEntry) => void) {
+      if (!this.tasks[id]) {
+        this.tasks[id] = {
+          id,
+          stage: "",
+          message: "",
+          fileDone: 0,
+          fileTotal: 0,
+          bytesDone: 0,
+          bytesTotal: 0,
+          stepDone: 0,
+          stepTotal: 0,
+          speed: 0,
+          samples: [],
+          files: [],
+          startedAt: nowMs(),
+          finished: false,
+          activity: "download",
+        };
+        this.order.push(id);
+        if (this.order.length > 60) {
+          const old = this.order.shift();
+          if (old !== undefined) delete this.tasks[old];
+        }
+      }
+      patch(this.tasks[id]);
+    },
+    clearFinished() {
+      const keep = this.order.filter((id) => {
+        const t = this.tasks[id];
+        if (t && t.finished) {
+          delete this.tasks[id];
+          return false;
+        }
+        return true;
+      });
+      this.order = keep;
+    },
+    clearAll() {
+      this.tasks = {};
+      this.order = [];
+    },
+    clearLogs(instanceId: string) {
+      this.logs[instanceId] = [];
+    },
+  },
+});
