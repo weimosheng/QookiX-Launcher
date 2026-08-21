@@ -8,6 +8,7 @@ const props = withDefaults(defineProps<{ project: ProjectHit; view?: "grid" | "l
   view: "grid",
 });
 const emit = defineEmits<{ install: [p: ProjectHit] }>();
+const iconError = ref(false);
 
 const copied = ref(false);
 async function copyName() {
@@ -44,7 +45,7 @@ function typeLabel(t: string) {
     <template v-if="view === 'grid'">
       <div class="p-main">
         <div class="p-icon-wrap">
-          <img v-if="project.icon_url" :src="project.icon_url" class="p-icon" alt="" loading="lazy" />
+          <img v-if="project.icon_url && !iconError" :src="project.icon_url" class="p-icon" alt="" loading="lazy" @error="iconError = true" />
           <div v-else class="p-icon ph"><IconBox /></div>
         </div>
         <div class="p-body">
@@ -80,7 +81,7 @@ function typeLabel(t: string) {
 
     <template v-else>
       <div class="p-icon-wrap">
-        <img v-if="project.icon_url" :src="project.icon_url" class="p-icon" alt="" loading="lazy" />
+        <img v-if="project.icon_url && !iconError" :src="project.icon_url" class="p-icon" alt="" loading="lazy" @error="iconError = true" />
         <div v-else class="p-icon ph"><IconBox /></div>
       </div>
       <div class="p-body">

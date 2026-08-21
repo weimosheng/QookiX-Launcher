@@ -9,6 +9,7 @@ pub struct AppState {
     pub settings: RwLock<Settings>,
     pub client: reqwest::Client,
     /// Download concurrency limit
+    #[allow(dead_code)]
     pub semaphore: Arc<Semaphore>,
     /// Currently running game process (if any)
     pub game_process: Arc<Mutex<Option<tokio::process::Child>>>,
@@ -34,9 +35,11 @@ impl AppState {
     pub fn assets_dir(&self) -> PathBuf {
         self.root.join("assets")
     }
+    #[allow(dead_code)]
     pub fn assets_indexes_dir(&self) -> PathBuf {
         self.root.join("assets").join("indexes")
     }
+    #[allow(dead_code)]
     pub fn assets_objects_dir(&self) -> PathBuf {
         self.root.join("assets").join("objects")
     }
@@ -46,6 +49,7 @@ impl AppState {
     pub fn logs_dir(&self) -> PathBuf {
         self.root.join("logs")
     }
+    #[allow(dead_code)]
     pub fn settings_path(&self) -> PathBuf {
         self.root.join("settings.json")
     }

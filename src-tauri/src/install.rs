@@ -34,6 +34,7 @@ pub async fn install_game(
             url: client.url.clone(),
             dest: client_jar_path.clone(),
             sha1: Some(client.sha1.clone()),
+            sha512: None,
             size: Some(client.size),
             label: format!("{}.jar", instance.id),
         });
@@ -73,6 +74,7 @@ pub async fn install_game(
                         url: file.url.clone(),
                         dest: dest.clone(),
                         sha1: Some(file.sha1.clone()),
+                        sha512: None,
                         size: Some(file.size),
                         label: format!("{} ({})", lib.name, classifier),
                     });
@@ -88,6 +90,7 @@ pub async fn install_game(
                         url: dl.url.clone(),
                         dest,
                         sha1: Some(dl.sha1.clone()),
+                        sha512: None,
                         size: Some(dl.size),
                         label: lib.name.clone(),
                     });
@@ -101,6 +104,7 @@ pub async fn install_game(
                 url: dl.url.clone(),
                 dest,
                 sha1: Some(dl.sha1.clone()),
+                sha512: None,
                 size: Some(dl.size),
                 label: lib.name.clone(),
             });
@@ -112,6 +116,7 @@ pub async fn install_game(
                     url: file_url,
                     dest,
                     sha1: None,
+                    sha512: None,
                     size: None,
                     label: lib.name.clone(),
                 });
@@ -156,6 +161,7 @@ pub async fn install_game(
                 url: index.url.clone(),
                 dest: index_path.clone(),
                 sha1: Some(index.sha1.clone()),
+                sha512: None,
                 size: Some(index.size),
                 label: format!("asset index {}", index.id),
             };
@@ -175,10 +181,11 @@ pub async fn install_game(
                 url: format!(
                     "https://resources.download.minecraft.net/{}/{}",
                     &obj.hash[0..2],
-                    obj.hash
+                    &obj.hash
                 ),
                 dest,
                 sha1: Some(obj.hash.clone()),
+                sha512: None,
                 size: Some(obj.size),
                 label: name.clone(),
             });
@@ -198,6 +205,7 @@ pub async fn install_game(
                     url: client.file.url.clone(),
                     dest,
                     sha1: Some(client.file.sha1.clone()),
+                    sha512: None,
                     size: Some(client.file.size),
                     label: "log4j2.xml".into(),
                 };
@@ -505,6 +513,7 @@ async fn forge_patch(
             url: installer_url.clone(),
             dest: installer_path.clone(),
             sha1: None,
+            sha512: None,
             size: None,
             label: format!("{installer_name} 安装器"),
         };

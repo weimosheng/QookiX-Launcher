@@ -286,8 +286,8 @@ pub fn list_instance_folders(state: State<AppState>, instance_id: String) -> Res
 }
 
 #[tauri::command]
-pub fn list_instance_files(
-    state: State<AppState>,
+pub async fn list_instance_files(
+    state: State<'_, AppState>,
     instance_id: String,
     sub: String,
 ) -> Result<Value, String> {
@@ -298,39 +298,43 @@ pub fn list_instance_files(
     if !dir.exists() {
         return Ok(json!({ "files": [] }));
     }
-    let mut files: Vec<Value> = Vec::new();
-    for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
-        let e = entry.map_err(|e| e.to_string())?;
-        let meta = e.metadata().map_err(|e| e.to_string())?;
-        let path = e.path();
-        let mut icon: Option<String> = None;
-        // world folders expose the game-generated icon.png
-        if sub == "saves" && meta.is_dir() {
-            let icon_path = path.join("icon.png");
-            if icon_path.is_file() {
-                icon = Some(icon_path.to_string_lossy().to_string());
+    let files = tokio::task::spawn_blocking(move || {
+        let mut files: Vec<Value> = Vec::new();
+        for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+            let e = entry.map_err(|e| e.to_string())?;
+            let meta = e.metadata().map_err(|e| e.to_string())?;
+            let path = e.path();
+            let mut icon: Option<String> = None;
+            if sub == "saves" && meta.is_dir() {
+                let icon_path = path.join("icon.png");
+                if icon_path.is_file() {
+                    icon = Some(icon_path.to_string_lossy().to_string());
+                }
             }
+            files.push(json!({
+                "name": e.file_name().to_string_lossy().to_string(),
+                "path": path.to_string_lossy().to_string(),
+                "size": meta.len(),
+                "modified": meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0),
+                "isDir": meta.is_dir(),
+                "icon": icon,
+            }));
         }
-        files.push(json!({
-            "name": e.file_name().to_string_lossy().to_string(),
-            "path": path.to_string_lossy().to_string(),
-            "size": meta.len(),
-            "modified": meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0),
-            "isDir": meta.is_dir(),
-            "icon": icon,
-        }));
-    }
-    files.sort_by(|a, b| {
-        let da = a.get("isDir").and_then(|v| v.as_bool()).unwrap_or(false);
-        let db = b.get("isDir").and_then(|v| v.as_bool()).unwrap_or(false);
-        db.cmp(&da).then_with(|| {
-            a.get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_lowercase()
-                .cmp(&b.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase())
-        })
-    });
+        files.sort_by(|a, b| {
+            let da = a.get("isDir").and_then(|v| v.as_bool()).unwrap_or(false);
+            let db = b.get("isDir").and_then(|v| v.as_bool()).unwrap_or(false);
+            db.cmp(&da).then_with(|| {
+                a.get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_lowercase()
+                    .cmp(&b.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase())
+            })
+        });
+        Ok::<Vec<Value>, String>(files)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     Ok(json!({ "files": files }))
 }
 
@@ -383,8 +387,11 @@ pub fn import_instance_image(
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn list_accounts(state: State<AppState>) -> Result<Vec<Account>, String> {
-    Ok(accounts::load_accounts(&state))
+pub fn list_accounts(state: State<AppState>) -> Result<Vec<Value>, String> {
+    Ok(accounts::load_accounts(&state)
+        .into_iter()
+        .map(|a| strip_account_tokens(serde_json::to_value(&a).unwrap_or_default()))
+        .collect())
 }
 
 #[tauri::command]
@@ -398,8 +405,18 @@ pub async fn login_ms_start(state: State<'_, AppState>) -> Result<Value, String>
 }
 
 #[tauri::command]
-pub async fn login_ms_poll(state: State<'_, AppState>) -> Result<Account, String> {
-    accounts::ms_poll(&state).await
+pub async fn login_ms_poll(state: State<'_, AppState>) -> Result<Value, String> {
+    let acc = accounts::ms_poll(&state).await?;
+    Ok(strip_account_tokens(serde_json::to_value(&acc).unwrap_or_default()))
+}
+
+/// Remove sensitive token fields before sending an Account to the frontend.
+fn strip_account_tokens(mut v: Value) -> Value {
+    if let Some(obj) = v.as_object_mut() {
+        obj.remove("msa_refresh_token");
+        obj.remove("msa_access_token");
+    }
+    v
 }
 
 #[tauri::command]

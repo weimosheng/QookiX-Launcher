@@ -26,18 +26,6 @@ export interface JavaInfo {
   arch: string;
 }
 
-export interface InstalledContent {
-  filename: string;
-  source: string;
-  project_id: string | null;
-  version_id: string | null;
-  name: string | null;
-  version: string | null;
-  installed_at: number;
-  size: number;
-  icon: string | null;
-}
-
 export interface Instance {
   id: string;
   name: string;

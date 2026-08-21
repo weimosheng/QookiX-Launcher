@@ -65,6 +65,7 @@ const tab = ref("mods");
 const instance = computed(() => instances.get(instanceId));
 
 const contentItems = ref<ContentItem[]>([]);
+const iconErrors = ref(new Set<string>());
 const updates = ref<UpdateInfo[]>([]);
 const checkingUpdates = ref(false);
 const loadingContent = ref(false);
@@ -131,29 +132,36 @@ async function loadFolders() {
   }
 }
 
+let loadSeq = 0;
 async function loadContent() {
   if (!instance.value) return;
+  const seq = ++loadSeq;
   loadingContent.value = true;
   try {
     const res = await api.listContent(instanceId, kindOf(tab.value));
+    if (seq !== loadSeq) return;
     contentItems.value = res.items;
   } catch (e) {
+    if (seq !== loadSeq) return;
     message.error(String(e));
   } finally {
-    loadingContent.value = false;
+    if (seq === loadSeq) loadingContent.value = false;
   }
 }
 
 async function loadFiles() {
   const sub = tab.value === "screenshots" ? "screenshots" : "saves";
+  const seq = ++loadSeq;
   loadingFiles.value = true;
   try {
     const r = await api.listInstanceFiles(instanceId, sub);
+    if (seq !== loadSeq) return;
     fileItems.value = r.files;
   } catch (e) {
+    if (seq !== loadSeq) return;
     message.error(String(e));
   } finally {
-    loadingFiles.value = false;
+    if (seq === loadSeq) loadingFiles.value = false;
   }
 }
 
@@ -612,11 +620,12 @@ watch(
           <div v-for="item in contentItems" :key="item.record.filename" class="c-row">
             <div class="c-icon">
               <img
-                v-if="item.record.icon"
+                v-if="item.record.icon && !iconErrors.has(item.record.filename)"
                 :src="iconUrl(item.record.icon) ?? ''"
                 class="c-thumb"
                 alt=""
                 loading="lazy"
+                @error="iconErrors.add(item.record.filename)"
               />
               <IconFile v-else-if="item.record.filename.endsWith('.jar')" />
               <IconImage v-else />

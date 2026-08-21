@@ -8,6 +8,10 @@ pub const TOKEN_URL: &str = "https://login.microsoftonline.com/common/oauth2/v2.
 pub const DEVICE_CODE_URL: &str =
     "https://login.microsoftonline.com/common/oauth2/v2.0/devicecode";
 
+/// Error code signalling that the user has not yet completed device-code auth.
+/// The frontend matches this exact string rather than a fragile `includes`.
+pub const ERR_AUTH_PENDING: &str = "__auth_pending__";
+
 /// Built-in Microsoft Client ID. Injected at compile time via MS_CLIENT_ID env var.
 pub const BUILTIN_MS_CLIENT_ID: &str = match option_env!("MS_CLIENT_ID") {
     Some(id) => id,
@@ -136,7 +140,7 @@ pub async fn ms_poll(state: &AppState) -> Result<Account, String> {
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
         return match err {
-            "authorization_pending" => Err("pending".into()),
+            "authorization_pending" => Err(ERR_AUTH_PENDING.into()),
             "authorization_declined" => Err("用户拒绝了授权".into()),
             "expired_token" => Err("设备码已过期，请重新开始登录".into()),
             "slow_down" => Err("请稍后再试".into()),

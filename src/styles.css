@@ -27,6 +27,25 @@ body,
   --text-1: #f2f3f7;
   --text-2: #c6c8d2;
   --text-3: #8b8e9c;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.12);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
+}
+
+.app.light {
+  --accent: #d97f33;
+  --accent-deep: #c06a22;
+  --accent-soft: rgba(217, 127, 51, 0.1);
+  --bg-0: #f7f6f4;
+  --bg-1: #eceef2;
+  --bg-2: #e2e4ea;
+  --panel: rgba(255, 255, 255, 0.55);
+  --panel-hover: rgba(255, 255, 255, 0.75);
+  --border: rgba(0, 0, 0, 0.09);
+  --text-1: #1a1d24;
+  --text-2: #4a4d58;
+  --text-3: #8b8e9c;
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
 }
 
 .app-bg {
@@ -42,11 +61,11 @@ body,
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--scrollbar-thumb);
   border-radius: 8px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--scrollbar-thumb-hover);
 }
 ::-webkit-scrollbar-track {
   background: transparent;

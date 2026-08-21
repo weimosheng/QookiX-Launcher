@@ -1,6 +1,25 @@
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+fn encode_token<S>(token: &str, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&STANDARD.encode(token.as_bytes()))
+}
+
+fn decode_token<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: String = Deserialize::deserialize(deserializer)?;
+    match STANDARD.decode(&s) {
+        Ok(bytes) => Ok(String::from_utf8(bytes).unwrap_or(s)),
+        Err(_) => Ok(s),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -155,7 +174,9 @@ pub enum Account {
         uuid: String,
         username: String,
         created: u64,
+        #[serde(serialize_with = "encode_token", deserialize_with = "decode_token")]
         msa_refresh_token: String,
+        #[serde(serialize_with = "encode_token", deserialize_with = "decode_token")]
         msa_access_token: String,
         msa_expires_at: u64,
     },

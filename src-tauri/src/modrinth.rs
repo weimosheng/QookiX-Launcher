@@ -238,6 +238,7 @@ pub async fn install_version(
         url,
         dest: dest.clone(),
         sha1,
+        sha512: None,
         size: Some(size),
         label: filename.clone(),
     }];
@@ -351,6 +352,7 @@ async fn install_modpack_inner(
         url,
         dest: pack_path.clone(),
         sha1: None,
+        sha512: None,
         size: Some(size),
         label: filename.clone(),
     }];
@@ -431,7 +433,8 @@ async fn install_modpack_inner(
         items.push(crate::download::DownloadItem {
             url: first.to_string(),
             dest,
-            sha1: sha1.or(sha512),
+            sha1,
+            sha512,
             size: if size > 0 { Some(size) } else { None },
             label: path,
         });

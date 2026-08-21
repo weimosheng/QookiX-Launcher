@@ -53,6 +53,7 @@ pub async fn cache_version_json(state: &AppState, json: &VersionJson) -> Result<
 
 /// Resolve a version json following the `inheritsFrom` chain and merging
 /// parent data (libraries, asset index, downloads, java version...).
+#[allow(dead_code)]
 pub fn resolve_inheritance(root: &VersionJson, parents: &[VersionJson]) -> VersionJson {
     let mut merged = root.clone();
     for parent in parents.iter().rev() {

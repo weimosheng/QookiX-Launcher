@@ -89,18 +89,13 @@ async function loadVersions() {
   selectedVersion.value = null;
   deps.value = [];
   try {
-    const res = await api.projectVersions(props.project.provider, props.project.id, "", "");
+    const inst = selectedInstance.value ? instances.get(selectedInstance.value) : null;
+    const mcVer = inst?.mc_version ?? "";
+    const loader = inst?.loader ?? "";
+    const res = await api.projectVersions(props.project.provider, props.project.id, mcVer, loader);
     versions.value = res.versions;
-    if (selectedInstance.value) {
-      const inst = instances.get(selectedInstance.value);
-      if (inst) {
-        const compat = res.versions.find(
-          (v) =>
-            (v.game_versions ?? []).includes(inst.mc_version) &&
-            (inst.loader === "vanilla" || (v.loaders ?? []).includes(inst.loader))
-        );
-        if (compat) selectedVersion.value = compat.id;
-      }
+    if (res.versions.length) {
+      selectedVersion.value = res.versions[0].id;
     }
   } catch (e) {
     message.error(String(e));
@@ -146,13 +141,13 @@ async function install() {
   }
   installing.value = true;
   try {
-    api.installContent(
+    await api.installContent(
       selectedInstance.value ?? "",
       props.project.provider,
       props.project.id,
       selectedVersion.value,
       props.project.project_type
-    ).catch((e: unknown) => message.error(String(e)));
+    );
     message.success("已添加到下载队列");
     emit("update:show", false);
   } catch (e) {
@@ -218,7 +213,7 @@ function fmtDate(s: string) {
           <div v-if="loadingVersions" class="id-loading">加载中…</div>
           <div v-else class="id-ver-list">
             <button
-              v-for="v in filteredVersions.slice(0, 40)"
+              v-for="v in filteredVersions.slice(0, 80)"
               :key="v.id"
               class="id-ver-row"
               :class="{ active: selectedVersion === v.id }"
