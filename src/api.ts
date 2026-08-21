@@ -12,6 +12,8 @@ export const api = {
   // settings & java
   getSettings: () => invoke<Settings>("get_settings"),
   setSettings: (patch: Record<string, unknown>) => invoke<Settings>("set_settings", { patch }),
+  autoDetectMemory: () =>
+    invoke<{ total_mb: number; used_mb: number; available_mb: number; max_mb: number; min_mb: number }>("auto_detect_memory"),
   detectJava: (refresh?: boolean) =>
     invoke<{ candidates: JavaInfo[]; selected: JavaInfo | null }>("detect_java", {
       refresh: refresh ?? false,

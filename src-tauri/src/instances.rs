@@ -80,6 +80,7 @@ pub fn create_instance(
         installed: true,
         icon: None,
         max_memory_mb: None,
+        memory_mode: None,
         jvm_args: None,
         game_args: None,
         java_path: None,
@@ -128,6 +129,9 @@ pub fn update_instance(state: &AppState, patch: serde_json::Value) -> Result<Ins
     }
     if let Some(v) = patch.get("max_memory_mb").and_then(|v| v.as_u64()) {
         inst.max_memory_mb = if v > 0 { Some(v as u32) } else { None };
+    }
+    if let Some(v) = patch.get("memory_mode").and_then(|v| v.as_str()) {
+        inst.memory_mode = if v.is_empty() { None } else { Some(v.to_string()) };
     }
     if let Some(v) = patch.get("jvm_args").and_then(|v| v.as_str()) {
         inst.jvm_args = if v.trim().is_empty() { None } else { Some(v.to_string()) };

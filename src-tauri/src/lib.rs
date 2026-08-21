@@ -46,6 +46,7 @@ pub fn run() {
             // settings & java
             commands::get_settings,
             commands::set_settings,
+            commands::auto_detect_memory,
             commands::detect_java,
             commands::download_java,
             commands::recommend_java,
@@ -300,6 +301,7 @@ mod smoke {
             installed: false,
             icon: None,
             max_memory_mb: None,
+            memory_mode: None,
             jvm_args: None,
             game_args: None,
             java_path: None,

@@ -12,8 +12,9 @@ dist
 dist-ssr
 *.local
 .npm-cache
-app-icon.png
-scripts/*.txt
+
+# 根目录的素材图（非 public/ 内被引用的应用图标）
+/app-icon.png
 
 # Editor directories and files
 .vscode/*

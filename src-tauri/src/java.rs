@@ -170,6 +170,7 @@ fn instance_placeholder(state: &crate::state::AppState) -> crate::models::Instan
         installed: false,
         icon: None,
         max_memory_mb: None,
+        memory_mode: None,
         jvm_args: None,
         game_args: None,
         java_path: None,

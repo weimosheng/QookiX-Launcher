@@ -308,6 +308,7 @@ const showIconPicker = ref(false);
 const edit = ref({
   icon: "",
   max_memory_mb: 4096,
+  memory_mode: "global" as "global" | "auto" | "custom",
   jvm_args: "",
   game_args: "",
   java_path: "",
@@ -316,6 +317,66 @@ const edit = ref({
   resolution_h: "",
 });
 
+const memTotal = ref(0);
+const memUsed = ref(0);
+const memAvailable = ref(0);
+const autoMem = ref(0);
+
+/** Format MB into a readable "GB / MB" string. */
+function fmtMem(mb: number): string {
+  if (!mb || mb <= 0) return "0 MB";
+  if (mb >= 1024) return (mb / 1024).toFixed(mb % 1024 === 0 ? 0 : 1) + " GB";
+  return Math.round(mb) + " MB";
+}
+
+// The custom slider max is capped at the currently available (free) memory,
+// so the game allocation can never exceed the remaining space (fallback 16 GB).
+const sliderMax = computed(() => {
+  if (!memAvailable.value) return 16384;
+  return Math.max(1024, memAvailable.value);
+});
+
+const globalMemory = computed(() => useSettingsStore().settings?.max_memory_mb ?? 4096);
+
+const autoMemory = computed(() => {
+  let rec = autoMem.value || Math.round(memTotal.value * 0.5);
+  // 自动配置不超出当前可用（剩余）内存
+  if (memAvailable.value > 0 && rec > memAvailable.value) rec = memAvailable.value;
+  return rec;
+});
+
+const effectiveMemory = computed(() => {
+  if (edit.value.memory_mode === "auto") return autoMemory.value;
+  if (edit.value.memory_mode === "global") return globalMemory.value;
+  return edit.value.max_memory_mb;
+});
+
+const usedPercent = computed(() => {
+  if (!memTotal.value) return 0;
+  return Math.min(100, Math.round((memUsed.value / memTotal.value) * 100));
+});
+const allocPercent = computed(() => {
+  if (!memTotal.value) return 0;
+  return Math.min(100, Math.round((effectiveMemory.value / memTotal.value) * 100));
+});
+// The allocated segment sits right after the used segment so both colors are always visible.
+const allocStart = computed(() => usedPercent.value);
+const allocWidth = computed(() =>
+  Math.max(0, Math.min(allocPercent.value, 100 - usedPercent.value))
+);
+
+async function loadMemoryInfo() {
+  try {
+    const res = await api.autoDetectMemory();
+    memTotal.value = res.total_mb;
+    memUsed.value = res.used_mb;
+    memAvailable.value = res.available_mb ?? Math.max(0, res.total_mb - res.used_mb);
+    autoMem.value = res.max_mb;
+  } catch {
+    /* ignore, fall back to defaults */
+  }
+}
+
 watch(
   () => instance.value,
   (i) => {
@@ -323,6 +384,7 @@ watch(
     edit.value = {
       icon: i.icon ?? "",
       max_memory_mb: i.max_memory_mb ?? 4096,
+      memory_mode: (i.memory_mode as "global" | "auto" | "custom") ?? "global",
       jvm_args: i.jvm_args ?? "",
       game_args: i.game_args ?? "",
       java_path: i.java_path ?? "",
@@ -395,10 +457,15 @@ async function pickJava() {
 
 async function saveSettings() {
   try {
+    const mem =
+      edit.value.memory_mode === "custom"
+        ? Math.min(edit.value.max_memory_mb, sliderMax.value)
+        : 0;
     await instances.patch({
       id: instanceId,
       icon: edit.value.icon,
-      max_memory_mb: edit.value.max_memory_mb,
+      max_memory_mb: mem,
+      memory_mode: edit.value.memory_mode,
       jvm_args: edit.value.jvm_args,
       game_args: edit.value.game_args,
       java_path: edit.value.java_path,
@@ -421,6 +488,7 @@ watch(
       // nothing to load
     } else if (t === "settings") {
       detectJava();
+      loadMemoryInfo();
     } else if (t === "screenshots" || t === "saves") {
       loadFiles();
     } else {
@@ -673,16 +741,64 @@ watch(
           </div>
 
           <div class="set-card glass">
-            <h4>内存分配 ({{ edit.max_memory_mb }} MB)</h4>
-            <input
-              v-model.number="edit.max_memory_mb"
-              type="range"
-              min="1024"
-              max="16384"
-              step="256"
-              class="range"
-            />
-            <div class="range-labels"><span>1 GB</span><span>16 GB</span></div>
+            <h4>内存分配</h4>
+            <div class="mem-modes">
+              <label
+                class="mem-mode"
+                :class="{ active: edit.memory_mode === 'global' }"
+              >
+                <input v-model="edit.memory_mode" type="radio" value="global" />
+                根据全局配置
+              </label>
+              <label
+                class="mem-mode"
+                :class="{ active: edit.memory_mode === 'auto' }"
+              >
+                <input v-model="edit.memory_mode" type="radio" value="auto" />
+                自动配置
+              </label>
+              <label
+                class="mem-mode"
+                :class="{ active: edit.memory_mode === 'custom' }"
+              >
+                <input v-model="edit.memory_mode" type="radio" value="custom" />
+                自定义
+              </label>
+            </div>
+
+            <template v-if="edit.memory_mode === 'custom'">
+              <input
+                v-model.number="edit.max_memory_mb"
+                type="range"
+                min="1024"
+                :max="sliderMax"
+                step="256"
+                class="range"
+              />
+              <div class="range-labels"><span>1 GB</span><span>{{ fmtMem(sliderMax) }}</span></div>
+              <div class="mem-current">{{ edit.max_memory_mb }} MB</div>
+            </template>
+
+            <div v-else class="mem-current">
+              {{ effectiveMemory }} MB
+              <span v-if="edit.memory_mode === 'global'" class="mem-mode-note">（全局设置）</span>
+              <span v-else-if="edit.memory_mode === 'auto'" class="mem-mode-note">（推荐 {{ autoMemory }} MB）</span>
+            </div>
+
+            <div class="mem-gauge">
+              <div class="mem-gauge-track">
+                <div class="mem-gauge-used" :style="{ width: usedPercent + '%' }"></div>
+                <div
+                  class="mem-gauge-alloc"
+                  :style="{ left: allocStart + '%', width: allocWidth + '%' }"
+                ></div>
+              </div>
+              <div class="mem-gauge-labels">
+                <span><i class="dot used"></i>已使用 {{ fmtMem(memUsed) }}（{{ usedPercent }}%）</span>
+                <span><i class="dot alloc"></i>游戏分配 {{ fmtMem(effectiveMemory) }}（{{ allocPercent }}%）</span>
+                <span><i class="dot total"></i>总内存 {{ fmtMem(memTotal) }} / 可用 {{ fmtMem(memAvailable) }}</span>
+              </div>
+            </div>
           </div>
 
           <div class="set-card glass">
@@ -1001,6 +1117,12 @@ watch(
 .c-row:last-child {
   border-bottom: none;
 }
+.c-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
 .c-icon {
   width: 34px;
   height: 34px;
@@ -1281,6 +1403,103 @@ textarea.text-input {
   justify-content: space-between;
   font-size: 11px;
   color: var(--text-3);
+}
+.mem-modes {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.mem-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-2);
+  transition: all 0.12s;
+}
+.mem-mode:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.mem-mode.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.mem-mode input {
+  accent-color: var(--accent);
+}
+.mem-current {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-top: 6px;
+}
+.mem-mode-note {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-3);
+}
+.mem-gauge {
+  margin-top: 14px;
+}
+.mem-gauge-track {
+  position: relative;
+  height: 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.mem-gauge-used,
+.mem-gauge-alloc {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  height: 100%;
+  /* 两端圆角由外层 track 的 overflow:hidden 统一裁剪，
+     两段之间保持直角无缝衔接，铺满整个轨道 */
+  transition: width 0.2s, left 0.2s;
+}
+.mem-gauge-used {
+  left: 0;
+  background: linear-gradient(90deg, #5a8ef0, #8ab4ff);
+}
+.mem-gauge-alloc {
+  background: linear-gradient(90deg, #e89a4b, #f2c079);
+}
+.mem-gauge-labels {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 6px;
+}
+.mem-gauge-labels span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dot.used {
+  background: #8ec4ff;
+}
+.dot.alloc {
+  background: #e89a4b;
+}
+.dot.total {
+  background: #9aa4b2;
 }
 .res-row {
   display: flex;

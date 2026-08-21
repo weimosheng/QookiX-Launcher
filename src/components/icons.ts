@@ -1,3 +1,7 @@
+// Icons based on Feather Icons (https://feathericons.com/),
+// licensed under the MIT License.
+// Copyright (c) 2013-2017 Cole Bemis
+// SPDX-License-Identifier: MIT
 import { h, type Component } from "vue";
 
 function make(paths: string): Component {

@@ -126,6 +126,9 @@ pub struct Instance {
     pub icon: Option<String>,
     // per-instance overrides (fall back to settings)
     pub max_memory_mb: Option<u32>,
+    /// Memory allocation mode: "global" | "auto" | "custom" (defaults to global)
+    #[serde(default)]
+    pub memory_mode: Option<String>,
     pub jvm_args: Option<String>,
     pub game_args: Option<String>,
     pub java_path: Option<String>,

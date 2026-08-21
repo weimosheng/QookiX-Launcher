@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import { NTabs, NTabPane, NSwitch, useMessage } from "naive-ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useSettingsStore } from "../stores/settings";
+import { api } from "../api";
 import { IconCheck, IconCpu, IconSearch } from "../components/icons";
 import type { JavaInfo } from "../types";
 
@@ -12,7 +13,22 @@ const message = useMessage();
 const javaCandidates = ref<JavaInfo[]>([]);
 const detecting = ref(false);
 const saving = ref(false);
+const autoMem = ref(false);
 const tab = ref("general");
+
+async function autoMemory() {
+  autoMem.value = true;
+  try {
+    const res = await api.autoDetectMemory();
+    settings.settings!.max_memory_mb = res.max_mb;
+    settings.settings!.min_memory_mb = res.min_mb;
+    message.success(`已自动设置：最大 ${res.max_mb} MB / 初始 ${res.min_mb} MB（系统 ${res.total_mb} MB）`);
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    autoMem.value = false;
+  }
+}
 
 async function detect() {
   detecting.value = true;
@@ -175,6 +191,10 @@ onMounted(() => {
                 <div class="mem-val">{{ settings.settings.min_memory_mb }} MB</div>
               </div>
             </div>
+            <button class="btn ghost auto-mem-btn" :disabled="autoMem" @click="autoMemory">
+              <IconCpu /> {{ autoMem ? "检测中…" : "自动检测" }}
+            </button>
+            <p class="hint">根据系统总内存自动推荐合适的分配值。</p>
           </div>
 
           <div class="card glass">
@@ -244,9 +264,9 @@ onMounted(() => {
           <div class="card glass">
             <h3>QookiX Launcher</h3>
             <p class="hint">版本 v0.1.0</p>
-            <p class="hint">现代化、简洁、无广告的 Minecraft 启动器，架构参考 Modrinth Theseus。</p>
+            <p class="hint">现代化、简洁、无广告的 Minecraft 启动器。</p>
             <p class="hint">
-              支持 Modrinth / CurseForge 内容中心、多线程下载、Java 自动检测、正版与离线账号。
+              支持 Modrinth / CurseForge 内容中心、多线程下载、Java 自动检测。
             </p>
           </div>
         </div>
@@ -427,6 +447,10 @@ textarea.text-input {
   color: var(--accent);
   font-weight: 600;
   margin-top: 4px;
+}
+.auto-mem-btn {
+  margin-top: 10px;
+  font-size: 13px;
 }
 .range {
   width: 100%;

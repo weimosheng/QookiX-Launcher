@@ -45,13 +45,27 @@ async fn get(state: &AppState, path: &str, params: &[(&str, String)]) -> Result<
         .await
         .map_err(|e| format!("CurseForge 请求失败: {e}"))?;
     let status = resp.status();
-    let body: Value = resp.json().await.map_err(|e| e.to_string())?;
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("读取 CurseForge 响应失败: {e}"))?;
+    let body: Value = serde_json::from_str(&text).map_err(|e| {
+        let snippet = text.chars().take(200).collect::<String>();
+        format!("CurseForge 响应解析失败 (HTTP {status}): {e}\n响应内容: {snippet}")
+    })?;
     if !status.is_success() {
         let msg = body
             .get("error")
             .and_then(|v| v.as_str())
-            .unwrap_or("未知错误");
-        return Err(format!("CurseForge API 错误 (HTTP {status}): {msg}"));
+            .unwrap_or("");
+        let reason = if text.contains("API Key missing or invalid") || text.contains("Forbidden") {
+            "CurseForge API Key 无效或未生效：请确认已在 console.curseforge.com 申请 API Key，并在「设置 → CurseForge API Key」中正确填写；新申请的 Key 可能需等待几分钟生效"
+        } else if msg.is_empty() {
+            "未知错误"
+        } else {
+            msg
+        };
+        return Err(format!("CurseForge API 错误 (HTTP {status}): {reason}"));
     }
     Ok(body)
 }
@@ -314,6 +328,7 @@ async fn install_modpack_inner(
         installed: false,
         icon: None,
         max_memory_mb: None,
+        memory_mode: None,
         jvm_args: None,
         game_args: None,
         java_path: None,

@@ -7,9 +7,9 @@ const route = useRoute();
 
 const nav = [
   { name: "home", label: "首页", icon: IconHome, to: "/" },
-  { name: "browse", label: "内容中心", icon: IconCompass, to: "/browse" },
-  { name: "downloads", label: "下载中心", icon: IconDownload, to: "/downloads" },
-  { name: "instances", label: "游戏实例", icon: IconGrid, to: "/instances" },
+  { name: "browse", label: "内容", icon: IconCompass, to: "/browse" },
+  { name: "downloads", label: "下载", icon: IconDownload, to: "/downloads" },
+  { name: "instances", label: "实例", icon: IconGrid, to: "/instances" },
   { name: "settings", label: "设置", icon: IconSettings, to: "/settings" },
 ];
 
@@ -36,7 +36,7 @@ function isActive(n: { to: string }) {
 
     <div class="side-foot">
       <AccountChip />
-      <div class="ver">QookiX Launcher v0.1.0 · 纯净无广告</div>
+      <div class="ver">QookiX Launcher v0.1.0</div>
     </div>
   </aside>
 </template>

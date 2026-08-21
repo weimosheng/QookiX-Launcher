@@ -1,6 +1,7 @@
 use crate::models::Settings;
 use crate::state::AppState;
 use directories::BaseDirs;
+use sysinfo::System;
 
 pub fn default_root() -> String {
     if let Some(base) = BaseDirs::new() {
@@ -16,14 +17,68 @@ pub fn default_root() -> String {
     }
 }
 
+/// Read (total, used, available) physical memory in MB with a single refresh.
+/// Uses sysinfo: used = total - available, so cache that can be reclaimed
+/// is NOT counted as "used" (more accurate than the old PowerShell approach).
+fn memory_mb() -> Option<(u64, u64, u64)> {
+    let mut sys = System::new_all();
+    let total = sys.total_memory();
+    let used = sys.used_memory();
+    let available = sys.available_memory();
+    if total == 0 {
+        return None;
+    }
+    Some((total / 1024 / 1024, used / 1024 / 1024, available / 1024 / 1024))
+}
+
+/// Total physical memory in MB (cross-platform, via sysinfo).
+pub fn total_memory_mb() -> Option<u64> {
+    memory_mb().map(|(t, _, _)| t)
+}
+
+/// Currently used physical memory in MB (total - available, excludes reclaimable cache).
+pub fn used_memory_mb() -> Option<u64> {
+    memory_mb().map(|(_, u, _)| u)
+}
+
+/// Currently available physical memory in MB.
+pub fn available_memory_mb() -> Option<u64> {
+    memory_mb().map(|(_, _, a)| a)
+}
+
+/// Recommend (max, min) memory in MB based on total system memory.
+/// - <=4 GB: total - 1 GB (min 1 GB)
+/// - 4-8 GB: half
+/// - >8 GB: two-thirds, capped at 8 GB
+pub fn recommended_memory(total_mb: u64) -> (u32, u32) {
+    let max = if total_mb <= 4096 {
+        (total_mb.saturating_sub(1024)).max(1024)
+    } else if total_mb <= 8192 {
+        total_mb / 2
+    } else {
+        (total_mb * 2 / 3).min(8192)
+    };
+    let min = (max / 4).max(512);
+    (max as u32, min as u32)
+}
+
 pub fn load_settings(root: &std::path::Path) -> Settings {
     let path = root.join("settings.json");
+    let exists = path.exists();
     let mut settings = std::fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str::<Settings>(&s).ok())
         .unwrap_or_default();
     if settings.data_dir.is_empty() {
         settings.data_dir = root.to_string_lossy().to_string();
+    }
+    // First launch: auto-detect memory
+    if !exists {
+        if let Some(total) = total_memory_mb() {
+            let (max, min) = recommended_memory(total);
+            settings.max_memory_mb = max;
+            settings.min_memory_mb = min;
+        }
     }
     settings
 }
@@ -67,7 +122,8 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
         settings.download_threads = (v as usize).clamp(1, 64);
     }
     if let Some(v) = patch.get("curseforge_api_key") {
-        settings.curseforge_api_key = v.as_str().map(|s| s.to_string()).filter(|s| !s.is_empty());
+        let k = v.as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        settings.curseforge_api_key = k;
     }
     if let Some(v) = patch.get("theme").and_then(|v| v.as_str()) {
         settings.theme = v.to_string();

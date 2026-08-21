@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { NButton, NInput, NModal, NPopover, useMessage } from "naive-ui";
 import { useAccountsStore } from "../stores/accounts";
 import MsLoginDialog from "./MsLoginDialog.vue";
-import { IconCheck, IconChevronDown, IconShield, IconTrash, IconUser, IconPlus } from "./icons";
+import { IconCheck, IconChevronDown, IconTrash, IconUser, IconPlus } from "./icons";
 import type { Account } from "../types";
 
 const accounts = useAccountsStore();
@@ -48,8 +48,25 @@ watch(popoverShow, (v) => {
 
 const current = computed(() => accounts.current);
 
-function avatar(uuid: string) {
-  return `https://mc-heads.net/avatar/${uuid}/96`;
+/** Avatar providers tried in order; falls back to the local user icon when all fail. */
+const AVATAR_SOURCES: Array<(uuid: string) => string> = [
+  (u) => `https://mc-heads.net/avatar/${u}/96`,
+  (u) => `https://minotar.net/helm/${u}/96`,
+  (u) => `https://crafatar.com/avatars/${u}?size=96&overlay`,
+];
+
+/** Number of failed providers per account uuid (drives the fallback chain). */
+const avatarAttempt = reactive<Record<string, number>>({});
+
+function avatar(uuid: string): string {
+  const i = avatarAttempt[uuid] ?? 0;
+  if (i < AVATAR_SOURCES.length) return AVATAR_SOURCES[i](uuid);
+  return "";
+}
+
+function onAvatarError(uuid: string) {
+  const next = (avatarAttempt[uuid] ?? 0) + 1;
+  if (next <= AVATAR_SOURCES.length) avatarAttempt[uuid] = next;
 }
 
 async function select(acc: Account) {
@@ -118,7 +135,10 @@ function typeLabel(a: Account) {
     <template #trigger>
       <div class="acct-chip clickable" :class="{ empty: !accounts.accounts.length }">
         <div class="avatar">
-          <img v-if="current" :src="avatar(current.uuid)" alt="" />
+          <template v-if="current">
+            <img v-if="avatar(current.uuid)" :src="avatar(current.uuid)" alt="" @error="onAvatarError(current.uuid)" />
+            <IconUser v-else />
+          </template>
           <IconUser v-else />
         </div>
         <div class="acct-info">
@@ -150,7 +170,8 @@ function typeLabel(a: Account) {
           :class="{ active: current?.uuid === acc.uuid }"
           @click="select(acc)"
         >
-          <img :src="avatar(acc.uuid)" class="acctm-avatar" alt="" />
+          <img v-if="avatar(acc.uuid)" :src="avatar(acc.uuid)" class="acctm-avatar" alt="" @error="onAvatarError(acc.uuid)" />
+          <IconUser v-else class="acctm-avatar acctm-avatar-fallback" />
           <div class="acctm-info">
             <div class="acctm-name text-ellipsis">{{ acc.username }}</div>
             <span class="acctm-type" :class="acc.type">{{ typeLabel(acc) }}</span>
@@ -166,7 +187,7 @@ function typeLabel(a: Account) {
 
       <div class="acctm-add">
         <button class="acctm-btn ms" @click="startMs">
-          <IconShield /> 添加 Microsoft 账户
+          <IconPlus /> 添加 Microsoft 账户
         </button>
         <button class="acctm-btn" @click="openOfflineDialog">
           <IconPlus /> 添加离线账号
@@ -220,7 +241,7 @@ function typeLabel(a: Account) {
 .avatar {
   width: 34px;
   height: 34px;
-  border-radius: 50%;
+  border-radius: 8px;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.08);
   display: flex;
@@ -308,6 +329,13 @@ function typeLabel(a: Account) {
   image-rendering: pixelated;
   background: rgba(255, 255, 255, 0.06);
   flex-shrink: 0;
+}
+.acctm-avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8b8e9c;
+  font-size: 14px;
 }
 .acctm-info {
   flex: 1;

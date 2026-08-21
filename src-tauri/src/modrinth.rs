@@ -336,6 +336,7 @@ async fn install_modpack_inner(
         installed: false,
         icon: None,
         max_memory_mb: None,
+        memory_mode: None,
         jvm_args: None,
         game_args: None,
         java_path: None,

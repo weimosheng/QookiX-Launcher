@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "QookiX Launcher - a modern, clean and ad-free Minecraft launcher"
 authors = ["QookiX"]
 edition = "2021"
+# 许可证字段待确定后补充，例如：license = "GPL-3.0-only"
+repository = "https://github.com/weimosheng/QookiX-Launcher"
 
 [lib]
 # The `_lib` suffix may seem redundant but it is necessary
@@ -30,3 +32,4 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 directories = "5"
 percent-encoding = "2"
 base64 = "0.22"
+sysinfo = "0.30"

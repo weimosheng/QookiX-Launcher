@@ -49,6 +49,7 @@ export interface Instance {
   installed: boolean;
   icon: string | null;
   max_memory_mb: number | null;
+  memory_mode: string | null;
   jvm_args: string | null;
   game_args: string | null;
   java_path: string | null;

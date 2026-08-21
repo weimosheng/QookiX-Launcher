@@ -4,22 +4,11 @@ use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const MS_AUTH_SCOPE: &str = "XboxLive.signin offline_access";
-pub const TOKEN_URL: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
+pub const TOKEN_URL: &str = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
 pub const DEVICE_CODE_URL: &str =
-    "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
-
-/// Legacy Live SDK client ID — works without Azure AD app registration.
-pub const LEGACY_CLIENT_ID: &str = "00000000402b5328";
-pub const LEGACY_TOKEN_URL: &str = "https://login.live.com/oauth20_token.srf";
-pub const LEGACY_DEVICE_CODE_URL: &str = "https://login.live.com/oauth20_devicecode.srf";
-pub const LEGACY_AUTH_SCOPE: &str = "service::user.auth.xboxlive.com::MBI_SSL";
-
-fn is_legacy_client_id(client_id: &str) -> bool {
-    client_id == LEGACY_CLIENT_ID
-}
+    "https://login.microsoftonline.com/common/oauth2/v2.0/devicecode";
 
 /// Built-in Microsoft Client ID. Injected at compile time via MS_CLIENT_ID env var.
-/// Falls back to placeholder if not set (build with `MS_CLIENT_ID=your-id cargo build`).
 pub const BUILTIN_MS_CLIENT_ID: &str = match option_env!("MS_CLIENT_ID") {
     Some(id) => id,
     None => "",
@@ -35,8 +24,7 @@ pub fn effective_ms_client_id(state: &AppState) -> Result<String, String> {
     if !BUILTIN_MS_CLIENT_ID.is_empty() {
         return Ok(BUILTIN_MS_CLIENT_ID.to_string());
     }
-    // Fallback to legacy Live SDK client ID (works without Azure AD config)
-    Ok(LEGACY_CLIENT_ID.to_string())
+    Err("未配置 Microsoft Client ID：请在设置中填写，或用 MS_CLIENT_ID 环境变量重新构建".into())
 }
 
 fn now() -> u64 {
@@ -77,13 +65,10 @@ pub fn create_offline(state: &AppState, username: &str) -> Result<Account, Strin
 /// Step 1: request a device code. Returns the URL + code the user must visit.
 pub async fn ms_start(state: &AppState) -> Result<serde_json::Value, String> {
     let client_id = effective_ms_client_id(state)?;
-    let legacy = is_legacy_client_id(&client_id);
-    let dc_url = if legacy { LEGACY_DEVICE_CODE_URL } else { DEVICE_CODE_URL };
-    let scope = if legacy { LEGACY_AUTH_SCOPE } else { MS_AUTH_SCOPE };
     let resp = state
         .client
-        .post(dc_url)
-        .form(&[("client_id", client_id.as_str()), ("scope", scope)])
+        .post(DEVICE_CODE_URL)
+        .form(&[("client_id", client_id.as_str()), ("scope", MS_AUTH_SCOPE)])
         .send()
         .await
         .map_err(|e| format!("请求设备码失败: {e}"))?;
@@ -132,11 +117,9 @@ pub async fn ms_poll(state: &AppState) -> Result<Account, String> {
         *state.ms_flow.lock().unwrap() = None;
         return Err("设备码已过期，请重新开始登录".into());
     }
-    let legacy = is_legacy_client_id(&flow.client_id);
-    let tok_url = if legacy { LEGACY_TOKEN_URL } else { TOKEN_URL };
     let resp = state
         .client
-        .post(tok_url)
+        .post(TOKEN_URL)
         .form(&[
             ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
             ("client_id", flow.client_id.as_str()),
@@ -345,17 +328,14 @@ pub async fn refresh_microsoft(state: &AppState, account: &Account) -> Result<Ac
         return Ok(account.clone());
     }
     let client_id = effective_ms_client_id(state)?;
-    let legacy = is_legacy_client_id(&client_id);
-    let tok_url = if legacy { LEGACY_TOKEN_URL } else { TOKEN_URL };
-    let scope = if legacy { LEGACY_AUTH_SCOPE } else { MS_AUTH_SCOPE };
     let resp = state
         .client
-        .post(tok_url)
+        .post(TOKEN_URL)
         .form(&[
             ("grant_type", "refresh_token"),
             ("client_id", client_id.as_str()),
             ("refresh_token", msa_refresh_token.as_str()),
-            ("scope", scope),
+            ("scope", MS_AUTH_SCOPE),
         ])
         .send()
         .await

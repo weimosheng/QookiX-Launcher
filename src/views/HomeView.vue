@@ -62,7 +62,7 @@ onMounted(() => {
       <div class="hero-glow"></div>
       <div class="hero-text">
         <h1>开始你的 <span class="accent">方块之旅</span></h1>
-        <p>现代、简洁、无广告的 Minecraft 启动器 —— 支持 Modrinth / CurseForge 内容中心、多线程下载与一键安装。</p>
+        <p>现代、简洁、无广告的 Minecraft 启动器</p>
         <div class="hero-actions">
           <button class="btn primary big" :disabled="launching" @click="quickLaunch">
             <IconStop v-if="tasks.gameRunning" />

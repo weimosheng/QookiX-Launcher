@@ -24,6 +24,27 @@ pub fn set_settings(state: State<AppState>, patch: Value) -> Result<Settings, St
     settings::update_settings(&state, patch)
 }
 
+/// Auto-detect system memory and return (total, used, available) + recommended (max, min) in MB.
+#[tauri::command]
+pub fn auto_detect_memory() -> Result<Value, String> {
+    let total = crate::settings::total_memory_mb().ok_or("无法检测系统内存")?;
+    let used = crate::settings::used_memory_mb().unwrap_or(0);
+    let available = crate::settings::available_memory_mb().unwrap_or(total.saturating_sub(used));
+    let (mut max, mut min) = crate::settings::recommended_memory(total);
+    // 自动推荐值不超过当前可用（剩余）内存，避免配置超出剩下空间
+    if available >= 512 {
+        max = max.min(available as u32).max(256);
+    }
+    min = min.min(max).max(64);
+    Ok(json!({
+        "total_mb": total,
+        "used_mb": used,
+        "available_mb": available,
+        "max_mb": max,
+        "min_mb": min
+    }))
+}
+
 #[tauri::command]
 pub fn detect_java(
     state: State<AppState>,
