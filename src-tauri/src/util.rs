@@ -1,4 +1,5 @@
 use sha1::{Digest, Sha1};
+use sha2::Sha512;
 use std::io::Read;
 use std::path::Path;
 
@@ -17,12 +18,29 @@ pub fn file_sha1(path: &Path) -> Option<String> {
     Some(format!("{:x}", hasher.finalize()))
 }
 
+/// sha512 of a file (hex lowercase)
+pub fn file_sha512(path: &Path) -> Option<String> {
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut hasher = Sha512::new();
+    let mut buf = [0u8; 65536];
+    loop {
+        let n = f.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Some(format!("{:x}", hasher.finalize()))
+}
+
 /// Read a text file fully.
+#[allow(dead_code)]
 pub fn read_text(path: &Path) -> Option<String> {
     std::fs::read_to_string(path).ok()
 }
 
 /// Format a byte count for humans.
+#[allow(dead_code)]
 pub fn human_bytes(n: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     let mut v = n as f64;

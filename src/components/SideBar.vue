@@ -120,5 +120,8 @@ watch(
   color: var(--text-3);
   text-align: center;
   opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

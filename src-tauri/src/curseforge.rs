@@ -269,6 +269,7 @@ pub async fn install_file(
         url,
         dest: dest.clone(),
         sha1: None,
+        sha512: None,
         size: if size > 0 { Some(size) } else { None },
         label: filename.clone(),
     }];
@@ -370,6 +371,7 @@ async fn install_modpack_inner(
         url,
         dest: pack_path.clone(),
         sha1: None,
+        sha512: None,
         size: if size > 0 { Some(size) } else { None },
         label: filename.clone(),
     }];
@@ -467,6 +469,7 @@ async fn install_modpack_inner(
                 .join("mods")
                 .join(&fname),
             sha1: None,
+            sha512: None,
             size: if fsize > 0 { Some(fsize) } else { None },
             label: fname.clone(),
         });

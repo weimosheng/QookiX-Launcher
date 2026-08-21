@@ -25,7 +25,11 @@ function loaderBadge(i: { loader: string }) {
 
 async function quickLaunch() {
   if (tasks.gameRunning) {
-    await instances.stop();
+    try {
+      await instances.stop();
+    } catch (e) {
+      message.error(`停止游戏失败: ${String(e)}`);
+    }
     return;
   }
   const target = lastPlayed.value ?? instances.instances[0];

@@ -62,7 +62,49 @@ export const lightThemeOverrides: GlobalThemeOverrides = {
     primaryColor: ACCENT_DEEP,
     primaryColorHover: ACCENT,
     primaryColorPressed: "#c06a22",
+    primaryColorSuppl: ACCENT_DEEP,
     borderRadius: "10px",
+    borderRadiusSmall: "8px",
+    fontSize: "14px",
+    textColorBase: "#3a3d48",
+    textColor1: "#1a1d24",
+    textColor2: "#4a4d58",
+    textColor3: "#8b8e9c",
     bodyColor: "transparent",
+    cardColor: "rgba(255,255,255,0.6)",
+    modalColor: "#ffffff",
+    popoverColor: "#ffffff",
+    inputColor: "rgba(0,0,0,0.03)",
+    borderColor: "rgba(0,0,0,0.1)",
+    dividerColor: "rgba(0,0,0,0.08)",
+    hoverColor: "rgba(0,0,0,0.04)",
+    successColor: "#2d9b6f",
+    errorColor: "#d63d35",
+    warningColor: "#d97f33",
+    infoColor: "#3b82c4",
+  },
+  Button: {
+    borderRadiusMedium: "10px",
+    fontWeight: "600",
+  },
+  Card: {
+    borderRadius: "14px",
+  },
+  Input: {
+    borderRadius: "10px",
+  },
+  Select: {
+    peers: {
+      InternalSelection: { borderRadius: "10px" },
+    },
+  },
+  Dialog: {
+    borderRadius: "16px",
+  },
+  Modal: {
+    borderRadius: "16px",
+  },
+  Tabs: {
+    tabBorderRadius: "8px",
   },
 };

@@ -88,8 +88,11 @@ async function create() {
     if (iconStr.value) {
       await instances.patch({ id: inst.id, icon: iconStr.value });
     }
-    message.success("实例已创建");
+    message.success("实例已创建，正在安装游戏文件…");
     router.push(`/instance/${inst.id}`);
+    instances.installGame(inst.id).catch((e) => {
+      message.error(`安装失败: ${String(e)}`);
+    });
   } catch (e) {
     message.error(String(e));
   } finally {

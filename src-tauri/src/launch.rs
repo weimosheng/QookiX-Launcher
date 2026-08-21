@@ -19,6 +19,7 @@ pub struct ResolvedAccount {
 struct LaunchContext {
     instance: Instance,
     settings: Settings,
+    #[allow(dead_code)]
     java: JavaInfo,
     version_json: VersionJson,
     classpath: String,
@@ -315,18 +316,19 @@ pub fn required_java_for(state: &AppState, instance: &Instance) -> u32 {
     required
 }
 
-/// Get detected Java list from cache. Only scans on first call (cache empty).
-/// Subsequent calls always use cache; user must manually refresh via detect_java command.
+/// Get detected Java list from cache. Re-scans if cache is older than 5 minutes.
 async fn get_detected_java(state: &AppState) -> Vec<JavaInfo> {
-    {
-        if let Some((_ts, list)) = state.java_cache.lock().unwrap().as_ref() {
-            return list.clone();
-        }
-    }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
+    {
+        if let Some((ts, list)) = state.java_cache.lock().unwrap().as_ref() {
+            if now.saturating_sub(*ts) < 300 {
+                return list.clone();
+            }
+        }
+    }
     let runtimes = state.root.join("runtimes");
     let detected = tokio::task::spawn_blocking(move || {
         crate::java::detect_java(None, Some(&runtimes))

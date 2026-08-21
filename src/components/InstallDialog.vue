@@ -152,13 +152,13 @@ async function install() {
   }
   installing.value = true;
   try {
-    api.installContent(
+    await api.installContent(
       selectedInstance.value ?? "",
       props.project.provider,
       props.project.id,
       selectedVersion.value,
       props.project.project_type
-    ).catch((e: unknown) => message.error(String(e)));
+    );
     message.success("已添加到下载队列");
     emit("update:show", false);
   } catch (e) {
@@ -224,7 +224,7 @@ function fmtDate(s: string) {
           <div v-if="loadingVersions" class="id-loading">加载中…</div>
           <div v-else class="id-ver-list">
             <button
-              v-for="v in filteredVersions.slice(0, 40)"
+              v-for="v in filteredVersions.slice(0, 80)"
               :key="v.id"
               class="id-ver-row"
               :class="{ active: selectedVersion === v.id }"

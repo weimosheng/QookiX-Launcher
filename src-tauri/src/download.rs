@@ -1,5 +1,5 @@
 use crate::state::AppState;
-use crate::util::file_sha1;
+use crate::util::{file_sha1, file_sha512};
 use futures_util::StreamExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,11 +13,13 @@ pub struct DownloadItem {
     pub url: String,
     pub dest: PathBuf,
     pub sha1: Option<String>,
+    pub sha512: Option<String>,
     pub size: Option<u64>,
     pub label: String,
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct DownloadStats {
     pub done: usize,
     pub total: usize,
@@ -123,7 +125,7 @@ pub async fn download_many(
                 let done_p = done.clone();
                 let bc_p = bytes_completed.clone();
                 let bt_p = bt_outer.clone();
-                let last_p = last_emit.clone();
+                let _last_p = last_emit.clone();
                 let phase_p = phase.clone();
                 let label_p = item.label.clone();
                 let on_progress = move |written: u64, cl: u64| {
@@ -230,7 +232,13 @@ async fn download_one(
     }
     // Skip if a complete, verified file already exists
     if item.dest.exists() {
-        if let Some(sha) = &item.sha1 {
+        if let Some(sha) = &item.sha512 {
+            if let Some(h) = file_sha512(&item.dest) {
+                if h.eq_ignore_ascii_case(sha) {
+                    return Ok(());
+                }
+            }
+        } else if let Some(sha) = &item.sha1 {
             if let Some(h) = file_sha1(&item.dest) {
                 if h.eq_ignore_ascii_case(sha) {
                     return Ok(());
@@ -308,7 +316,13 @@ async fn download_one(
         download_streamed(client, &item.url, &part, on_progress).await?
     }
 
-    if let Some(sha) = &item.sha1 {
+    if let Some(sha) = &item.sha512 {
+        let actual = file_sha512(&part).ok_or("校验失败: 无法读取")?;
+        if !actual.eq_ignore_ascii_case(sha) {
+            let _ = tokio::fs::remove_file(&part).await;
+            return Err(format!("sha512 不匹配 (期望 {sha}, 实际 {actual})"));
+        }
+    } else if let Some(sha) = &item.sha1 {
         let actual = file_sha1(&part).ok_or("校验失败: 无法读取")?;
         if !actual.eq_ignore_ascii_case(sha) {
             let _ = tokio::fs::remove_file(&part).await;
@@ -496,6 +510,7 @@ pub async fn get_json<T: serde::de::DeserializeOwned>(
 }
 
 /// Ensure a file exists on disk (create if missing), returns path.
+#[allow(dead_code)]
 pub fn ensure_file(path: &Path, content: &str) -> std::io::Result<()> {
     if let Some(p) = path.parent() {
         std::fs::create_dir_all(p)?;

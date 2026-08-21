@@ -134,6 +134,7 @@ pub async fn download_java_runtime(
             url: url.to_string(),
             dest: zip_path.clone(),
             sha1: None,
+            sha512: None,
             size: if size > 0 { Some(size) } else { None },
             label: name.to_string(),
         }];
@@ -158,7 +159,7 @@ pub async fn download_java_runtime(
 }
 
 /// Minimal instance used only for progress events of runtime downloads.
-fn instance_placeholder(state: &crate::state::AppState) -> crate::models::Instance {
+fn instance_placeholder(_state: &crate::state::AppState) -> crate::models::Instance {
     crate::models::Instance {
         id: "runtime".into(),
         name: "Java 运行时".into(),

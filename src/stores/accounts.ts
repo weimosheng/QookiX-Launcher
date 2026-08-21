@@ -6,7 +6,7 @@ import type { Account } from "../types";
 export const useAccountsStore = defineStore("accounts", {
   state: () => ({
     accounts: [] as Account[],
-    msFlow: null as { userCode: string; verificationUri: string } | null,
+    msFlow: null as { userCode: string; verificationUri: string; expiresIn: number } | null,
     msPolling: false,
     msError: "",
     msSuccess: "",
@@ -45,14 +45,15 @@ export const useAccountsStore = defineStore("accounts", {
     async startMs() {
       this.msError = "";
       const info = await api.loginMsStart();
-      this.msFlow = { userCode: info.userCode, verificationUri: info.verificationUri };
+      this.msFlow = { userCode: info.userCode, verificationUri: info.verificationUri, expiresIn: info.expiresIn };
       this.pollMs();
     },
     async pollMs() {
       if (this.msPolling) return;
       this.msPolling = true;
       try {
-        for (let i = 0; i < 120; i++) {
+        const maxAttempts = this.msFlow ? Math.ceil(this.msFlow.expiresIn / 5) + 12 : 120;
+        for (let i = 0; i < maxAttempts; i++) {
           if (!this.msFlow) return;
           try {
             const acc = await api.loginMsPoll();
@@ -65,7 +66,7 @@ export const useAccountsStore = defineStore("accounts", {
           } catch (e: unknown) {
             if (!this.msFlow) return;
             const msg = String(e);
-            if (msg.includes("pending")) {
+            if (msg === "__auth_pending__") {
               await new Promise((r) => setTimeout(r, 5000));
               continue;
             }
@@ -91,7 +92,7 @@ export const useAccountsStore = defineStore("accounts", {
         this.msSuccess = `${acc.username} 登录成功`;
       } catch (e: unknown) {
         const msg = String(e);
-        if (!msg.includes("pending") && this.msFlow) {
+        if (msg !== "__auth_pending__" && this.msFlow) {
           this.msError = msg.replace(/^Error:\s*/, "");
           this.msPolling = false;
         }

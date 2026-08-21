@@ -27,7 +27,6 @@ export const useInstancesStore = defineStore("instances", {
     async create(name: string, mc: string, loader: string, loaderVersion: string | null) {
       const inst = await api.createInstance(name, mc, loader, loaderVersion);
       await this.load();
-      this.installGame(inst.id).catch(() => {});
       return inst;
     },
     async patch(patch: Record<string, unknown>) {

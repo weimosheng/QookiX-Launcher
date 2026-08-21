@@ -21,7 +21,7 @@ pub fn default_root() -> String {
 /// Uses sysinfo: used = total - available, so cache that can be reclaimed
 /// is NOT counted as "used" (more accurate than the old PowerShell approach).
 fn memory_mb() -> Option<(u64, u64, u64)> {
-    let mut sys = System::new_all();
+    let sys = System::new_all();
     let total = sys.total_memory();
     let used = sys.used_memory();
     let available = sys.available_memory();
@@ -183,10 +183,12 @@ pub fn http_client() -> reqwest::Client {
         .expect("failed to build http client")
 }
 
+#[allow(dead_code)]
 pub fn state_guard<'a>(state: &'a AppState) -> std::sync::RwLockReadGuard<'a, Settings> {
     state.settings.read().unwrap()
 }
 
+#[allow(dead_code)]
 pub fn with_settings<T>(state: &AppState, f: impl FnOnce(&Settings) -> T) -> T {
     let s = state.settings.read().unwrap();
     f(&s)
