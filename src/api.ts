@@ -76,13 +76,27 @@ export const api = {
   logoutAccount: (uuid: string) => invoke<void>("logout_account", { uuid }),
 
   // browse & content
-  browse: (provider: string, query: string, projectType: string, category: string, page: number) =>
+  browse: (
+    provider: string,
+    query: string,
+    projectType: string,
+    category: string,
+    page: number,
+    gameVersion?: string,
+    loader?: string,
+    sort?: string,
+    pageSize?: number
+  ) =>
     invoke<{ hits: ProjectHit[]; total: number }>("browse", {
       provider,
       query,
       projectType,
       category,
       page,
+      gameVersion: gameVersion ?? "",
+      loader: loader ?? "",
+      sort: sort ?? "downloads",
+      pageSize: pageSize ?? 20,
     }),
   projectVersions: (provider: string, projectId: string, mcVersion: string, loader: string) =>
     invoke<{ provider: string; versions: ProjectVersion[] }>("project_versions", {
@@ -98,6 +112,8 @@ export const api = {
     }),
   curseforgeCategories: (projectType: string) =>
     invoke<{ categories: { id: number; name: string }[] }>("curseforge_categories", { projectType }),
+  projectInfo: (provider: string, projectId: string) =>
+    invoke<ProjectHit>("project_info", { provider, projectId }),
   installContent: (
     instanceId: string,
     provider: string,

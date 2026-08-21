@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { NModal, NSelect, NButton, useMessage } from "naive-ui";
 import { api } from "../api";
@@ -14,6 +14,20 @@ const emit = defineEmits<{
   "update:show": [v: boolean];
   "install-dep": [dep: ProjectDependency];
 }>();
+
+// 点击弹窗卡片外部即关闭（用 document 委托，不依赖 naive-ui 的 mask 机制）。
+// 用 mousedown 而非 click：打开弹窗的那次按下发生在 show 变 true 之前，
+// 会被 `!props.show` 拦截，避免弹窗刚打开就被自身触发的点击冒泡关掉。
+const cardRef = ref<HTMLElement | null>(null);
+function onDocMouseDown(e: MouseEvent) {
+  if (!props.show) return;
+  const t = e.target as Node | null;
+  if (cardRef.value && t && !cardRef.value.contains(t)) {
+    emit("update:show", false);
+  }
+}
+onMounted(() => document.addEventListener("mousedown", onDocMouseDown));
+onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown));
 
 const instances = useInstancesStore();
 const router = useRouter();
@@ -95,13 +109,26 @@ async function loadVersions() {
   }
 }
 
-async function onOpen() {
-  if (!props.show) return;
+function resetForProject() {
+  if (!props.project) return;
   selectedInstance.value = isModpack.value ? null : (instances.instances[0]?.id ?? null);
   installMsg.value = "";
   typeFilter.value = "all";
-  await loadVersions();
+  loadVersions();
 }
+
+async function onOpen() {
+  if (!props.show) return;
+  resetForProject();
+}
+
+// 弹窗内切换项目（点击前置依赖）时重新加载版本与依赖
+watch(
+  () => props.project,
+  (proj, oldProj) => {
+    if (proj && oldProj && proj !== oldProj) resetForProject();
+  }
+);
 
 function depLabel(t: string) {
   return { required: "必需", optional: "可选", incompatible: "不兼容", embedded: "内嵌" }[t] ?? t;
@@ -148,10 +175,13 @@ function fmtDate(s: string) {
     preset="card"
     :title="props.project?.title ?? '安装内容'"
     style="width: 640px; max-width: 94vw"
+    :mask-closable="true"
+    :close-on-esc="true"
     :on-update:show="(v: boolean) => emit('update:show', v)"
+    @mask-click="() => emit('update:show', false)"
     @after-enter="onOpen"
   >
-    <div v-if="props.project" class="id-modal">
+    <div v-if="props.project" ref="cardRef" class="id-modal">
       <div class="id-head">
         <img v-if="props.project.icon_url" :src="props.project.icon_url" class="id-icon" alt="" />
         <div class="id-info">

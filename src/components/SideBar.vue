@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { useRoute } from "vue-router";
+import { nextTick, ref, watch } from "vue";
 import AccountChip from "./AccountChip.vue";
+import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import { IconCompass, IconDownload, IconGrid, IconHome, IconSettings } from "./icons";
 
 const route = useRoute();
@@ -17,11 +19,25 @@ function isActive(n: { to: string }) {
   if (n.to === "/") return route.path === "/";
   return route.path.startsWith(n.to);
 }
+
+// Sliding active-highlight indicator
+const navBox = ref<HTMLElement | null>(null);
+const { indicatorStyle, refresh } = useSlidingIndicator(
+  navBox,
+  () => Array.from(navBox.value?.querySelectorAll<HTMLElement>(".nav-item") ?? []),
+  () => nav.findIndex((n) => isActive(n)),
+  { axis: "vertical" }
+);
+watch(
+  () => route.path,
+  () => nextTick(() => refresh())
+);
 </script>
 
 <template>
   <aside class="sidebar">
-    <nav class="nav">
+    <nav ref="navBox" class="nav">
+      <div class="indicator" :style="indicatorStyle"></div>
       <router-link
         v-for="n in nav"
         :key="n.name"
@@ -52,6 +68,7 @@ function isActive(n: { to: string }) {
   background: rgba(12, 14, 20, 0.5);
 }
 .nav {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -74,9 +91,20 @@ function isActive(n: { to: string }) {
   color: var(--text-1);
 }
 .nav-item.active {
-  background: var(--accent-soft);
   color: var(--accent);
-  border-color: rgba(232, 154, 75, 0.3);
+}
+.indicator {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  border: 1px solid rgba(232, 154, 75, 0.3);
+  transition:
+    top 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.18s;
+  pointer-events: none;
 }
 .nav-icon {
   font-size: 18px;

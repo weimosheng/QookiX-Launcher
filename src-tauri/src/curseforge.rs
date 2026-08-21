@@ -12,6 +12,7 @@ pub fn class_id_for(kind: &str) -> u32 {
         "modpack" => 4471,
         "resourcepack" => 12,
         "shader" => 6552,
+        "datapack" => 6945,
         _ => 6, // mods
     }
 }
@@ -77,20 +78,43 @@ pub async fn search(
     kind: &str,
     category_id: u32,
     page: usize,
+    page_size: usize,
+    game_version: &str,
+    loader: &str,
+    sort: &str,
 ) -> Result<Value, String> {
+    let page_size = page_size.max(1);
     let class_id = class_id_for(kind);
+    // CurseForge sortField: 2 = total downloads, 3 = recently updated
+    let sort_field = match sort {
+        "newest" | "updated" => "3",
+        _ => "2",
+    };
     let mut params: Vec<(&str, String)> = vec![
         ("gameId", GAME_ID.to_string()),
         ("classId", class_id.to_string()),
-        ("pageSize", "20".into()),
-        ("index", (page * 20).to_string()),
-        ("sortField", "2".into()), // total downloads
+        ("pageSize", page_size.to_string()),
+        ("index", (page * page_size).to_string()),
+        ("sortField", sort_field.to_string()),
     ];
     if !query.trim().is_empty() {
         params.push(("searchFilter", query.trim().to_string()));
     }
     if category_id > 0 {
         params.push(("categoryId", category_id.to_string()));
+    }
+    if !game_version.is_empty() {
+        params.push(("gameVersion", game_version.to_string()));
+    }
+    let loader_id = match loader {
+        "forge" => Some(1),
+        "fabric" => Some(4),
+        "quilt" => Some(5),
+        "neoforge" => Some(6),
+        _ => None,
+    };
+    if let Some(id) = loader_id {
+        params.push(("modLoaderType", id.to_string()));
     }
     let body = get(state, "/mods/search", &params).await?;
     let data = body.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default();
@@ -134,6 +158,39 @@ pub async fn categories(state: &AppState, kind: &str) -> Result<Vec<Value>, Stri
             })
         })
         .collect())
+}
+
+/// Fetch a single CurseForge mod's full info (used when opening a dependency).
+pub async fn project_info(state: &AppState, mod_id: &str) -> Result<Value, String> {
+    let body = get(state, &format!("/mods/{mod_id}"), &[]).await?;
+    let m = body.get("data").cloned().unwrap_or(body);
+    let logo = m
+        .get("logo")
+        .and_then(|l| l.get("url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let kind = match m.get("classId").and_then(|v| v.as_u64()).unwrap_or(6) {
+        4471 => "modpack",
+        12 => "resourcepack",
+        6552 => "shader",
+        6945 => "datapack",
+        _ => "mod",
+    };
+    Ok(json!({
+        "provider": "curseforge",
+        "id": m.get("id").and_then(|v| v.as_u64()).unwrap_or(0).to_string(),
+        "slug": m.get("slug").and_then(|v| v.as_str()).unwrap_or(""),
+        "title": m.get("name").and_then(|v| v.as_str()).unwrap_or(""),
+        "description": m.get("summary").and_then(|v| v.as_str()).unwrap_or(""),
+        "author": m.get("authors").and_then(|a| a.as_array()).and_then(|a| a.first()).and_then(|x| x.get("name")).and_then(|v| v.as_str()).unwrap_or(""),
+        "downloads": m.get("downloadCount").and_then(|v| v.as_u64()).unwrap_or(0),
+        "follows": 0,
+        "icon_url": logo,
+        "project_type": kind,
+        "categories": m.get("categories").and_then(|c| c.as_array()).map(|c| c.iter().filter_map(|x| x.get("name").and_then(|v| v.as_str()).map(|s| s.to_string())).collect::<Vec<_>>()).unwrap_or_default(),
+        "latest_version": "",
+        "game_versions": m.get("gameVersions").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+    }))
 }
 
 /// Files of a mod, optionally filtered by game version.

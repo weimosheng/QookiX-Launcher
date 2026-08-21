@@ -6,7 +6,7 @@ import { useAccountsStore } from "../stores/accounts";
 import { useTasksStore } from "../stores/tasks";
 import { useMessage } from "naive-ui";
 import AppIcon from "../components/AppIcon.vue";
-import { IconChevronRight, IconCompass, IconPlay, IconStop } from "../components/icons";
+import { IconChevronRight, IconCompass, IconPlay, IconStop, IconUser } from "../components/icons";
 
 const router = useRouter();
 const instances = useInstancesStore();

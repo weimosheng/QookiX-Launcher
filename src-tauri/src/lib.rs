@@ -79,6 +79,7 @@ pub fn run() {
             commands::browse,
             commands::project_versions,
             commands::curseforge_categories,
+            commands::project_info,
             commands::project_dependencies,
             commands::install_content,
             commands::check_updates,
@@ -339,13 +340,13 @@ mod smoke {
             java_cache: Mutex::new(None),
         };
         // modpack type + empty query (regression for the 400 bug)
-        let res = crate::modrinth::search(&state, "", "modpack", "", "relevance", 0, 20)
+        let res = crate::modrinth::search(&state, "", "modpack", "", "relevance", 0, 20, "", "")
             .await
             .expect("modrinth search should succeed");
         let hits = res.get("hits").and_then(|h| h.as_array()).unwrap();
         assert!(!hits.is_empty(), "expected hits for modpack browse");
         // category facet too
-        let res2 = crate::modrinth::search(&state, "sodium", "mod", "fabric", "relevance", 0, 5)
+        let res2 = crate::modrinth::search(&state, "sodium", "mod", "fabric", "relevance", 0, 5, "", "")
             .await
             .expect("modrinth search with category should succeed");
         let hits2 = res2.get("hits").and_then(|h| h.as_array()).unwrap();

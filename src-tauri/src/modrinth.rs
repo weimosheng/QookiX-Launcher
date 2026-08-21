@@ -31,6 +31,8 @@ pub async fn search(
     index: &str,
     offset: usize,
     limit: usize,
+    game_version: &str,
+    loader: &str,
 ) -> Result<Value, String> {
     let mut facets: Vec<Value> = Vec::new();
     if !project_type.is_empty() {
@@ -38,6 +40,13 @@ pub async fn search(
     }
     if !category.is_empty() {
         facets.push(json!(["categories:".to_string() + category]));
+    }
+    if !game_version.is_empty() {
+        facets.push(json!(["versions:".to_string() + game_version]));
+    }
+    if !loader.is_empty() {
+        // Modrinth treats loaders as a category facet (e.g. categories:fabric)
+        facets.push(json!(["categories:".to_string() + loader]));
     }
     // Modrinth expects `facets` to be a nested JSON array: [["project_type:mod"]]
     let facets_str = serde_json::to_string(&facets).map_err(|e| e.to_string())?;
@@ -184,6 +193,7 @@ pub fn kind_folder(kind: &str) -> &'static str {
     match kind {
         "resourcepack" => "resourcepacks",
         "shader" => "shaderpacks",
+        "datapack" => "datapacks",
         _ => "mods",
     }
 }
@@ -275,6 +285,27 @@ async fn project_icon(state: &AppState, project_id: &str) -> Option<String> {
         .ok()?;
     let body: Value = resp.json().await.ok()?;
     body.get("icon_url").and_then(|i| i.as_str()).map(|s| s.to_string())
+}
+
+/// Fetch a single project's full info (used when opening a dependency).
+pub async fn project_info(state: &AppState, project_id: &str) -> Result<Value, String> {
+    let url = format!("{API}/project/{project_id}");
+    let body: Value = crate::download::get_json(&state.client, &url).await?;
+    Ok(json!({
+        "provider": "modrinth",
+        "id": body.get("id").and_then(|v| v.as_str()).unwrap_or(project_id),
+        "slug": body.get("slug").and_then(|v| v.as_str()).unwrap_or(""),
+        "title": body.get("title").and_then(|v| v.as_str()).unwrap_or(""),
+        "description": body.get("description").and_then(|v| v.as_str()).unwrap_or(""),
+        "author": "",
+        "downloads": body.get("downloads").and_then(|v| v.as_u64()).unwrap_or(0),
+        "follows": body.get("follows").and_then(|v| v.as_u64()).unwrap_or(0),
+        "icon_url": body.get("icon_url").and_then(|v| v.as_str()).unwrap_or(""),
+        "project_type": body.get("project_type").and_then(|v| v.as_str()).unwrap_or("mod"),
+        "categories": body.get("categories").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+        "latest_version": body.get("latest_version").and_then(|v| v.as_str()).unwrap_or(""),
+        "game_versions": body.get("game_versions").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+    }))
 }
 
 /// Install a Modrinth modpack (.mrpack) into an instance.

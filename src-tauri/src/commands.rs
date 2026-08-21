@@ -419,15 +419,77 @@ pub async fn browse(
     project_type: String,
     category: String,
     page: u32,
+    game_version: String,
+    loader: String,
+    sort: String,
+    page_size: u32,
 ) -> Result<Value, String> {
+    let ps = (page_size.max(1)) as usize;
     match provider.as_str() {
         "modrinth" => {
-            modrinth::search(&state, &query, &project_type, &category, "relevance", (page as usize) * 20, 20)
-                .await
+            modrinth::search(
+                &state,
+                &query,
+                &project_type,
+                &category,
+                &sort,
+                (page as usize) * ps,
+                ps,
+                &game_version,
+                &loader,
+            )
+            .await
         }
         "curseforge" => {
             let cat = category.parse::<u32>().unwrap_or(0);
-            curseforge::search(&state, &query, &project_type, cat, page as usize).await
+            curseforge::search(&state, &query, &project_type, cat, page as usize, ps, &game_version, &loader, &sort).await
+        }
+        // "全部来源"：整合 Modrinth 与 CurseForge。每页各取一页，合并后统一按下载量
+        // 降序排序并截断一页，让两平台结果混合排布。分类只作用于 Modrinth。
+        "all" => {
+            let m = modrinth::search(
+                &state,
+                &query,
+                &project_type,
+                &category,
+                "downloads",
+                (page as usize) * ps,
+                ps,
+                &game_version,
+                &loader,
+            )
+            .await?;
+            let mut hits = m
+                .get("hits")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let mut total = m.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+            if let Ok(c) = curseforge::search(
+                &state,
+                &query,
+                &project_type,
+                0,
+                page as usize,
+                ps,
+                &game_version,
+                &loader,
+                "downloads",
+            )
+            .await
+            {
+                if let Some(ch) = c.get("hits").and_then(|v| v.as_array()) {
+                    hits.extend(ch.iter().cloned());
+                }
+                total += c.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+            }
+            hits.sort_by(|a, b| {
+                let da = a.get("downloads").and_then(|v| v.as_u64()).unwrap_or(0);
+                let db = b.get("downloads").and_then(|v| v.as_u64()).unwrap_or(0);
+                db.cmp(&da)
+            });
+            hits.truncate(ps);
+            Ok(json!({ "hits": hits, "total": total }))
         }
         _ => Err("未知内容源".into()),
     }
@@ -461,6 +523,20 @@ pub async fn curseforge_categories(
 ) -> Result<Value, String> {
     let list = curseforge::categories(&state, &project_type).await?;
     Ok(json!({ "categories": list }))
+}
+
+/// Fetch a single project's full info by id.
+#[tauri::command]
+pub async fn project_info(
+    state: State<'_, AppState>,
+    provider: String,
+    project_id: String,
+) -> Result<Value, String> {
+    match provider.as_str() {
+        "modrinth" => modrinth::project_info(&state, &project_id).await,
+        "curseforge" => curseforge::project_info(&state, &project_id).await,
+        _ => Err("未知内容源".into()),
+    }
 }
 
 /// Required/optional dependency projects of a project version (Modrinth only).

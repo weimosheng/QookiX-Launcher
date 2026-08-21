@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from "vue";
+import { ref, watch, computed, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useInstancesStore } from "../stores/instances";
 import { useAccountsStore } from "../stores/accounts";
@@ -12,6 +12,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import LogViewer from "../components/LogViewer.vue";
 import AppIcon from "../components/AppIcon.vue";
 import IconPickerDialog from "../components/IconPickerDialog.vue";
+import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import type { ContentItem, UpdateInfo } from "../types";
 
 function sourceLabel(s: string) {
@@ -100,6 +101,19 @@ const ALL_TABS = [
 // folder-backed tabs are only shown when the corresponding folder exists
 const tabs = computed(() =>
   ALL_TABS.filter((t) => !t.folder || folders.value[t.folder] || t.key === tab.value)
+);
+
+// Sliding active-highlight indicator for the tab bar
+const tabsBox = ref<HTMLElement | null>(null);
+const { indicatorStyle: tabIndicatorStyle, refresh: refreshTabIndicator } = useSlidingIndicator(
+  tabsBox,
+  () => Array.from(tabsBox.value?.querySelectorAll<HTMLElement>(".tab") ?? []),
+  () => tabs.value.findIndex((t) => t.key === tab.value),
+  { axis: "horizontal" }
+);
+watch(
+  () => [tab.value, tabs.value.map((t) => t.key).join(",")],
+  () => nextTick(() => refreshTabIndicator())
 );
 
 function loaderLabel() {
@@ -543,7 +557,8 @@ watch(
       </div>
     </div>
 
-    <div class="tabs glass">
+    <div ref="tabsBox" class="tabs glass">
+      <div class="indicator" :style="tabIndicatorStyle"></div>
       <button
         v-for="t in tabs"
         :key="t.key"
@@ -1017,10 +1032,23 @@ watch(
   font-size: 13px;
 }
 .tabs {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 6px;
+}
+.indicator {
+  position: absolute;
+  top: 6px;
+  height: calc(100% - 12px);
+  border-radius: 9px;
+  background: var(--accent-soft);
+  transition:
+    left 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.18s;
+  pointer-events: none;
 }
 .tab {
   display: flex;
@@ -1041,7 +1069,6 @@ watch(
   background: rgba(255, 255, 255, 0.05);
 }
 .tab.active {
-  background: var(--accent-soft);
   color: var(--accent);
 }
 .tab-right {

@@ -1,9 +1,24 @@
 <script setup lang="ts">
-import { IconBox, IconDownload, IconHeart } from "./icons";
+import { ref } from "vue";
+import { IconBox, IconCheck, IconCopy, IconDownload, IconHeart } from "./icons";
+import { translateCategory } from "../utils/categories";
 import type { ProjectHit } from "../types";
 
-defineProps<{ project: ProjectHit }>();
+const props = withDefaults(defineProps<{ project: ProjectHit; view?: "grid" | "list" | "compact" }>(), {
+  view: "grid",
+});
 const emit = defineEmits<{ install: [p: ProjectHit] }>();
+
+const copied = ref(false);
+async function copyName() {
+  try {
+    await navigator.clipboard.writeText(props.project.title);
+    copied.value = true;
+    setTimeout(() => (copied.value = false), 1500);
+  } catch {
+    /* 剪贴板不可用时忽略 */
+  }
+}
 
 function fmt(n: number) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
@@ -13,14 +28,57 @@ function fmt(n: number) {
 
 function typeLabel(t: string) {
   return (
-    { mod: "模组", modpack: "整合包", resourcepack: "资源包", shader: "光影" }[t] ?? t
+    {
+      mod: "模组",
+      modpack: "整合包",
+      resourcepack: "资源包",
+      shader: "光影",
+      datapack: "数据包",
+    }[t] ?? t
   );
 }
 </script>
 
 <template>
-  <div class="p-card glass">
-    <div class="p-main">
+  <div class="p-card glass" :class="`view-${view}`" @click="emit('install', project)">
+    <template v-if="view === 'grid'">
+      <div class="p-main">
+        <div class="p-icon-wrap">
+          <img v-if="project.icon_url" :src="project.icon_url" class="p-icon" alt="" loading="lazy" />
+          <div v-else class="p-icon ph"><IconBox /></div>
+        </div>
+        <div class="p-body">
+          <div class="p-title text-ellipsis" :title="project.title">{{ project.title }}</div>
+          <div class="p-author">{{ project.author }}</div>
+          <div class="p-desc">{{ project.description }}</div>
+          <div class="p-cats">
+            <span v-for="c in project.categories.slice(0, 3)" :key="c" class="cat">{{ translateCategory(c) }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="p-foot">
+        <div class="p-stats">
+          <span class="type-badge">{{ typeLabel(project.project_type) }}</span>
+          <span class="dl"><IconDownload /> {{ fmt(project.downloads) }}</span>
+          <span v-if="project.follows" class="fl"><IconHeart /> {{ fmt(project.follows) }}</span>
+        </div>
+        <div class="p-actions">
+          <button
+            class="copy-btn"
+            :title="copied ? '已复制' : '复制名称'"
+            @click.stop="copyName"
+          >
+            <IconCheck v-if="copied" />
+            <IconCopy v-else />
+          </button>
+          <button class="install-btn" @click.stop="emit('install', project)">
+            <IconDownload /> 安装
+          </button>
+        </div>
+      </div>
+    </template>
+
+    <template v-else>
       <div class="p-icon-wrap">
         <img v-if="project.icon_url" :src="project.icon_url" class="p-icon" alt="" loading="lazy" />
         <div v-else class="p-icon ph"><IconBox /></div>
@@ -28,24 +86,32 @@ function typeLabel(t: string) {
       <div class="p-body">
         <div class="p-title text-ellipsis" :title="project.title">{{ project.title }}</div>
         <div class="p-author">{{ project.author }}</div>
-        <div class="p-desc">{{ project.description }}</div>
+        <div v-if="view === 'list'" class="p-desc">{{ project.description }}</div>
         <div class="p-cats">
-          <span v-for="c in project.categories.slice(0, 3)" :key="c" class="cat">{{ c }}</span>
+          <span v-for="c in project.categories.slice(0, 3)" :key="c" class="cat">{{ translateCategory(c) }}</span>
         </div>
       </div>
-    </div>
-    <div class="p-foot">
-      <div class="p-stats">
-        <span class="type-badge">{{ typeLabel(project.project_type) }}</span>
-        <span class="dl"><IconDownload /> {{ fmt(project.downloads) }}</span>
-        <span v-if="project.follows" class="fl"><IconHeart /> {{ fmt(project.follows) }}</span>
+      <div class="p-side">
+        <div class="p-stats">
+          <span class="type-badge">{{ typeLabel(project.project_type) }}</span>
+          <span class="dl"><IconDownload /> {{ fmt(project.downloads) }}</span>
+          <span v-if="project.follows" class="fl"><IconHeart /> {{ fmt(project.follows) }}</span>
+        </div>
+        <div class="p-side-actions">
+          <button
+            class="copy-btn"
+            :title="copied ? '已复制' : '复制名称'"
+            @click.stop="copyName"
+          >
+            <IconCheck v-if="copied" />
+            <IconCopy v-else />
+          </button>
+          <button class="install-btn" @click.stop="emit('install', project)">
+            <IconDownload /> 安装
+          </button>
+        </div>
       </div>
-      <div class="p-actions">
-        <button class="install-btn" @click="emit('install', project)">
-          <IconDownload /> 安装
-        </button>
-      </div>
-    </div>
+    </template>
   </div>
 </template>
 
@@ -55,6 +121,74 @@ function typeLabel(t: string) {
   flex-direction: column;
   padding: 14px;
   gap: 12px;
+  cursor: pointer;
+}
+.copy-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.12s;
+}
+.copy-btn:hover {
+  color: var(--accent);
+  border-color: rgba(232, 154, 75, 0.5);
+}
+.p-side-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.p-card.view-list,
+.p-card.view-compact {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+}
+.p-card.view-compact {
+  padding: 10px 14px;
+  gap: 12px;
+}
+.p-card.view-list .p-icon,
+.p-card.view-compact .p-icon {
+  width: 46px;
+  height: 46px;
+}
+.p-card.view-compact .p-icon {
+  width: 38px;
+  height: 38px;
+}
+.p-card.view-compact .p-desc {
+  display: none;
+}
+.p-card.view-compact .p-cats {
+  display: none;
+}
+.p-card.view-compact .p-title {
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+.p-card.view-compact .p-author {
+  margin-bottom: 4px;
+}
+.p-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.p-card.view-compact .p-side {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
 }
 .p-main {
   display: flex;
