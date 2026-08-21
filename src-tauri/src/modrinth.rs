@@ -77,6 +77,7 @@ pub async fn search(
                 "categories": h.get("categories").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
                 "latest_version": h.get("latest_version").and_then(|v| v.as_str()).unwrap_or(""),
                 "game_versions": h.get("game_versions").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+                "_sort_ts": h.get("date_modified").and_then(|v| v.as_str()).unwrap_or(""),
             })
         })
         .collect();
@@ -113,9 +114,8 @@ pub async fn versions(
                 "version_type": v.get("version_type").and_then(|x| x.as_str()).unwrap_or("release"),
                 "date_published": v.get("date_published").and_then(|x| x.as_str()).unwrap_or(""),
                 "game_versions": v.get("game_versions").and_then(|x| x.as_array()).cloned().unwrap_or_default(),
-                "loaders": v.get("loaders").and_then(|x| x.as_array()).cloned().unwrap_or_default(),
-                "files": v.get("files").and_then(|x| x.as_array()).cloned().unwrap_or_default(),
-                "dependencies": v.get("dependencies").and_then(|x| x.as_array()).cloned().unwrap_or_default(),
+                "loaders": v.get("loaders").and_then(|x| x.as_array()).cloned().unwrap_or_default()
+                // 不返回 files/dependencies：前端用版本 id 安装时后端会重新取文件，避免大量冗余传输
             })
         })
         .collect())

@@ -89,25 +89,31 @@ async function loadVersions() {
   selectedVersion.value = null;
   deps.value = [];
   try {
-    const res = await api.projectVersions(props.project.provider, props.project.id, "", "");
+    // 已选实例时用实例的 MC 版本 + 加载器请求上游，让 Modrinth/CurseForge
+    // 只返回兼容的版本，从而 API 本身返回更少的数据（而非全量拉取后本地过滤）
+    const inst = selectedInstance.value ? instances.get(selectedInstance.value) : null;
+    const mc = inst?.mc_version ?? "";
+    const ld = inst && inst.loader !== "vanilla" ? inst.loader : "";
+    const res = await api.projectVersions(props.project.provider, props.project.id, mc, ld);
     versions.value = res.versions;
-    if (selectedInstance.value) {
-      const inst = instances.get(selectedInstance.value);
-      if (inst) {
-        const compat = res.versions.find(
-          (v) =>
-            (v.game_versions ?? []).includes(inst.mc_version) &&
-            (inst.loader === "vanilla" || (v.loaders ?? []).includes(inst.loader))
-        );
-        if (compat) selectedVersion.value = compat.id;
-      }
+    if (inst && !res.versions.length) {
+      // 上游按实例筛选无结果时，回退拉取全部版本供选择
+      const all = await api.projectVersions(props.project.provider, props.project.id, "", "");
+      versions.value = all.versions;
     }
+    const picked = versions.value.find((v) => versionType(v) === "release") ?? versions.value[0];
+    if (picked) selectedVersion.value = picked.id;
   } catch (e) {
     message.error(String(e));
   } finally {
     loadingVersions.value = false;
   }
 }
+
+// 切换实例时按新实例的 MC 版本/加载器重新拉取
+watch(selectedInstance, () => {
+  if (props.show && props.project) loadVersions();
+});
 
 function resetForProject() {
   if (!props.project) return;

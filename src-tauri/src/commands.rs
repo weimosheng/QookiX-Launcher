@@ -452,7 +452,7 @@ pub async fn browse(
                 &query,
                 &project_type,
                 &category,
-                "downloads",
+                &sort,
                 (page as usize) * ps,
                 ps,
                 &game_version,
@@ -474,7 +474,7 @@ pub async fn browse(
                 ps,
                 &game_version,
                 &loader,
-                "downloads",
+                &sort,
             )
             .await
             {
@@ -483,11 +483,24 @@ pub async fn browse(
                 }
                 total += c.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
             }
-            hits.sort_by(|a, b| {
-                let da = a.get("downloads").and_then(|v| v.as_u64()).unwrap_or(0);
-                let db = b.get("downloads").and_then(|v| v.as_u64()).unwrap_or(0);
-                db.cmp(&da)
-            });
+            // 合并后按所选排序维度统一排序（relevance 无可比性，保持平台各自顺序）
+            match sort.as_str() {
+                "follows" => hits.sort_by(|a, b| {
+                    let fa = a.get("follows").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let fb = b.get("follows").and_then(|v| v.as_u64()).unwrap_or(0);
+                    fb.cmp(&fa)
+                }),
+                "newest" | "updated" => hits.sort_by(|a, b| {
+                    let ta = a.get("_sort_ts").and_then(|v| v.as_str()).unwrap_or("");
+                    let tb = b.get("_sort_ts").and_then(|v| v.as_str()).unwrap_or("");
+                    tb.cmp(ta) // ISO 字符串降序 = 最新在前
+                }),
+                _ => hits.sort_by(|a, b| {
+                    let da = a.get("downloads").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let db = b.get("downloads").and_then(|v| v.as_u64()).unwrap_or(0);
+                    db.cmp(&da)
+                }),
+            }
             hits.truncate(ps);
             Ok(json!({ "hits": hits, "total": total }))
         }

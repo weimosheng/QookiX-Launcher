@@ -136,6 +136,7 @@ pub async fn search(
                 "categories": m.get("categories").and_then(|c| c.as_array()).map(|c| c.iter().filter_map(|x| x.get("name").and_then(|v| v.as_str()).map(|s| s.to_string())).collect::<Vec<_>>()).unwrap_or_default(),
                 "latest_version": "",
                 "game_versions": m.get("gameVersions").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+                "_sort_ts": m.get("dateModified").and_then(|v| v.as_str()).unwrap_or(""),
             })
         })
         .collect();
@@ -207,12 +208,11 @@ pub async fn files(state: &AppState, mod_id: &str, mc_version: &str) -> Result<V
             json!({
                 "id": f.get("id").and_then(|v| v.as_u64()).unwrap_or(0).to_string(),
                 "name": f.get("displayName").and_then(|v| v.as_str()).unwrap_or(""),
-                "filename": f.get("fileName").and_then(|v| v.as_str()).unwrap_or(""),
-                "size": f.get("fileLength").and_then(|v| v.as_u64()).unwrap_or(0),
-                "download_url": f.get("downloadUrl").and_then(|v| v.as_str()).unwrap_or(""),
-                "date": f.get("fileDate").and_then(|v| v.as_str()).unwrap_or(""),
+                "version_number": f.get("displayName").and_then(|v| v.as_str()).unwrap_or(""),
+                "date_published": f.get("fileDate").and_then(|v| v.as_str()).unwrap_or(""),
                 "release_type": f.get("releaseType").and_then(|v| v.as_u64()).unwrap_or(0),
-                "game_versions": f.get("gameVersions").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+                "game_versions": f.get("gameVersions").and_then(|v| v.as_array()).cloned().unwrap_or_default()
+                // 不返回 filename/size/download_url：安装时后端用文件 id 重新取文件
             })
         })
         .collect())

@@ -266,6 +266,17 @@ onMounted(async () => {
       <p class="sub">从 Modrinth 与 CurseForge 一键浏览、安装与升级模组、整合包、资源包和光影，支持全部来源整合浏览</p>
     </div>
 
+    <div class="type-card glass">
+      <button
+        v-for="t in types"
+        :key="t.key"
+        :class="{ active: type === t.key }"
+        @click="type = t.key"
+      >
+        {{ t.label }}
+      </button>
+    </div>
+
     <div class="toolbar glass">
       <div class="toolbar-row">
         <div class="search-box">
@@ -274,18 +285,7 @@ onMounted(async () => {
         </div>
       </div>
       <div class="toolbar-row">
-        <div class="type-tabs">
-          <button
-            v-for="t in types"
-            :key="t.key"
-            :class="{ active: type === t.key }"
-            @click="type = t.key"
-          >
-            {{ t.label }}
-          </button>
-        </div>
         <n-select
-          v-if="provider !== 'all'"
           v-model:value="sort"
           :options="sortOptions"
           size="small"
@@ -441,25 +441,29 @@ onMounted(async () => {
   font-size: 13px;
   font-family: inherit;
 }
-.type-tabs {
+.type-card {
   display: flex;
-  gap: 4px;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
 }
-.type-tabs button {
+.type-card button {
   border: none;
   background: transparent;
   color: var(--text-2);
-  padding: 7px 12px;
-  border-radius: 8px;
+  padding: 8px 20px;
+  border-radius: 9px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
+  transition: all 0.12s;
 }
-.type-tabs button:hover {
+.type-card button:hover {
   background: rgba(255, 255, 255, 0.05);
 }
-.type-tabs button.active {
+.type-card button.active {
   background: var(--accent-soft);
   color: var(--accent);
 }
