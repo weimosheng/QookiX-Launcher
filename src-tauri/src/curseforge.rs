@@ -71,6 +71,79 @@ async fn get(state: &AppState, path: &str, params: &[(&str, String)]) -> Result<
     Ok(body)
 }
 
+/// Fetch a single mod file's metadata (fileName, fileLength, downloadUrl) by project + file id.
+pub async fn file_info(state: &AppState, project_id: u64, file_id: u64) -> Result<Value, String> {
+    get(state, &format!("/mods/{project_id}/files/{file_id}"), &[]).await
+}
+
+/// CurseForge relationType → dependency type string matching Modrinth format.
+fn relation_type(rt: u64) -> &'static str {
+    match rt {
+        1 => "embedded",
+        2 => "optional",
+        3 => "required",
+        5 => "incompatible",
+        6 => "embedded",
+        _ => "required",
+    }
+}
+
+/// Dependencies of a CurseForge file: fetch file → extract dependencies → batch-fetch mod info.
+pub async fn dependencies(state: &AppState, mod_id: &str, file_id: &str) -> Result<Vec<Value>, String> {
+    let body = get(state, &format!("/mods/{mod_id}/files/{file_id}"), &[]).await?;
+    let file = body.get("data").unwrap_or(&body);
+    let deps = file.get("dependencies").and_then(|d| d.as_array()).cloned().unwrap_or_default();
+    if deps.is_empty() {
+        return Ok(vec![]);
+    }
+    // Collect mod IDs for batch lookup
+    let mod_ids: Vec<u64> = deps
+        .iter()
+        .filter_map(|d| d.get("modId").and_then(|v| v.as_u64()))
+        .collect();
+    // Batch fetch mod info via POST /mods
+    let mut info_map: std::collections::HashMap<u64, (String, String)> = std::collections::HashMap::new();
+    if !mod_ids.is_empty() {
+        let key = api_key(state)?;
+        let url = format!("{API}/mods");
+        let payload = json!({ "modIds": mod_ids });
+        if let Ok(resp) = state
+            .client
+            .post(&url)
+            .header("x-api-key", &key)
+            .header("Content-Type", "application/json")
+            .body(payload.to_string())
+            .send()
+            .await
+        {
+            if let Ok(body) = resp.json::<Value>().await {
+                if let Some(data) = body.get("data").and_then(|d| d.as_array()) {
+                    for m in data {
+                        if let Some(id) = m.get("id").and_then(|v| v.as_u64()) {
+                            let name = m.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let slug = m.get("slug").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            info_map.insert(id, (name, slug));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for dep in &deps {
+        let Some(mod_id) = dep.get("modId").and_then(|v| v.as_u64()) else { continue };
+        let rt = dep.get("relationType").and_then(|v| v.as_u64()).unwrap_or(3);
+        let (title, slug) = info_map.get(&mod_id).cloned().unwrap_or_default();
+        out.push(json!({
+            "projectId": mod_id.to_string(),
+            "title": title,
+            "slug": slug,
+            "dependencyType": relation_type(rt),
+        }));
+    }
+    Ok(out)
+}
+
 /// Search CurseForge mods/modpacks/resourcepacks/shaders.
 pub async fn search(
     state: &AppState,
@@ -84,18 +157,25 @@ pub async fn search(
     sort: &str,
 ) -> Result<Value, String> {
     let page_size = page_size.max(1);
+    let index = page * page_size;
+    // CurseForge API rejects index > 10000 with HTTP 400
+    if index > 10000 {
+        return Ok(json!({ "hits": [], "total": 0 }));
+    }
     let class_id = class_id_for(kind);
-    // CurseForge sortField: 2 = total downloads, 3 = recently updated
+    // CurseForge sortField: 2 = popularity, 3 = recently updated, 6 = total downloads
     let sort_field = match sort {
         "newest" | "updated" => "3",
+        "downloads" => "6",
         _ => "2",
     };
     let mut params: Vec<(&str, String)> = vec![
         ("gameId", GAME_ID.to_string()),
         ("classId", class_id.to_string()),
         ("pageSize", page_size.to_string()),
-        ("index", (page * page_size).to_string()),
+        ("index", index.to_string()),
         ("sortField", sort_field.to_string()),
+        ("sortOrder", "desc".to_string()),
     ];
     if !query.trim().is_empty() {
         params.push(("searchFilter", query.trim().to_string()));
@@ -422,9 +502,18 @@ async fn install_modpack_inner(
     )?;
     let source = format!("整合包：{pack_name}");
 
-    // Extract modpack icon if available
+    // Extract modpack icon: first look inside the zip, then fall back to the
+    // project logo from the CurseForge API (CF zips don't embed an icon).
     let instance_dir = state.instances_dir().join(&instance.id);
-    if let Some(icon_path) = crate::util::extract_modpack_icon(&pack_path, &instance_dir) {
+    let mut icon_path = crate::util::extract_modpack_icon(&pack_path, &instance_dir);
+    if icon_path.is_none() {
+        if let Ok(info) = crate::curseforge::project_info(state, modpack_id).await {
+            if let Some(u) = info.get("icon_url").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                icon_path = crate::util::download_icon(&state.client, u, &instance_dir).await;
+            }
+        }
+    }
+    if let Some(icon_path) = icon_path {
         let mut inst = instance.clone();
         inst.icon = Some(format!("img:{icon_path}"));
         let _ = crate::instances::save_instance(state, &inst);

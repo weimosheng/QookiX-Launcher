@@ -8,6 +8,8 @@ use crate::modrinth;
 use crate::settings;
 use crate::state::AppState;
 use serde_json::{json, Value};
+use tauri::Emitter;
+use tauri::Manager;
 use tauri::State;
 
 // ---------------------------------------------------------------------------
@@ -382,6 +384,129 @@ pub fn import_instance_image(
     Ok(dest.to_string_lossy().to_string())
 }
 
+/// Scan a `.minecraft` folder. Returns immediately; the actual work is streamed
+/// to the frontend through events so the UI renders progressively:
+///   - `import://scan-version`   { id, inherits_base, size_bytes }  one per version
+///   - `import://scan-progress`  { import_files, import_bytes }     throttled, live
+///   - `import://scan-progress`  { ..., download_files, download_bytes, assets_known, done }
+///     sent once at the end with the download estimate.
+#[tauri::command]
+pub async fn scan_minecraft_import(
+    app: tauri::AppHandle,
+    _state: State<'_, AppState>,
+    source: String,
+) -> Result<(), String> {
+    let src = std::path::PathBuf::from(&source);
+    crate::instances::scan_minecraft_import(&src)?;
+
+    let app2 = app.clone();
+    let src2 = src.clone();
+    tauri::async_runtime::spawn(async move {
+        let src = src2;
+
+        // ---- Phase 1: enumerate versions only (fast, reads each versions/<id>/<id>.json).
+        //      The heavy user-data walk is DEFERRED until the user picks versions
+        //      (see `estimate_import`), so we never thrash the disk up-front. ----
+        let app_versions = app2.clone();
+        let src_versions = src.clone();
+        tokio::task::spawn_blocking(move || {
+            let app = app_versions;
+            crate::instances::for_each_version(&src_versions, |v| {
+                let _ = app.emit(
+                    "import://scan-version",
+                    serde_json::json!({
+                        "id": v.id,
+                        "raw_id": v.raw_id,
+                        "inherits_base": v.inherits_base,
+                        "loader": v.loader,
+                        "loader_version": v.loader_version,
+                        "size_bytes": v.size_bytes
+                    }),
+                );
+            });
+        })
+        .await
+        .ok();
+
+        // Signal the version list is complete. Import size is filled in later by
+        // `estimate_import` once the user makes a selection.
+        let _ = app2.emit(
+            "import://scan-progress",
+            serde_json::json!({
+                "import_files": 0u64,
+                "import_bytes": 0u64,
+                "done": true
+            }),
+        );
+    });
+
+    Ok(())
+}
+
+/// Re-compute the download-size estimate for a specific MC version (e.g. when
+/// the user switches the selected version in the picker). Fast: network only.
+#[tauri::command]
+pub async fn estimate_download(
+    state: State<'_, AppState>,
+    mc_version: String,
+) -> Result<crate::instances::MinecraftDownloadEstimate, String> {
+    Ok(crate::instances::estimate_download(&state, &mc_version).await)
+}
+
+/// Migration-size estimate for the user's current selection. Runs only after the
+/// user has chosen versions (contrast with the old up-front full-folder walk),
+/// and counts the shared user-data dirs (copied once per created instance) plus
+/// each selected version folder.
+#[tauri::command]
+pub async fn estimate_import(
+    source: String,
+    raw_ids: Vec<String>,
+) -> Result<crate::instances::ImportSizeEstimate, String> {
+    let src = std::path::PathBuf::from(source);
+    let res = tokio::task::spawn_blocking(move || {
+        crate::instances::estimate_import_size(&src, &raw_ids)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(res)
+}
+
+/// Import an existing `.minecraft` folder, creating one instance per selected
+/// version. `raw_ids` / `loaders` / `loader_versions` are parallel arrays
+/// aligned by index (the loader is auto-detected per version by the UI).
+/// `raw_ids` are the literal folder names under `versions/`; `mc_versions` are
+/// the resolved display/install versions (vanilla base for modded profiles).
+#[tauri::command]
+pub async fn import_minecraft_folder(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    source: String,
+    name: String,
+    raw_ids: Vec<String>,
+    mc_versions: Vec<String>,
+    loaders: Vec<String>,
+    loader_versions: Vec<Option<String>>,
+    mode: String,
+) -> Result<Vec<crate::models::InstallPlan>, String> {
+    let mode = if mode == "symlink" {
+        crate::instances::ImportMode::Symlink
+    } else {
+        crate::instances::ImportMode::Copy
+    };
+    crate::instances::import_minecraft_folder(
+        app,
+        &state,
+        std::path::PathBuf::from(source),
+        name,
+        raw_ids,
+        mc_versions,
+        loaders,
+        loader_versions,
+        mode,
+    )
+    .await
+}
+
 // ---------------------------------------------------------------------------
 // Accounts
 // ---------------------------------------------------------------------------
@@ -428,6 +553,21 @@ pub fn logout_account(state: State<AppState>, uuid: String) -> Result<(), String
 // Browse & install content
 // ---------------------------------------------------------------------------
 
+/// Replace `title` with Chinese name from WikiEntries where available.
+fn apply_chinese_names(hits: &mut [Value]) {
+    for h in hits.iter_mut() {
+        let slug = h.get("slug").and_then(|v| v.as_str()).unwrap_or("");
+        let provider = h.get("provider").and_then(|v| v.as_str()).unwrap_or("");
+        if !slug.is_empty() {
+            if let Some(name) = crate::mcmod::lookup_chinese_name(slug, provider) {
+                if let Some(obj) = h.as_object_mut() {
+                    obj.insert("title".to_string(), Value::String(name));
+                }
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn browse(
     state: State<'_, AppState>,
@@ -444,27 +584,7 @@ pub async fn browse(
     let ps = (page_size.max(1)) as usize;
     match provider.as_str() {
         "modrinth" => {
-            modrinth::search(
-                &state,
-                &query,
-                &project_type,
-                &category,
-                &sort,
-                (page as usize) * ps,
-                ps,
-                &game_version,
-                &loader,
-            )
-            .await
-        }
-        "curseforge" => {
-            let cat = category.parse::<u32>().unwrap_or(0);
-            curseforge::search(&state, &query, &project_type, cat, page as usize, ps, &game_version, &loader, &sort).await
-        }
-        // "全部来源"：整合 Modrinth 与 CurseForge。每页各取一页，合并后统一按下载量
-        // 降序排序并截断一页，让两平台结果混合排布。分类只作用于 Modrinth。
-        "all" => {
-            let m = modrinth::search(
+            let mut result = modrinth::search(
                 &state,
                 &query,
                 &project_type,
@@ -476,13 +596,45 @@ pub async fn browse(
                 &loader,
             )
             .await?;
+            if let Some(hits) = result.get_mut("hits").and_then(|v| v.as_array_mut()) {
+                apply_chinese_names(hits);
+            }
+            Ok(result)
+        }
+        "curseforge" => {
+            let cat = category.parse::<u32>().unwrap_or(0);
+            let mut result = curseforge::search(&state, &query, &project_type, cat, page as usize, ps, &game_version, &loader, &sort).await?;
+            if let Some(hits) = result.get_mut("hits").and_then(|v| v.as_array_mut()) {
+                apply_chinese_names(hits);
+            }
+            Ok(result)
+        }
+        // "全部来源"：各平台独立分页，各取当前页 ps 条，合并排序后取前 ps 条。
+        // total 为两平台真实总数之和。分类只作用于 Modrinth。
+        "all" => {
+            let offset = (page as usize) * ps;
+            let m = modrinth::search(
+                &state,
+                &query,
+                &project_type,
+                &category,
+                &sort,
+                offset,
+                ps,
+                &game_version,
+                &loader,
+            )
+            .await?;
             let mut hits = m
                 .get("hits")
                 .and_then(|v| v.as_array())
                 .cloned()
                 .unwrap_or_default();
-            let mut total = m.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
-            if let Ok(c) = curseforge::search(
+            let mr_total = m.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+            let mut cf_total = 0u64;
+            let mut cf_error: Option<String> = None;
+            let mut cf_count = 0u64;
+            match curseforge::search(
                 &state,
                 &query,
                 &project_type,
@@ -495,11 +647,21 @@ pub async fn browse(
             )
             .await
             {
-                if let Some(ch) = c.get("hits").and_then(|v| v.as_array()) {
-                    hits.extend(ch.iter().cloned());
+                Ok(c) => {
+                    cf_total = c.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+                    if let Some(ch) = c.get("hits").and_then(|v| v.as_array()) {
+                        cf_count = ch.len() as u64;
+                        hits.extend(ch.iter().cloned());
+                    }
                 }
-                total += c.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+                Err(e) => {
+                    eprintln!("[browse] curseforge search failed: {e}");
+                    if page == 0 {
+                        cf_error = Some(e);
+                    }
+                }
             }
+            let total = mr_total.max(cf_total);
             // 合并后按所选排序维度统一排序（relevance 无可比性，保持平台各自顺序）
             match sort.as_str() {
                 "follows" => hits.sort_by(|a, b| {
@@ -510,7 +672,7 @@ pub async fn browse(
                 "newest" | "updated" => hits.sort_by(|a, b| {
                     let ta = a.get("_sort_ts").and_then(|v| v.as_str()).unwrap_or("");
                     let tb = b.get("_sort_ts").and_then(|v| v.as_str()).unwrap_or("");
-                    tb.cmp(ta) // ISO 字符串降序 = 最新在前
+                    tb.cmp(ta)
                 }),
                 _ => hits.sort_by(|a, b| {
                     let da = a.get("downloads").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -518,8 +680,11 @@ pub async fn browse(
                     db.cmp(&da)
                 }),
             }
-            hits.truncate(ps);
-            Ok(json!({ "hits": hits, "total": total }))
+            if hits.len() > ps {
+                hits.truncate(ps);
+            }
+            apply_chinese_names(&mut hits);
+            Ok(json!({ "hits": hits, "total": total, "cf_error": cf_error, "cf_count": cf_count }))
         }
         _ => Err("未知内容源".into()),
     }
@@ -569,18 +734,63 @@ pub async fn project_info(
     }
 }
 
-/// Required/optional dependency projects of a project version (Modrinth only).
+/// Required/optional dependency projects of a project version.
 #[tauri::command]
 pub async fn project_dependencies(
     state: State<'_, AppState>,
     provider: String,
+    project_id: String,
     version_id: String,
 ) -> Result<Vec<Value>, String> {
-    if provider == "modrinth" {
-        modrinth::dependencies(&state, &version_id).await
-    } else {
-        Ok(vec![])
+    match provider.as_str() {
+        "modrinth" => modrinth::dependencies(&state, &version_id).await,
+        "curseforge" => curseforge::dependencies(&state, &project_id, &version_id).await,
+        _ => Ok(vec![]),
     }
+}
+
+/// Resolve a direct MC wiki (mcmod.cn) mod page URL.
+/// Tries local slug→wiki_id mapping first, falls back to search page extraction.
+#[tauri::command]
+pub async fn mc_wiki_url(
+    state: State<'_, AppState>,
+    name: String,
+    slug: Option<String>,
+    provider: Option<String>,
+) -> Result<String, String> {
+    // 1. Try local WikiEntries mapping by slug
+    if let (Some(s), Some(p)) = (&slug, &provider) {
+        if let Some(id) = crate::mcmod::lookup_wiki_id(s, p) {
+            return Ok(format!("https://www.mcmod.cn/class/{id}.html"));
+        }
+    }
+    // 2. Fallback: fetch search page and extract first class/{id}.html
+    let search_url = format!("https://search.mcmod.cn/s?key={}", modrinth::urlencode(&name));
+    let resp = state
+        .client
+        .get(&search_url)
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .header("Accept", "text/html,application/xhtml+xml")
+        .header("Accept-Language", "zh-CN,zh;q=0.9")
+        .send()
+        .await
+        .map_err(|e| format!("请求 MC 百科失败: {e}"))?;
+    let html = resp
+        .text()
+        .await
+        .map_err(|e| format!("读取 MC 百科响应失败: {e}"))?;
+    let needle = "class/";
+    let mut pos = 0;
+    while let Some(idx) = html[pos..].find(needle) {
+        let start = pos + idx + needle.len();
+        let rest = &html[start..];
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if !digits.is_empty() && rest[digits.len()..].starts_with(".html") {
+            return Ok(format!("https://www.mcmod.cn/class/{digits}.html"));
+        }
+        pos = start;
+    }
+    Ok(search_url)
 }
 
 /// Install a project version into an instance.

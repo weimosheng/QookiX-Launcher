@@ -278,6 +278,27 @@ pub fn extract_modpack_icon(pack_path: &Path, instance_dir: &Path) -> Option<Str
     None
 }
 
+/// Download a remote image (e.g. modpack project icon) and save it to
+/// `instances/{instance_id}/pack-icon.png`. Returns the absolute path on success.
+pub async fn download_icon(
+    client: &reqwest::Client,
+    url: &str,
+    instance_dir: &std::path::Path,
+) -> Option<String> {
+    if url.trim().is_empty() {
+        return None;
+    }
+    let resp = client.get(url).send().await.ok()?;
+    let bytes = resp.bytes().await.ok()?;
+    if bytes.len() < 8 {
+        return None;
+    }
+    std::fs::create_dir_all(instance_dir).ok()?;
+    let out = instance_dir.join("pack-icon.png");
+    std::fs::write(&out, &bytes).ok()?;
+    Some(out.to_string_lossy().to_string())
+}
+
 /// Best-effort: extract an icon embedded in a local mod / resource-pack / shader zip.
 /// Looks for `pack.png`, `icon.png` or a Modrinth metadata icon; falls back to a generic icon name.
 pub fn extract_archive_icon(path: &std::path::Path, kind: &str) -> Option<String> {
@@ -338,6 +359,42 @@ pub fn extract_archive_icon(path: &std::path::Path, kind: &str) -> Option<String
         }
     }
     None
+}
+
+/// Copy a file (creating parent dirs), or create a symlink to it when `link` is
+/// true. On platforms where symlink creation is denied (e.g. Windows without
+/// Developer Mode / admin), this silently falls back to a normal copy and sets
+/// `*fallback = true` so the caller can warn the user.
+pub fn copy_or_link(source: &Path, dest: &Path, link: bool, fallback: &mut bool) -> Result<u64, String> {
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    if link {
+        // On Windows, File::create_symlink_file requires the target not to exist.
+        if dest.exists() {
+            let _ = std::fs::remove_file(dest);
+        }
+        let link_result = {
+            #[cfg(windows)]
+            {
+                std::os::windows::fs::symlink_file(source, dest)
+            }
+            #[cfg(unix)]
+            {
+                std::os::unix::fs::symlink(source, dest)
+            }
+        };
+        match link_result {
+            Ok(()) => Ok(0),
+            Err(_) => {
+                // privilege missing -> copy instead
+                *fallback = true;
+                std::fs::copy(source, dest).map_err(|e| e.to_string())
+            }
+        }
+    } else {
+        std::fs::copy(source, dest).map_err(|e| e.to_string())
+    }
 }
 
 /// Parse a maven-metadata.xml `<versions>` block without an XML dependency.

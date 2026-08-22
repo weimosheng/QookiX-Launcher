@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed, nextTick } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch, computed, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useInstancesStore } from "../stores/instances";
 import { useAccountsStore } from "../stores/accounts";
@@ -13,7 +13,7 @@ import LogViewer from "../components/LogViewer.vue";
 import AppIcon from "../components/AppIcon.vue";
 import IconPickerDialog from "../components/IconPickerDialog.vue";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
-import type { ContentItem, UpdateInfo } from "../types";
+import type { ContentItem, ProjectVersion, UpdateInfo } from "../types";
 
 function sourceLabel(s: string) {
   return s === "modrinth" ? "Modrinth" : s === "curseforge" ? "CurseForge" : "手动";
@@ -33,6 +33,8 @@ import {
   IconPlay,
   IconPlus,
   IconRefresh,
+  IconRepeat,
+  IconSearch,
   IconStop,
   IconTrash,
 } from "../components/icons";
@@ -269,6 +271,120 @@ async function toggleContent(item: ContentItem) {
     await api.toggleContentEnabled(instanceId, kind, item.record.filename, !item.record.enabled);
     item.record.enabled = !item.record.enabled;
     message.success(item.record.enabled ? "已启用" : "已禁用");
+  } catch (e) {
+    message.error(String(e));
+  }
+}
+
+// ---- 切换版本 ----
+const switchState = ref<{
+  show: boolean;
+  loading: boolean;
+  item: ContentItem | null;
+  versions: ProjectVersion[];
+  selected: string | null;
+  provider: string;
+  projectId: string;
+}>({
+  show: false,
+  loading: false,
+  item: null,
+  versions: [],
+  selected: null,
+  provider: "",
+  projectId: "",
+});
+
+// 点击遮罩关闭（document 委托兜底，naive-ui mask 机制在此环境不可靠）
+const switchCardRef = ref<HTMLElement | null>(null);
+const confirmCardRef = ref<HTMLElement | null>(null);
+const previewCardRef = ref<HTMLElement | null>(null);
+function onDocMouseDown(e: MouseEvent) {
+  const t = e.target as Element | null;
+  if (!t) return;
+  if (t.closest(".v-binder-follower-container, .n-base-select-menu, .n-popover, .n-dropdown")) return;
+  if (switchState.value.show && switchCardRef.value && !switchCardRef.value.contains(t)) {
+    switchState.value.show = false;
+    return;
+  }
+  if (confirmState.value && confirmCardRef.value && !confirmCardRef.value.contains(t)) {
+    confirmState.value = null;
+    return;
+  }
+  if (showPreview.value && previewCardRef.value && !previewCardRef.value.contains(t)) {
+    showPreview.value = false;
+  }
+}
+onMounted(() => document.addEventListener("mousedown", onDocMouseDown));
+onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown));
+
+function fmtIsoDate(s: string) {
+  return s ? s.slice(0, 10) : "";
+}
+
+function modSearchTerm(item: ContentItem): string {
+  const name = item.record.name ?? "";
+  if (name && !name.endsWith(".jar") && name !== item.record.filename) return name;
+  const base = item.record.filename.replace(/\.jar$/i, "");
+  const loaders = ["fabric", "forge", "neoforge", "quilt", "rift", "optifine", "vanilla"];
+  const parts = base
+    .split(/[-_]/)
+    .filter((p) => p && !loaders.includes(p.toLowerCase()) && !/\d/.test(p));
+  return parts.length ? parts.join("-") : base;
+}
+
+async function openSwitchVersion(item: ContentItem) {
+  const src = item.record.source;
+  if (src !== "modrinth" && src !== "curseforge") {
+    message.info("手动导入的内容无法切换版本");
+    return;
+  }
+  const pid = item.record.project_id;
+  if (!pid) {
+    message.info("缺少项目信息，无法切换版本");
+    return;
+  }
+  const inst = instance.value;
+  const mc = inst?.mc_version ?? "";
+  const ld = inst && inst.loader !== "vanilla" ? inst.loader : "";
+  switchState.value = {
+    show: true,
+    loading: true,
+    item,
+    versions: [],
+    selected: null,
+    provider: src,
+    projectId: pid,
+  };
+  try {
+    const res = await api.projectVersions(src, pid, mc, ld);
+    switchState.value.versions = res.versions;
+    const cur = res.versions.find((v) => v.id === item.record.version_id);
+    switchState.value.selected = cur?.id ?? res.versions[0]?.id ?? null;
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    switchState.value.loading = false;
+  }
+}
+
+async function doSwitchVersion() {
+  const s = switchState.value;
+  if (!s.item || !s.selected) {
+    message.warning("请选择一个版本");
+    return;
+  }
+  if (s.selected === s.item.record.version_id) {
+    message.info("已选择当前安装的版本");
+    switchState.value.show = false;
+    return;
+  }
+  try {
+    const kind = kindOf(tab.value);
+    await api.applyUpdate(instanceId, kind, s.item.record.filename, s.provider, s.projectId, s.selected);
+    message.success("已切换版本");
+    switchState.value.show = false;
+    await loadContent();
   } catch (e) {
     message.error(String(e));
   }
@@ -640,6 +756,22 @@ watch(
             </div>
             <div class="c-actions">
               <button
+                v-if="(item.record.source === 'modrinth' || item.record.source === 'curseforge') && item.record.project_id"
+                class="icon-btn"
+                title="切换版本"
+                @click="openSwitchVersion(item)"
+              >
+                <IconRepeat />
+              </button>
+              <button
+                v-else
+                class="icon-btn"
+                title="在内容中心搜索"
+                @click="router.push({ path: '/browse', query: { q: modSearchTerm(item) } })"
+              >
+                <IconSearch />
+              </button>
+              <button
                 v-if="item.record.enabled"
                 class="icon-btn warn"
                 title="禁用"
@@ -881,9 +1013,12 @@ watch(
       preset="card"
       :title="confirmState?.title ?? ''"
       style="width: 420px; max-width: 92vw"
+      :mask-closable="true"
+      :close-on-esc="true"
       :on-update:show="(v: boolean) => { if (!v) confirmState = null; }"
+      @mask-click="confirmState = null"
     >
-      <div v-if="confirmState" style="display: flex; flex-direction: column; gap: 16px;">
+      <div v-if="confirmState" ref="confirmCardRef" style="display: flex; flex-direction: column; gap: 16px;">
         <div style="font-size: 14px; color: var(--text-2); line-height: 1.6;">{{ confirmState.content }}</div>
         <div style="display: flex; justify-content: flex-end; gap: 10px;">
           <n-button @click="confirmState = null">取消</n-button>
@@ -898,8 +1033,50 @@ watch(
       preset="card"
       title="截图预览"
       style="width: min(860px, 92vw)"
+      :mask-closable="true"
+      :close-on-esc="true"
+      @mask-click="showPreview = false"
     >
-      <img :src="previewImg" class="preview-img" alt="" />
+      <img ref="previewCardRef" :src="previewImg" class="preview-img" alt="" />
+    </n-modal>
+
+    <!-- switch version -->
+    <n-modal
+      v-model:show="switchState.show"
+      preset="card"
+      :title="`切换版本：${switchState.item?.record.name ?? switchState.item?.record.filename ?? ''}`"
+      style="width: 520px; max-width: 94vw"
+      :mask-closable="true"
+      :close-on-esc="true"
+      @mask-click="switchState.show = false"
+    >
+      <div ref="switchCardRef" class="sv-body">
+        <div v-if="switchState.loading" class="center">加载中…</div>
+        <div v-else-if="!switchState.versions.length" class="center">没有可用的版本</div>
+        <div v-else class="sv-list">
+          <button
+            v-for="v in switchState.versions"
+            :key="v.id"
+            class="sv-item"
+            :class="{ active: switchState.selected === v.id }"
+            @click="switchState.selected = v.id"
+          >
+            <span class="sv-num">{{ v.version_number ?? v.name }}</span>
+            <span v-if="v.date_published" class="sv-date">{{ fmtIsoDate(v.date_published) }}</span>
+          </button>
+        </div>
+        <div class="sv-actions">
+          <n-button size="small" @click="switchState.show = false">取消</n-button>
+          <n-button
+            size="small"
+            type="primary"
+            :disabled="!switchState.selected || switchState.loading"
+            @click="doSwitchVersion"
+          >
+            切换
+          </n-button>
+        </div>
+      </div>
     </n-modal>
 
     <IconPickerDialog
@@ -1012,8 +1189,8 @@ watch(
   background: rgba(255, 255, 255, 0.1);
 }
 .btn.danger {
-  background: transparent;
-  color: var(--text-3);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-1);
   border: 1px solid var(--border);
 }
 .btn.danger:hover {
@@ -1290,6 +1467,53 @@ watch(
   object-fit: contain;
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.4);
+}
+.sv-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.sv-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-2);
+  border-radius: 9px;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.12s;
+}
+.sv-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.sv-item.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.sv-num {
+  font-weight: 600;
+}
+.sv-date {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.sv-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 .world-row {
   display: flex;

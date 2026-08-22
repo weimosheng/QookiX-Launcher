@@ -476,6 +476,9 @@ pub struct InstallPlan {
     pub instance_id: String,
     pub total_bytes: u64,
     pub file_count: usize,
+    /// `true` when the user asked for symlinks but the OS denied the privilege,
+    /// so the migration silently fell back to a normal copy.
+    pub symlink_fallback: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

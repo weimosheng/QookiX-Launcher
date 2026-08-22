@@ -51,7 +51,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   padding: 0 8px 0 14px;
-  background: rgba(10, 12, 17, 0.6);
+  background: color-mix(in srgb, var(--bg-0) 75%, transparent);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   -webkit-app-region: drag;
@@ -92,7 +92,7 @@ onMounted(async () => {
   transition: all 0.12s;
 }
 .tb-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--panel-hover);
   color: var(--text-1);
 }
 .tb-close:hover {

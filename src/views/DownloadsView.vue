@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useTasksStore, type TaskEntry } from "../stores/tasks";
+import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -13,6 +14,16 @@ const tasks = useTasksStore();
 const router = useRouter();
 const expanded = ref<Set<number>>(new Set());
 const activeTab = ref<"active" | "finished">("active");
+
+// 顶部 tab 的滑动高亮指示器
+const tabBox = ref<HTMLElement | null>(null);
+const { indicatorStyle: tabIndicatorStyle, refresh: refreshTabIndicator } = useSlidingIndicator(
+  tabBox,
+  () => Array.from(tabBox.value?.querySelectorAll<HTMLElement>(".tabs button") ?? []),
+  () => (activeTab.value === "active" ? 0 : 1),
+  { axis: "horizontal" }
+);
+watch(activeTab, () => nextTick(() => refreshTabIndicator()));
 
 const activeTasks = computed(() => tasks.taskList.filter((t) => !t.finished));
 const finishedTasks = computed(() => tasks.taskList.filter((t) => t.finished));
@@ -81,6 +92,11 @@ function toggle(t: TaskEntry) {
 function gotoInstance(t: TaskEntry) {
   if (t.instanceId) router.push(`/instance/${t.instanceId}`);
 }
+
+// 整合包会自动创建新实例，不是用户选择的目标实例，所以不显示“目标实例”
+function isModpackTask(t: TaskEntry) {
+  return (t.source ?? "").startsWith("整合包");
+}
 </script>
 
 <template>
@@ -99,7 +115,8 @@ function gotoInstance(t: TaskEntry) {
       </div>
     </div>
 
-    <div class="tabs">
+    <div ref="tabBox" class="tabs">
+      <div class="indicator" :style="tabIndicatorStyle"></div>
       <button :class="{ active: activeTab === 'active' }" @click="activeTab = 'active'">
         进行中 <span v-if="activeTasks.length" class="tab-count">{{ activeTasks.length }}</span>
       </button>
@@ -127,7 +144,11 @@ function gotoInstance(t: TaskEntry) {
             </div>
             <div class="task-meta">
               <span class="meta-item">{{ fmtTime(t.startedAt) }}</span>
-              <span v-if="t.instanceName" class="meta-item link" @click.stop="gotoInstance(t)">
+              <span
+                v-if="t.instanceName && !isModpackTask(t)"
+                class="meta-item link"
+                @click.stop="gotoInstance(t)"
+              >
                 目标实例：{{ t.instanceName }} <IconChevronRight />
               </span>
               <span class="meta-item">{{ stageLabel(t) }}</span>
@@ -227,11 +248,20 @@ function gotoInstance(t: TaskEntry) {
   margin-bottom: 16px;
 }
 .tabs {
+  position: relative;
   display: flex;
   gap: 4px;
   margin-bottom: 16px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 0;
+}
+.tabs .indicator {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  pointer-events: none;
 }
 .tabs button {
   border: none;
@@ -242,8 +272,6 @@ function gotoInstance(t: TaskEntry) {
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
   transition: all 0.15s;
   display: inline-flex;
   align-items: center;
@@ -254,7 +282,6 @@ function gotoInstance(t: TaskEntry) {
 }
 .tabs button.active {
   color: var(--accent);
-  border-bottom-color: var(--accent);
 }
 .tab-count {
   font-size: 11px;
@@ -323,6 +350,10 @@ function gotoInstance(t: TaskEntry) {
   justify-content: space-between;
   gap: 14px;
   cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.task-top:active {
+  transform: scale(0.98);
 }
 .task-main {
   min-width: 0;

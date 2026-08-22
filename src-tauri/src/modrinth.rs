@@ -309,6 +309,37 @@ pub async fn project_info(state: &AppState, project_id: &str) -> Result<Value, S
     }))
 }
 
+/// Batch-resolve project_id/version_id from sha1 hashes via the version_files API.
+/// Returns a map: sha1 -> (project_id, version_id). Best-effort, empty on failure.
+pub async fn resolve_by_hashes(
+    state: &AppState,
+    hashes: &[String],
+) -> std::collections::HashMap<String, (String, String)> {
+    let mut out = std::collections::HashMap::new();
+    if hashes.is_empty() {
+        return out;
+    }
+    let body = json!({ "hashes": hashes, "algorithm": "sha1" });
+    let resp = match state.client.post(format!("{API}/version_files")).json(&body).send().await {
+        Ok(r) => r,
+        Err(_) => return out,
+    };
+    let map: Value = match resp.json().await {
+        Ok(m) => m,
+        Err(_) => return out,
+    };
+    if let Some(obj) = map.as_object() {
+        for (hash, ver) in obj {
+            let pid = ver.get("project_id").and_then(|v| v.as_str()).unwrap_or("");
+            let vid = ver.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            if !pid.is_empty() && !vid.is_empty() {
+                out.insert(hash.clone(), (pid.to_string(), vid.to_string()));
+            }
+        }
+    }
+    out
+}
+
 /// Install a Modrinth modpack (.mrpack) into an instance.
 pub async fn install_modpack(
     app: tauri::AppHandle,
@@ -404,9 +435,21 @@ async fn install_modpack_inner(
     )?;
     let source = format!("整合包：{pack_name}");
 
-    // Extract modpack icon if available
+    // Extract modpack icon: first look inside the zip, then fall back to the
+    // project icon from the API (mrpack zips usually don't embed an icon).
     let instance_dir = state.instances_dir().join(&instance.id);
-    if let Some(icon_path) = crate::util::extract_modpack_icon(&pack_path, &instance_dir) {
+    let mut icon_path = crate::util::extract_modpack_icon(&pack_path, &instance_dir);
+    if icon_path.is_none() {
+        let project_id = ver.get("project_id").and_then(|v| v.as_str()).unwrap_or("");
+        if !project_id.is_empty() {
+            if let Ok(info) = crate::modrinth::project_info(state, project_id).await {
+                if let Some(u) = info.get("icon_url").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                    icon_path = crate::util::download_icon(&state.client, u, &instance_dir).await;
+                }
+            }
+        }
+    }
+    if let Some(icon_path) = icon_path {
         let mut inst = instance.clone();
         inst.icon = Some(format!("img:{icon_path}"));
         let _ = crate::instances::save_instance(state, &inst);
@@ -418,6 +461,7 @@ async fn install_modpack_inner(
 
     let files = index.get("files").and_then(|f| f.as_array()).cloned().unwrap_or_default();
     let mut items = Vec::new();
+    let mut hash_by_name: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for f in &files {
         let path = f.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
         if path.is_empty() || path.ends_with('/') {
@@ -428,6 +472,18 @@ async fn install_modpack_inner(
         let hashes = f.get("hashes").and_then(|h| h.as_object()).cloned().unwrap_or_default();
         let sha1 = hashes.get("sha1").and_then(|v| v.as_str()).map(|s| s.to_string());
         let sha512 = hashes.get("sha512").and_then(|v| v.as_str()).map(|s| s.to_string());
+        if path.starts_with("mods/") {
+            if let Some(h) = &sha1 {
+                let fname = std::path::Path::new(&path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                if !fname.is_empty() {
+                    hash_by_name.insert(fname, h.clone());
+                }
+            }
+        }
         let dest = state.instances_dir().join(&instance.id).join(&path);
         let size = f.get("fileSize").and_then(|v| v.as_u64()).unwrap_or(0);
         items.push(crate::download::DownloadItem {
@@ -494,6 +550,16 @@ async fn install_modpack_inner(
         &source,
     );
 
+    // resolve project_id/version_id for mods via version_files API (best effort)
+    let resolved = resolve_by_hashes(state, &hash_by_name.values().cloned().collect::<Vec<_>>()).await;
+    let mut meta_by_name: std::collections::HashMap<String, (Option<String>, Option<String>)> =
+        std::collections::HashMap::new();
+    for (fname, h) in &hash_by_name {
+        if let Some((pid, vid)) = resolved.get(h) {
+            meta_by_name.insert(fname.clone(), (Some(pid.clone()), Some(vid.clone())));
+        }
+    }
+
     // record installed mods — scan disk and batch-add in one save
     let mods_dir = state.instances_dir().join(&instance.id).join("mods");
     let mut count = 0usize;
@@ -505,11 +571,12 @@ async fn install_modpack_inner(
                     continue;
                 }
                 let size = e.metadata().map(|m| m.len()).unwrap_or(0);
+                let meta = meta_by_name.get(&name).cloned().unwrap_or((None, None));
                 let rec = InstalledContent {
                     filename: name.clone(),
                     source: "modrinth".into(),
-                    project_id: None,
-                    version_id: None,
+                    project_id: meta.0,
+                    version_id: meta.1,
                     name: Some(name),
                     version: None,
                     installed_at: std::time::SystemTime::now()

@@ -32,9 +32,9 @@ body,
 }
 
 .app.light {
-  --accent: #d97f33;
-  --accent-deep: #c06a22;
-  --accent-soft: rgba(217, 127, 51, 0.1);
+  --accent: #ffa050;
+  --accent-deep: #e8893c;
+  --accent-soft: rgba(255, 160, 80, 0.12);
   --bg-0: #f7f6f4;
   --bg-1: #eceef2;
   --bg-2: #e2e4ea;
@@ -80,12 +80,28 @@ body,
 
 .clickable {
   cursor: pointer;
-  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+  transition: transform 0.1s ease, background 0.12s ease, border-color 0.12s ease;
 }
 .clickable:hover {
-  transform: translateY(-2px);
   background: var(--panel-hover);
   border-color: rgba(232, 154, 75, 0.35);
+}
+.clickable:active {
+  transform: scale(0.97);
+}
+
+button {
+  transition: transform 0.1s ease;
+}
+button:active {
+  transform: scale(0.96);
+}
+
+a {
+  transition: transform 0.1s ease;
+}
+a:active {
+  transform: scale(0.96);
 }
 
 .mono {

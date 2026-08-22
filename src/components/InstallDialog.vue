@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { NModal, NSelect, NButton, useMessage } from "naive-ui";
 import { api } from "../api";
 import { useInstancesStore } from "../stores/instances";
+import { useSlidingIndicator } from "../composables/useSlidingIndicator";
+import { IconCopy, IconExternal, IconGlobe } from "./icons";
 import type { ProjectDependency, ProjectHit, ProjectVersion } from "../types";
 
 const props = defineProps<{
   show: boolean;
   project: ProjectHit | null;
+  defaultInstance?: string | null;
 }>();
 const emit = defineEmits<{
   "update:show": [v: boolean];
@@ -21,10 +24,12 @@ const emit = defineEmits<{
 const cardRef = ref<HTMLElement | null>(null);
 function onDocMouseDown(e: MouseEvent) {
   if (!props.show) return;
-  const t = e.target as Node | null;
-  if (cardRef.value && t && !cardRef.value.contains(t)) {
-    emit("update:show", false);
-  }
+  const t = e.target as Element | null;
+  if (!t) return;
+  // 点击弹窗卡片内部、或 naive-ui 的下拉/弹层（teleport 到 body）都不应关闭
+  if (cardRef.value?.contains(t)) return;
+  if (t.closest(".v-binder-follower-container, .n-base-select-menu, .n-popover, .n-dropdown")) return;
+  emit("update:show", false);
 }
 onMounted(() => document.addEventListener("mousedown", onDocMouseDown));
 onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown));
@@ -33,6 +38,16 @@ const instances = useInstancesStore();
 const router = useRouter();
 const message = useMessage();
 
+async function copyName() {
+  if (!props.project?.title) return;
+  try {
+    await navigator.clipboard.writeText(props.project.title);
+    message.success("已复制名称");
+  } catch {
+    message.error("复制失败");
+  }
+}
+
 const versions = ref<ProjectVersion[]>([]);
 const loadingVersions = ref(false);
 const selectedVersion = ref<string | null>(null);
@@ -40,10 +55,46 @@ const selectedInstance = ref<string | null>(null);
 const installing = ref(false);
 const installMsg = ref("");
 const typeFilter = ref<"all" | "release" | "beta" | "alpha">("all");
+
+// 版本类型 tabs 的滑动高亮指示器
+const typeTabBox = ref<HTMLElement | null>(null);
+const { indicatorStyle: typeTabIndicatorStyle, refresh: refreshTypeTabIndicator } = useSlidingIndicator(
+  typeTabBox,
+  () => Array.from(typeTabBox.value?.querySelectorAll<HTMLElement>(".id-type-tabs button") ?? []),
+  () => ["all", "release", "beta", "alpha"].indexOf(typeFilter.value),
+  { axis: "horizontal" }
+);
+watch(typeFilter, () => nextTick(() => refreshTypeTabIndicator()));
 const deps = ref<ProjectDependency[]>([]);
 const loadingDeps = ref(false);
 
 const isModpack = computed(() => props.project?.project_type === "modpack");
+
+const mcWikiUrl = ref("");
+const sourceUrl = computed(() => {
+  const p = props.project;
+  if (!p) return "";
+  if (p.provider === "modrinth") {
+    return `https://modrinth.com/${p.project_type}/${p.slug}`;
+  }
+  if (p.provider === "curseforge") {
+    const kind = p.project_type === "modpack" ? "modpacks"
+      : p.project_type === "resourcepack" ? "texture-packs"
+      : p.project_type === "shader" ? "shaders"
+      : "mc-mods";
+    return `https://www.curseforge.com/minecraft/${kind}/${p.slug}`;
+  }
+  return "";
+});
+
+async function loadMcWikiUrl() {
+  if (!props.project) return;
+  try {
+    mcWikiUrl.value = await api.mcWikiUrl(props.project.title, props.project.slug, props.project.provider);
+  } catch {
+    mcWikiUrl.value = "";
+  }
+}
 
 const instanceOptions = () =>
   instances.instances.map((i) => ({
@@ -70,10 +121,10 @@ const filteredVersions = computed(() => {
 
 async function loadDeps() {
   deps.value = [];
-  if (!props.project || props.project.provider !== "modrinth" || !selectedVersion.value) return;
+  if (!props.project || !selectedVersion.value) return;
   loadingDeps.value = true;
   try {
-    deps.value = await api.projectDependencies(props.project.provider, selectedVersion.value);
+    deps.value = await api.projectDependencies(props.project.provider, props.project.id, selectedVersion.value);
   } catch {
     deps.value = [];
   } finally {
@@ -117,10 +168,14 @@ watch(selectedInstance, () => {
 
 function resetForProject() {
   if (!props.project) return;
-  selectedInstance.value = isModpack.value ? null : (instances.instances[0]?.id ?? null);
+  const pref = props.defaultInstance && instances.instances.some((i) => i.id === props.defaultInstance)
+    ? props.defaultInstance
+    : instances.instances[0]?.id ?? null;
+  selectedInstance.value = isModpack.value ? null : pref;
   installMsg.value = "";
   typeFilter.value = "all";
   loadVersions();
+  loadMcWikiUrl();
 }
 
 async function onOpen() {
@@ -198,6 +253,11 @@ function fmtDate(s: string) {
             <span class="id-type">{{ props.project.project_type }}</span>
           </div>
           <div class="id-desc">{{ props.project.description }}</div>
+          <div class="id-links">
+            <a v-if="mcWikiUrl" :href="mcWikiUrl" target="_blank" class="id-link"><IconGlobe /> MC百科</a>
+            <a v-if="sourceUrl" :href="sourceUrl" target="_blank" class="id-link"><IconExternal /> 官网</a>
+            <button class="id-link" @click="copyName"><IconCopy /> 复制名称</button>
+          </div>
         </div>
       </div>
 
@@ -214,7 +274,8 @@ function fmtDate(s: string) {
         <div class="id-field">
           <div class="id-ver-head">
             <span>选择版本</span>
-            <div class="id-type-tabs">
+            <div ref="typeTabBox" class="id-type-tabs">
+              <div class="indicator" :style="typeTabIndicatorStyle"></div>
               <button :class="{ active: typeFilter === 'all' }" @click="typeFilter = 'all'">全部</button>
               <button :class="{ active: typeFilter === 'release' }" @click="typeFilter = 'release'">正式版</button>
               <button :class="{ active: typeFilter === 'beta' }" @click="typeFilter = 'beta'">测试版</button>
@@ -240,9 +301,9 @@ function fmtDate(s: string) {
         </div>
 
         <!-- dependencies -->
-        <div v-if="deps.length && !isModpack" class="id-deps">
+        <div v-if="(deps.length || loadingDeps) && !isModpack" class="id-deps">
           <span class="id-deps-label">前置依赖</span>
-          <div class="id-deps-list">
+          <div v-if="!loadingDeps" class="id-deps-list">
             <button
               v-for="d in deps"
               :key="d.projectId"
@@ -327,6 +388,30 @@ function fmtDate(s: string) {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.id-links {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.id-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #8b8e9c;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  padding: 3px 9px;
+  text-decoration: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.12s;
+}
+.id-link:hover {
+  color: var(--accent, #e89a4b);
+  border-color: rgba(232, 154, 75, 0.45);
+}
 .id-site {
   display: inline-flex;
   align-items: center;
@@ -369,11 +454,20 @@ function fmtDate(s: string) {
   align-items: center;
 }
 .id-type-tabs {
+  position: relative;
   display: flex;
   gap: 3px;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 8px;
   padding: 2px;
+}
+.id-type-tabs .indicator {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  pointer-events: none;
 }
 .id-type-tabs button {
   border: none;
@@ -387,8 +481,7 @@ function fmtDate(s: string) {
   font-family: inherit;
 }
 .id-type-tabs button.active {
-  background: #e89a4b;
-  color: #1a1208;
+  color: var(--accent);
 }
 .id-loading {
   padding: 20px;

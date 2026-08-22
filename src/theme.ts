@@ -59,10 +59,10 @@ export const darkThemeOverrides: GlobalThemeOverrides = {
 
 export const lightThemeOverrides: GlobalThemeOverrides = {
   common: {
-    primaryColor: ACCENT_DEEP,
-    primaryColorHover: ACCENT,
-    primaryColorPressed: "#c06a22",
-    primaryColorSuppl: ACCENT_DEEP,
+    primaryColor: "#ffa050",
+    primaryColorHover: "#ffb069",
+    primaryColorPressed: "#e8893c",
+    primaryColorSuppl: "#ffa050",
     borderRadius: "10px",
     borderRadiusSmall: "8px",
     fontSize: "14px",

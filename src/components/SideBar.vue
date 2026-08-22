@@ -3,9 +3,19 @@ import { useRoute } from "vue-router";
 import { nextTick, ref, watch } from "vue";
 import AccountChip from "./AccountChip.vue";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
-import { IconCompass, IconDownload, IconGrid, IconHome, IconSettings } from "./icons";
+import {
+  IconChevronsLeft,
+  IconCompass,
+  IconDownload,
+  IconGrid,
+  IconHome,
+  IconList,
+  IconSettings,
+} from "./icons";
 
 const route = useRoute();
+
+const collapsed = ref(true);
 
 const nav = [
   { name: "home", label: "首页", icon: IconHome, to: "/" },
@@ -22,7 +32,7 @@ function isActive(n: { to: string }) {
 
 // Sliding active-highlight indicator
 const navBox = ref<HTMLElement | null>(null);
-const { indicatorStyle, refresh } = useSlidingIndicator(
+const { indicatorStyle, refresh, snap } = useSlidingIndicator(
   navBox,
   () => Array.from(navBox.value?.querySelectorAll<HTMLElement>(".nav-item") ?? []),
   () => nav.findIndex((n) => isActive(n)),
@@ -32,10 +42,11 @@ watch(
   () => route.path,
   () => nextTick(() => refresh())
 );
+watch(collapsed, () => nextTick(() => snap()));
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" :class="{ collapsed }">
     <nav ref="navBox" class="nav">
       <div class="indicator" :style="indicatorStyle"></div>
       <router-link
@@ -44,15 +55,19 @@ watch(
         :to="n.to"
         class="nav-item"
         :class="{ active: isActive(n) }"
+        :title="collapsed ? n.label : undefined"
       >
         <component :is="n.icon" class="nav-icon" />
-        <span>{{ n.label }}</span>
+        <span v-if="!collapsed" class="nav-label">{{ n.label }}</span>
       </router-link>
     </nav>
 
     <div class="side-foot">
-      <AccountChip />
-      <div class="ver">QookiX Launcher v0.1.0</div>
+      <AccountChip :collapsed="collapsed" />
+      <button class="collapse-btn" @click="collapsed = !collapsed">
+        <IconChevronsLeft v-if="!collapsed" />
+        <IconList v-else />
+      </button>
     </div>
   </aside>
 </template>
@@ -65,7 +80,12 @@ watch(
   flex-direction: column;
   padding: 18px 12px 12px;
   border-right: 1px solid var(--border);
-  background: rgba(12, 14, 20, 0.5);
+  background: color-mix(in srgb, var(--bg-1) 72%, transparent);
+  transition: width 0.2s ease, padding 0.2s ease;
+}
+.sidebar.collapsed {
+  width: 60px;
+  padding: 18px 6px 12px;
 }
 .nav {
   position: relative;
@@ -83,11 +103,22 @@ watch(
   font-size: 14px;
   font-weight: 500;
   text-decoration: none;
-  transition: all 0.14s;
+  transition: color 0.14s, background 0.14s, border-color 0.14s, transform 0.1s ease;
   border: 1px solid transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  height: 48px;
+  box-sizing: border-box;
+}
+.nav-item:active {
+  transform: scale(0.96);
+}
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 0;
 }
 .nav-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--panel-hover);
   color: var(--text-1);
 }
 .nav-item.active {
@@ -109,19 +140,45 @@ watch(
 .nav-icon {
   font-size: 18px;
 }
+.nav-label {
+  animation: fade-in 0.2s ease;
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
 .side-foot {
   margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
-.ver {
-  font-size: 11px;
+.collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 48px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
   color: var(--text-3);
-  text-align: center;
-  opacity: 0.8;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 16px;
+  cursor: pointer;
+  transition: color 0.14s, background 0.14s, border-color 0.14s;
+}
+.collapse-btn:hover {
+  background: var(--panel-hover);
+  color: var(--text-1);
+}
+.sidebar.collapsed .collapse-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+.sidebar.collapsed .collapse-btn:hover {
+  background: transparent;
 }
 </style>

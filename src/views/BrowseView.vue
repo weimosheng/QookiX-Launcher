@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
-import { NButton, NDrawer, NDrawerContent, NPagination, NSelect, useMessage } from "naive-ui";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { useRoute } from "vue-router";
+import { NButton, NDrawer, NDrawerContent, NSelect, useMessage } from "naive-ui";
 import { api } from "../api";
 import InstallDialog from "../components/InstallDialog.vue";
 import ProjectCard from "../components/ProjectCard.vue";
+import SimplePagination from "../components/SimplePagination.vue";
 import {
   IconAlignJustify,
   IconClose,
@@ -14,15 +16,19 @@ import {
 } from "../components/icons";
 import { cnCfName, CN_CATS } from "../utils/categories";
 import { cacheGet, cacheSet } from "../utils/cache";
-import type { ProjectDependency, ProjectHit } from "../types";
+import { useSlidingIndicator } from "../composables/useSlidingIndicator";
+import type { Instance, ProjectDependency, ProjectHit } from "../types";
 
 const message = useMessage();
+const route = useRoute();
 const provider = ref<"all" | "modrinth" | "curseforge">("all");
-const query = ref("");
+const query = ref(typeof route.query.q === "string" ? route.query.q : "");
 const type = ref("mod");
 const category = ref("");
 const page = ref(0);
 const results = ref<ProjectHit[]>([]);
+const cfError = ref("");
+const cfCount = ref(0);
 const total = ref(0);
 const loading = ref(false);
 const cfCategories = ref<{ id: number; name: string }[]>([]);
@@ -80,13 +86,37 @@ const catOptions = ref<{ label: string; value: string }[]>([]);
 const installTarget = ref<ProjectHit | null>(null);
 const showInstall = ref(false);
 
+// 实例选择：非整合包类型下可选择实例，自动筛选游戏版本和加载器
+const instances = ref<Instance[]>([]);
+const selectedInstanceId = ref<string | null>(null);
+const instanceOptions = computed(() => [
+  { label: "不关联实例", value: "" },
+  ...instances.value.map((i) => ({
+    label: `${i.name} (${i.mc_version}${i.loader !== "vanilla" ? ` ${i.loader}` : ""})`,
+    value: i.id,
+  })),
+]);
+const showInstanceSelect = computed(() => type.value !== "modpack" && instances.value.length > 0);
+const showLoaderFilter = computed(() => type.value === "mod" || type.value === "modpack");
+const instanceSelectWidth = computed(() => {
+  const inst = instances.value.find((i) => i.id === selectedInstanceId.value);
+  if (!inst) return 140;
+  const label = `${inst.name} (${inst.mc_version}${inst.loader !== "vanilla" ? ` ${inst.loader}` : ""})`;
+  return Math.max(140, Math.min(label.length * 8 + 40, 300));
+});
+
+let searchSeq = 0;
 async function search() {
+  const seq = ++searchSeq;
   // 短期缓存（5 分钟），避免来回切换页面重复拉取
   const cacheKey = `browse:${provider.value}|${query.value}|${type.value}|${category.value}|${page.value}|${gameVersion.value}|${loader.value}|${sort.value}|${pageSize.value}`;
-  const cached = cacheGet<{ hits: ProjectHit[]; total: number }>(cacheKey);
+  const cached = cacheGet<{ hits: ProjectHit[]; total: number; cf_error?: string | null; cf_count?: number }>(cacheKey);
   if (cached) {
+    if (seq !== searchSeq) return;
     results.value = cached.hits;
-    total.value = cached.total;
+    if (page.value === 0) total.value = cached.total;
+    cfError.value = cached.cf_error ?? "";
+    cfCount.value = cached.cf_count ?? 0;
     return;
   }
   loading.value = true;
@@ -102,14 +132,19 @@ async function search() {
       sort.value,
       pageSize.value
     );
+    if (seq !== searchSeq) return;
     results.value = res.hits;
-    total.value = res.total;
+    if (page.value === 0) total.value = res.total;
+    cfError.value = res.cf_error ?? "";
+    cfCount.value = res.cf_count ?? 0;
     cacheSet(cacheKey, res, 5 * 60 * 1000);
   } catch (e) {
+    if (seq !== searchSeq) return;
     message.error(String(e));
     results.value = [];
+    cfError.value = "";
   } finally {
-    loading.value = false;
+    if (seq === searchSeq) loading.value = false;
   }
 }
 
@@ -200,6 +235,7 @@ watch(query, () => {
 
 watch([provider, type], async () => {
   category.value = "";
+  if (!showLoaderFilter.value) loader.value = "";
   page.value = 0;
   if (provider.value === "curseforge") await loadCfCategories();
   rebuildOptions();
@@ -212,8 +248,30 @@ watch(category, () => {
 });
 
 watch([gameVersion, loader], () => {
+  // 如果手动改了版本/加载器，且不再匹配所选实例，则取消关联
+  const inst = instances.value.find((i) => i.id === selectedInstanceId.value);
+  if (inst) {
+    const versionMismatch = gameVersion.value !== inst.mc_version;
+    const loaderMismatch = showLoaderFilter.value && loader.value !== (inst.loader === "vanilla" ? "" : inst.loader);
+    if (versionMismatch || loaderMismatch) {
+      selectedInstanceId.value = null;
+    }
+  }
   page.value = 0;
   search();
+});
+
+watch(selectedInstanceId, () => {
+  const inst = instances.value.find((i) => i.id === selectedInstanceId.value);
+  if (inst) {
+    gameVersion.value = inst.mc_version;
+    if (showLoaderFilter.value) {
+      loader.value = inst.loader === "vanilla" ? "" : inst.loader;
+    }
+  } else {
+    gameVersion.value = "";
+    loader.value = "";
+  }
 });
 
 watch([sort, pageSize], () => {
@@ -227,14 +285,13 @@ function openInstall(p: ProjectHit) {
 }
 
 async function openInstallDep(dep: ProjectDependency) {
+  const provider = installTarget.value?.provider ?? "modrinth";
   try {
-    // 拉取依赖项目的完整信息（图标/作者/描述/下载量等）
-    const info = await api.projectInfo("modrinth", dep.projectId);
+    const info = await api.projectInfo(provider, dep.projectId);
     installTarget.value = info;
   } catch {
-    // 拉取失败时退回精简数据
     installTarget.value = {
-      provider: "modrinth",
+      provider,
       id: dep.projectId,
       slug: dep.slug,
       title: dep.title,
@@ -252,7 +309,39 @@ async function openInstallDep(dep: ProjectDependency) {
   showInstall.value = true;
 }
 
+// 类型卡片的滑动高亮指示器（先扩展包裹再收缩）
+const typeBox = ref<HTMLElement | null>(null);
+const { indicatorStyle: typeIndicatorStyle, refresh: refreshTypeIndicator } = useSlidingIndicator(
+  typeBox,
+  () => Array.from(typeBox.value?.querySelectorAll<HTMLElement>(".type-card button") ?? []),
+  () => types.findIndex((t) => t.key === type.value),
+  { axis: "horizontal" }
+);
+watch(type, () => nextTick(() => refreshTypeIndicator()));
+
+// 视图切换的滑动高亮指示器（网格/列表/紧凑）
+const viewBox = ref<HTMLElement | null>(null);
+const { indicatorStyle: viewIndicatorStyle, refresh: refreshViewIndicator } = useSlidingIndicator(
+  viewBox,
+  () => Array.from(viewBox.value?.querySelectorAll<HTMLElement>(".view-switch button") ?? []),
+  () => ["grid", "list", "compact"].indexOf(view.value),
+  { axis: "horizontal" }
+);
+watch(view, () => nextTick(() => refreshViewIndicator()));
+
 onMounted(async () => {
+  try {
+    instances.value = await api.listInstances();
+  } catch {
+    instances.value = [];
+  }
+  // 默认选择最近游玩的实例
+  if (instances.value.length > 0 && type.value !== "modpack") {
+    const sorted = [...instances.value].sort(
+      (a, b) => (b.last_played ?? 0) - (a.last_played ?? 0)
+    );
+    selectedInstanceId.value = sorted[0].id;
+  }
   rebuildOptions();
   loadVersions();
   await search();
@@ -266,7 +355,8 @@ onMounted(async () => {
       <p class="sub">从 Modrinth 与 CurseForge 一键浏览、安装与升级模组、整合包、资源包和光影，支持全部来源整合浏览</p>
     </div>
 
-    <div class="type-card glass">
+    <div ref="typeBox" class="type-card glass">
+      <div class="indicator" :style="typeIndicatorStyle"></div>
       <button
         v-for="t in types"
         :key="t.key"
@@ -283,6 +373,14 @@ onMounted(async () => {
           <IconSearch />
           <input v-model="query" placeholder="搜索内容…（如 sodium / iris / 某整合包）" />
         </div>
+        <n-select
+          v-if="showInstanceSelect"
+          v-model:value="selectedInstanceId"
+          :options="instanceOptions"
+          size="small"
+          class="tb-select instance-select"
+          :style="{ width: instanceSelectWidth + 'px' }"
+        />
       </div>
       <div class="toolbar-row">
         <n-select
@@ -297,7 +395,8 @@ onMounted(async () => {
           size="small"
           class="tb-select page-size"
         />
-        <div class="view-switch">
+        <div ref="viewBox" class="view-switch">
+          <div class="indicator" :style="viewIndicatorStyle"></div>
           <button :class="{ active: view === 'grid' }" title="网格" @click="view = 'grid'"><IconGrid /></button>
           <button :class="{ active: view === 'list' }" title="列表" @click="view = 'list'"><IconList /></button>
           <button :class="{ active: view === 'compact' }" title="紧凑列表" @click="view = 'compact'"><IconAlignJustify /></button>
@@ -336,9 +435,13 @@ onMounted(async () => {
       免费申请，并在 <router-link to="/settings">设置</router-link> 中填写。
     </div>
 
-    <div v-if="loading" class="center">搜索中…</div>
-    <div v-else-if="!results.length" class="center">没有找到相关内容</div>
-    <div v-else class="grid" :class="`view-${view}`">
+    <div v-if="provider === 'all' && cfError && !loading" class="cf-hint glass">
+      CurseForge 来源加载失败：{{ cfError }}。请前往 <router-link to="/settings">设置</router-link> 检查 API Key。
+    </div>
+
+    <div v-show="loading" class="center">搜索中…</div>
+    <div v-show="!loading && !results.length" class="center">没有找到相关内容</div>
+    <div v-show="!loading && results.length" class="grid" :class="`view-${view}`">
       <ProjectCard
         v-for="p in results"
         :key="p.provider + p.id"
@@ -350,10 +453,9 @@ onMounted(async () => {
 
     <div v-if="total > 20" class="pager">
       <span class="pager-total">共 {{ total }} 条</span>
-      <n-pagination
+      <SimplePagination
         :page="page + 1"
         :page-count="pageCount"
-        :page-slot="7"
         @update:page="onPage"
       />
     </div>
@@ -364,7 +466,7 @@ onMounted(async () => {
           <label>游戏版本</label>
           <n-select v-model:value="gameVersion" :options="versionOptions" size="small" />
         </div>
-        <div class="filter-group">
+        <div v-if="showLoaderFilter" class="filter-group">
           <label>加载器</label>
           <n-select v-model:value="loader" :options="loaderOptions" size="small" />
         </div>
@@ -380,7 +482,7 @@ onMounted(async () => {
       </n-drawer-content>
     </n-drawer>
 
-    <InstallDialog v-model:show="showInstall" :project="installTarget" @install-dep="openInstallDep" />
+    <InstallDialog v-model:show="showInstall" :project="installTarget" :default-instance="selectedInstanceId" @install-dep="openInstallDep" />
   </div>
 </template>
 
@@ -442,11 +544,20 @@ onMounted(async () => {
   font-family: inherit;
 }
 .type-card {
+  position: relative;
   display: flex;
   justify-content: flex-start;
   flex-wrap: wrap;
   gap: 8px;
   padding: 10px 14px;
+}
+.type-card .indicator {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  pointer-events: none;
 }
 .type-card button {
   border: none;
@@ -464,7 +575,6 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.05);
 }
 .type-card button.active {
-  background: var(--accent-soft);
   color: var(--accent);
 }
 .filter-btn {
@@ -543,12 +653,27 @@ onMounted(async () => {
 .tb-select.page-size {
   width: 130px;
 }
+.tb-select.instance-select {
+  flex-shrink: 0;
+}
+.tb-select.instance-select :deep(.n-base-selection) {
+  --n-height: 35px !important;
+}
 .view-switch {
+  position: relative;
   display: flex;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 9px;
   padding: 3px;
   gap: 2px;
+}
+.view-switch .indicator {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  pointer-events: none;
 }
 .view-switch button {
   border: none;
@@ -567,8 +692,7 @@ onMounted(async () => {
   color: var(--text-1);
 }
 .view-switch button.active {
-  background: var(--accent);
-  color: #1a1208;
+  color: var(--accent);
 }
 .filter-tags {
   display: flex;

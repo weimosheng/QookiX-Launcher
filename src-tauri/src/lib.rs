@@ -7,6 +7,7 @@ mod instances;
 mod java;
 mod launch;
 mod mcmeta;
+mod mcmod;
 mod models;
 mod modpack;
 mod modrinth;
@@ -69,6 +70,10 @@ pub fn run() {
             commands::list_instance_files,
             commands::import_modpack,
             commands::import_instance_image,
+            commands::scan_minecraft_import,
+            commands::estimate_download,
+            commands::estimate_import,
+            commands::import_minecraft_folder,
             // accounts
             commands::list_accounts,
             commands::login_offline,
@@ -81,6 +86,7 @@ pub fn run() {
             commands::curseforge_categories,
             commands::project_info,
             commands::project_dependencies,
+            commands::mc_wiki_url,
             commands::install_content,
             commands::check_updates,
             commands::apply_update,

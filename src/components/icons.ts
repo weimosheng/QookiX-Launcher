@@ -33,6 +33,7 @@ export const IconDownload = make(`<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-
 export const IconFolder = make(`<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>`);
 export const IconTrash = make(`<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>`);
 export const IconRefresh = make(`<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>`);
+export const IconRepeat = make(`<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>`);
 export const IconClose = make(`<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>`);
 export const IconMinus = make(`<line x1="5" y1="12" x2="19" y2="12"/>`);
 export const IconSquare = make(`<rect x="5" y="5" width="14" height="14" rx="1"/>`);
@@ -51,6 +52,7 @@ export const IconList = make(`<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y
 export const IconAlignJustify = make(`<line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/>`);
 export const IconChevronLeft = make(`<polyline points="15 18 9 12 15 6"/>`);
 export const IconChevronRight = make(`<polyline points="9 18 15 12 9 6"/>`);
+export const IconChevronsLeft = make(`<polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/>`);
 export const IconChevronDown = make(`<polyline points="6 9 12 15 18 9"/>`);
 export const IconChevronUp = make(`<polyline points="18 15 12 9 6 15"/>`);
 export const IconPackage = make(`<path d="M16.5 9.4 7.55 4.24"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" y1="22" x2="12" y2="12"/>`);

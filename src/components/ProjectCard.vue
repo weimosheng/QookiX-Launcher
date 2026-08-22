@@ -59,6 +59,7 @@ function typeLabel(t: string) {
       </div>
       <div class="p-foot">
         <div class="p-stats">
+          <span class="provider-badge" :class="project.provider">{{ project.provider === 'modrinth' ? 'Modrinth' : 'CurseForge' }}</span>
           <span class="type-badge">{{ typeLabel(project.project_type) }}</span>
           <span class="dl"><IconDownload /> {{ fmt(project.downloads) }}</span>
           <span v-if="project.follows" class="fl"><IconHeart /> {{ fmt(project.follows) }}</span>
@@ -94,6 +95,7 @@ function typeLabel(t: string) {
       </div>
       <div class="p-side">
         <div class="p-stats">
+          <span class="provider-badge" :class="project.provider">{{ project.provider === 'modrinth' ? 'Modrinth' : 'CurseForge' }}</span>
           <span class="type-badge">{{ typeLabel(project.project_type) }}</span>
           <span class="dl"><IconDownload /> {{ fmt(project.downloads) }}</span>
           <span v-if="project.follows" class="fl"><IconHeart /> {{ fmt(project.follows) }}</span>
@@ -123,6 +125,10 @@ function typeLabel(t: string) {
   padding: 14px;
   gap: 12px;
   cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.p-card:active {
+  transform: scale(0.97);
 }
 .copy-btn {
   width: 30px;
@@ -278,6 +284,20 @@ function typeLabel(t: string) {
   padding: 1px 7px;
   border-radius: 6px;
   font-weight: 600;
+}
+.provider-badge {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+.provider-badge.modrinth {
+  background: rgba(0, 175, 92, 0.15);
+  color: #2bbd6e;
+}
+.provider-badge.curseforge {
+  background: rgba(241, 100, 54, 0.15);
+  color: #f17a36;
 }
 .install-btn {
   display: inline-flex;

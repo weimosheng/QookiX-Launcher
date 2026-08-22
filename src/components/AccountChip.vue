@@ -6,6 +6,8 @@ import MsLoginDialog from "./MsLoginDialog.vue";
 import { IconCheck, IconChevronDown, IconTrash, IconUser, IconPlus } from "./icons";
 import type { Account } from "../types";
 
+const props = defineProps<{ collapsed?: boolean }>();
+
 const accounts = useAccountsStore();
 const message = useMessage();
 
@@ -133,7 +135,7 @@ function typeLabel(a: Account) {
     class="acctm-popover"
   >
     <template #trigger>
-      <div class="acct-chip clickable" :class="{ empty: !accounts.accounts.length }">
+      <div class="acct-chip clickable" :class="{ empty: !accounts.accounts.length, collapsed: props.collapsed }">
         <div class="avatar">
           <template v-if="current">
             <img v-if="avatar(current.uuid)" :src="avatar(current.uuid)" alt="" @error="onAvatarError(current.uuid)" />
@@ -141,20 +143,22 @@ function typeLabel(a: Account) {
           </template>
           <IconUser v-else />
         </div>
-        <div class="acct-info">
-          <div class="acct-name text-ellipsis">{{ current?.username ?? "未登录" }}</div>
-          <div class="acct-type">
-            {{
-              current
-                ? current.type === "microsoft"
-                  ? "正版账号"
-                  : "离线账号"
-                : "点击添加账号"
-            }}
+        <template v-if="!props.collapsed">
+          <div class="acct-info">
+            <div class="acct-name text-ellipsis">{{ current?.username ?? "未登录" }}</div>
+            <div class="acct-type">
+              {{
+                current
+                  ? current.type === "microsoft"
+                    ? "正版账号"
+                    : "离线账号"
+                  : "点击添加账号"
+              }}
+            </div>
           </div>
-        </div>
-        <IconChevronDown v-if="accounts.accounts.length" class="chev" />
-        <IconUser v-else class="chev" />
+          <IconChevronDown v-if="accounts.accounts.length" class="chev" />
+          <IconUser v-else class="chev" />
+        </template>
       </div>
     </template>
 
@@ -230,13 +234,24 @@ function typeLabel(a: Account) {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 10px;
+  padding: 0 10px;
+  height: 48px;
+  box-sizing: border-box;
   border-radius: 12px;
   background: var(--panel);
   border: 1px solid var(--border);
 }
 .acct-chip.empty {
   opacity: 0.85;
+}
+.acct-chip.collapsed {
+  justify-content: center;
+  padding: 0;
+}
+.acct-chip.collapsed .avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 11px;
 }
 .avatar {
   width: 34px;
@@ -250,6 +265,7 @@ function typeLabel(a: Account) {
   color: var(--text-3);
   font-size: 17px;
   flex-shrink: 0;
+  transition: width 0.2s ease, height 0.2s ease;
 }
 .avatar img {
   width: 100%;
@@ -259,6 +275,7 @@ function typeLabel(a: Account) {
 .acct-info {
   min-width: 0;
   flex: 1;
+  animation: fade-in 0.2s ease;
 }
 .acct-name {
   font-size: 13px;
@@ -273,6 +290,11 @@ function typeLabel(a: Account) {
   color: var(--text-3);
   font-size: 14px;
   flex-shrink: 0;
+  animation: fade-in 0.2s ease;
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 </style>
 

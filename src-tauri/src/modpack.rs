@@ -126,9 +126,112 @@ pub async fn apply(
         &["modrinth.index.json", "manifest.json", "META-INF/"],
     )?;
 
-    // record staged mods
+    // record staged mods — prefer pack index metadata, fall back to disk scan
     let mods_dir = instance_dir.join("mods");
-    if mods_dir.is_dir() {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let mut records: Vec<InstalledContent> = Vec::new();
+    let mut handled = false;
+
+    // Modrinth .mrpack: resolve project_id/version_id from sha1 hashes
+    if let Ok(bytes) = crate::util::read_zip_entry(path, "modrinth.index.json") {
+        handled = true;
+        if let Ok(index) = serde_json::from_slice::<Value>(&bytes) {
+            let files = index.get("files").and_then(|f| f.as_array()).cloned().unwrap_or_default();
+            let mut hash_by_name: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            for f in &files {
+                let p = f.get("path").and_then(|p| p.as_str()).unwrap_or("");
+                if !p.starts_with("mods/") || p.ends_with('/') {
+                    continue;
+                }
+                let fname = std::path::Path::new(p)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                if fname.is_empty() {
+                    continue;
+                }
+                if let Some(h) = f.get("hashes").and_then(|h| h.get("sha1")).and_then(|v| v.as_str()) {
+                    hash_by_name.insert(fname, h.to_string());
+                }
+            }
+            let resolved =
+                crate::modrinth::resolve_by_hashes(state, &hash_by_name.values().cloned().collect::<Vec<_>>()).await;
+            for (fname, h) in &hash_by_name {
+                if !mods_dir.join(fname).exists() {
+                    continue;
+                }
+                let size = std::fs::metadata(mods_dir.join(fname)).map(|m| m.len()).unwrap_or(0);
+                let (pid, vid) = resolved
+                    .get(h)
+                    .map(|(p, v)| (Some(p.clone()), Some(v.clone())))
+                    .unwrap_or((None, None));
+                records.push(InstalledContent {
+                    filename: fname.clone(),
+                    source: "modrinth".into(),
+                    project_id: pid,
+                    version_id: vid,
+                    name: Some(fname.clone()),
+                    version: None,
+                    installed_at: now,
+                    size,
+                    icon: None,
+                    enabled: true,
+                });
+            }
+        }
+    }
+
+    // CurseForge: resolve fileName from manifest projectID/fileID via API
+    if !handled {
+        if let Ok(bytes) = crate::util::read_zip_entry(path, "manifest.json") {
+            handled = true;
+            if let Ok(manifest) = serde_json::from_slice::<Value>(&bytes) {
+                let files = manifest.get("files").and_then(|f| f.as_array()).cloned().unwrap_or_default();
+                for f in &files {
+                    let Some(pid) = f.get("projectID").and_then(|v| v.as_u64()) else { continue };
+                    let Some(fid) = f.get("fileID").and_then(|v| v.as_u64()) else { continue };
+                    let fname = match crate::curseforge::file_info(state, pid, fid).await {
+                        Ok(info) => info
+                            .get("data")
+                            .and_then(|d| d.get("fileName"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        Err(_) => continue,
+                    };
+                    if fname.is_empty() || !fname.ends_with(".jar") {
+                        continue;
+                    }
+                    if !mods_dir.join(&fname).exists() {
+                        continue;
+                    }
+                    let size = std::fs::metadata(mods_dir.join(&fname)).map(|m| m.len()).unwrap_or(0);
+                    records.push(InstalledContent {
+                        filename: fname.clone(),
+                        source: "curseforge".into(),
+                        project_id: Some(pid.to_string()),
+                        version_id: Some(fid.to_string()),
+                        name: Some(fname),
+                        version: Some(fid.to_string()),
+                        installed_at: now,
+                        size,
+                        icon: None,
+                        enabled: true,
+                    });
+                }
+            }
+            if records.is_empty() {
+                handled = false;
+            }
+        }
+    }
+
+    // Fallback: scan disk (offline import or unrecognized format)
+    if !handled && mods_dir.is_dir() {
         if let Ok(entries) = std::fs::read_dir(&mods_dir) {
             for e in entries.flatten() {
                 let name = e.file_name().to_string_lossy().to_string();
@@ -136,24 +239,24 @@ pub async fn apply(
                     continue;
                 }
                 let size = e.metadata().map(|m| m.len()).unwrap_or(0);
-                let rec = InstalledContent {
+                records.push(InstalledContent {
                     filename: name.clone(),
                     source: "modpack".into(),
                     project_id: None,
                     version_id: None,
                     name: Some(name),
                     version: None,
-                    installed_at: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0),
+                    installed_at: now,
                     size,
                     icon: None,
                     enabled: true,
-                };
-                let _ = crate::instances::add_content(state, &instance.id, "mod", rec);
+                });
             }
         }
+    }
+
+    for rec in records {
+        let _ = crate::instances::add_content(state, &instance.id, "mod", rec);
     }
     crate::install::emit_progress(
         app,

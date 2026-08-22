@@ -67,6 +67,36 @@ export const api = {
     }>("list_instance_files", { instanceId, sub }),
   importModpack: (filePath: string) => invoke<Instance>("import_modpack", { filePath }),
   importInstanceImage: (sourcePath: string) => invoke<string>("import_instance_image", { sourcePath }),
+  scanMinecraftImport: (source: string) => invoke<void>("scan_minecraft_import", { source }),
+  estimateDownload: (mcVersion: string) =>
+    invoke<{
+      download_files: number;
+      download_bytes: number;
+      assets_known: boolean;
+    }>("estimate_download", { mcVersion }),
+  estimateImport: (source: string, rawIds: string[]) =>
+    invoke<{
+      import_files: number;
+      import_bytes: number;
+    }>("estimate_import", { source, rawIds }),
+  importMinecraftFolder: (
+    source: string,
+    name: string,
+    rawIds: string[],
+    mcVersions: string[],
+    loaders: string[],
+    loaderVersions: (string | null)[],
+    mode: "copy" | "symlink"
+  ) =>
+    invoke<{ instance_id: string; total_bytes: number; file_count: number }[]>("import_minecraft_folder", {
+      source,
+      name,
+      rawIds,
+      mcVersions,
+      loaders,
+      loaderVersions,
+      mode,
+    }),
 
   // accounts
   listAccounts: () => invoke<Account[]>("list_accounts"),
@@ -87,7 +117,7 @@ export const api = {
     sort?: string,
     pageSize?: number
   ) =>
-    invoke<{ hits: ProjectHit[]; total: number }>("browse", {
+    invoke<{ hits: ProjectHit[]; total: number; cf_error?: string | null; cf_count?: number }>("browse", {
       provider,
       query,
       projectType,
@@ -105,11 +135,13 @@ export const api = {
       mcVersion,
       loader,
     }),
-  projectDependencies: (provider: string, versionId: string) =>
+  projectDependencies: (provider: string, projectId: string, versionId: string) =>
     invoke<import("./types").ProjectDependency[]>("project_dependencies", {
       provider,
+      projectId,
       versionId,
     }),
+  mcWikiUrl: (name: string, slug?: string, provider?: string) => invoke<string>("mc_wiki_url", { name, slug, provider }),
   curseforgeCategories: (projectType: string) =>
     invoke<{ categories: { id: number; name: string }[] }>("curseforge_categories", { projectType }),
   projectInfo: (provider: string, projectId: string) =>

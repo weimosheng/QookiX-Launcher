@@ -228,6 +228,7 @@ pub async fn install_game(
         instance_id: instance.id.clone(),
         total_bytes: 0,
         file_count: total.max(1),
+        symlink_fallback: false,
     };
     let _ = patched_path;
     emit_progress(&app, task_id, "done", "安装完成", 1, 1, instance, &source);

@@ -177,6 +177,8 @@ pub fn http_client() -> reqwest::Client {
             "QookiX-Launcher/{} (desktop)",
             env!("CARGO_PKG_VERSION")
         ))
+        .gzip(true)
+        .brotli(true)
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(60))
         .build()

@@ -1,14 +1,35 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { nextTick, onMounted, ref, watch } from "vue";
 import { NTabs, NTabPane, NSwitch, useMessage } from "naive-ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useSettingsStore } from "../stores/settings";
 import { api } from "../api";
+import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import { IconCheck, IconCpu, IconSearch } from "../components/icons";
 import type { JavaInfo } from "../types";
 
 const settings = useSettingsStore();
 const message = useMessage();
+
+// 主题 seg 滑动高亮
+const themeSegRef = ref<HTMLElement | null>(null);
+const { indicatorStyle: themeSegStyle, refresh: refreshThemeSeg } = useSlidingIndicator(
+  themeSegRef,
+  () => Array.from(themeSegRef.value?.querySelectorAll<HTMLElement>(".seg button") ?? []),
+  () => (settings.settings?.theme === "light" ? 1 : 0),
+  { axis: "horizontal" }
+);
+watch(() => settings.settings?.theme, () => nextTick(() => refreshThemeSeg()));
+
+// 关闭行为 seg 滑动高亮
+const closeSegRef = ref<HTMLElement | null>(null);
+const { indicatorStyle: closeSegStyle, refresh: refreshCloseSeg } = useSlidingIndicator(
+  closeSegRef,
+  () => Array.from(closeSegRef.value?.querySelectorAll<HTMLElement>(".seg button") ?? []),
+  () => (settings.settings?.close_behavior === "quit" ? 1 : 0),
+  { axis: "horizontal" }
+);
+watch(() => settings.settings?.close_behavior, () => nextTick(() => refreshCloseSeg()));
 
 const javaCandidates = ref<JavaInfo[]>([]);
 const detecting = ref(false);
@@ -89,7 +110,8 @@ onMounted(() => {
             <h3>外观与行为</h3>
             <div class="choice-row">
               <span>主题</span>
-              <div class="seg">
+              <div ref="themeSegRef" class="seg">
+                <div class="indicator" :style="themeSegStyle"></div>
                 <button
                   :class="{ active: settings.settings.theme === 'dark' }"
                   @click="settings.patch({ theme: 'dark' })"
@@ -106,7 +128,8 @@ onMounted(() => {
             </div>
             <div class="choice-row">
               <span>关闭窗口时</span>
-              <div class="seg">
+              <div ref="closeSegRef" class="seg">
+                <div class="indicator" :style="closeSegStyle"></div>
                 <button
                   :class="{ active: settings.settings.close_behavior === 'minimize' }"
                   @click="settings.patch({ close_behavior: 'minimize' })"
@@ -471,10 +494,19 @@ textarea.text-input {
   color: var(--text-2);
 }
 .seg {
+  position: relative;
   display: flex;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 9px;
   padding: 3px;
+}
+.seg .indicator {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  pointer-events: none;
 }
 .seg button {
   border: none;
@@ -488,8 +520,7 @@ textarea.text-input {
   font-family: inherit;
 }
 .seg button.active {
-  background: var(--accent);
-  color: #1a1208;
+  color: var(--accent);
 }
 .dir-row {
   display: flex;

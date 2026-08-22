@@ -43,6 +43,22 @@ export function useSlidingIndicator(
     return null;
   }
 
+  // 记录上一次的矩形，用于“先扩展包裹、再收缩到目标”的两段式动画
+  let last: { top: number; height: number; left: number; width: number } | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  function setRect(rect: { top: number; height: number; left: number; width: number }, dur: string) {
+    const base: Record<string, string> =
+      axis === "vertical"
+        ? { top: `${rect.top}px`, height: `${rect.height}px` }
+        : { left: `${rect.left}px`, width: `${rect.width}px` };
+    indicatorStyle.value = {
+      opacity: "1",
+      ...base,
+      transition: `top ${dur}, height ${dur}, left ${dur}, width ${dur}, opacity 0.18s`,
+    };
+  }
+
   function update() {
     const container = toElement(containerRef.value);
     if (!container) return;
@@ -52,19 +68,35 @@ export function useSlidingIndicator(
     if (!el) return;
     const r = el.getBoundingClientRect();
     const c = container.getBoundingClientRect();
-    if (axis === "vertical") {
-      indicatorStyle.value = {
-        opacity: "1",
-        top: `${r.top - c.top}px`,
-        height: `${r.height}px`,
-      };
-    } else {
-      indicatorStyle.value = {
-        opacity: "1",
-        left: `${r.left - c.left}px`,
-        width: `${r.width}px`,
-      };
+    const to = {
+      top: r.top - c.top,
+      height: r.height,
+      left: r.left - c.left,
+      width: r.width,
+    };
+    if (!last) {
+      // 首次定位：直接到位，无动画
+      setRect(to, "0s");
+      last = to;
+      return;
     }
+    if (timer) clearTimeout(timer);
+    // 阶段 1：扩展包裹“当前 + 目标”两段的整个区间
+    setRect(
+      {
+        top: Math.min(last.top, to.top),
+        height: Math.max(last.top + last.height, to.top + to.height) - Math.min(last.top, to.top),
+        left: Math.min(last.left, to.left),
+        width: Math.max(last.left + last.width, to.left + to.width) - Math.min(last.left, to.left),
+      },
+      "0.18s"
+    );
+    // 阶段 2：收缩贴合到目标按钮
+    timer = setTimeout(() => {
+      setRect(to, "0.18s");
+      timer = null;
+    }, 180);
+    last = to;
   }
 
   let raf = 0;
@@ -74,14 +106,38 @@ export function useSlidingIndicator(
     raf = requestAnimationFrame(update);
   }
 
+  /** Instantly snap to the active item without animation (use after layout changes). */
+  function snap() {
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => {
+      const container = toElement(containerRef.value);
+      if (!container) return;
+      const el = toElement(getItems()[getActive()]);
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const c = container.getBoundingClientRect();
+      const to = {
+        top: r.top - c.top,
+        height: r.height,
+        left: r.left - c.left,
+        width: r.width,
+      };
+      if (timer) clearTimeout(timer);
+      timer = null;
+      setRect(to, "0s");
+      last = to;
+    });
+  }
+
   onMounted(() => {
     update();
     window.addEventListener("resize", refresh);
   });
   onBeforeUnmount(() => {
+    if (timer) clearTimeout(timer);
     cancelAnimationFrame(raf);
     window.removeEventListener("resize", refresh);
   });
 
-  return { indicatorStyle, update, refresh };
+  return { indicatorStyle, update, refresh, snap };
 }

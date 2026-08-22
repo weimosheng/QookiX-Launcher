@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { NSelect, NInput, useMessage } from "naive-ui";
 import { open } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import { api } from "../api";
 import { useInstancesStore } from "../stores/instances";
 import AppIcon from "../components/AppIcon.vue";
@@ -14,7 +15,7 @@ const router = useRouter();
 const instances = useInstancesStore();
 const message = useMessage();
 
-const mode = ref<"fresh" | "import">("fresh");
+const mode = ref<"fresh" | "import" | "importmc">("fresh");
 
 // ---- fresh create ----
 const name = ref("");
@@ -54,6 +55,8 @@ const filteredVersions = computed(() => {
 });
 
 watch([mcVersion, loader], async ([mc, ld]) => {
+  // importmc mode auto-detects the loader per version; nothing to fetch here
+  if (mode.value === "importmc") return;
   loaderVersion.value = null;
   if (!mc || ld === "vanilla") {
     loaderVersions.value = [];
@@ -119,6 +122,198 @@ async function importPack() {
   }
 }
 
+// ---- import existing .minecraft folder ----
+const importSrc = ref("");
+// base instance name is derived from the selected folder (no manual entry needed)
+const importMcBaseName = computed(() =>
+  importSrc.value ? pathBasename(importSrc.value) : ""
+);
+const migrateMode = ref<"copy" | "symlink">("copy");
+const scanning = ref(false);
+const importingMc = ref(false);
+// live migration progress (one entry per selected version)
+const importProgress = ref<{ current: number; total: number; name: string; phase: string; done: boolean } | null>(null);
+const mcVersions = ref<{ id: string; raw_id: string; inherits_base: boolean; loader: string; loader_version: string | null; size_bytes: number }[]>([]);
+
+// Group detected versions by loader, sorted by loader then by id, so the long
+// list stays readable instead of one undifferentiated block.
+const loaderOrder = ["fabric", "forge", "neoforge", "quilt", "optifine", "vanilla"];
+const groupedVersions = computed(() => {
+  const map = new Map<string, typeof mcVersions.value>();
+  for (const v of mcVersions.value) {
+    if (!map.has(v.loader)) map.set(v.loader, []);
+    map.get(v.loader)!.push(v);
+  }
+  const groups: { loader: string; items: typeof mcVersions.value }[] = [];
+  for (const key of loaderOrder) {
+    if (map.has(key)) {
+      const items = map.get(key)!;
+      items.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+      groups.push({ loader: key, items });
+      map.delete(key);
+    }
+  }
+  // any loader not in the known order (shouldn't happen) goes at the end
+  for (const [key, items] of map) {
+    items.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+    groups.push({ loader: key, items });
+  }
+  return groups;
+});
+// multi-select: which detected versions to import (one instance each)
+const selectedVersions = ref<string[]>([]);
+// live statistics streamed from the backend as it walks the folder
+const scan = ref<{
+  import_files: number;
+  import_bytes: number;
+  download_files: number;
+  download_bytes: number;
+  assets_known: boolean;
+} | null>(null);
+
+const hasScan = computed(() => scan.value !== null);
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+async function pickMcFolder() {
+  const dir = await open({ multiple: false, directory: true });
+  if (!dir) return;
+  importSrc.value = dir as string;
+  await runScan();
+}
+
+async function runScan() {
+  if (!importSrc.value) {
+    scan.value = null;
+    mcVersions.value = [];
+    return;
+  }
+  scanning.value = true;
+  scan.value = { import_files: 0, import_bytes: 0, download_files: 0, download_bytes: 0, assets_known: false };
+  mcVersions.value = [];
+  selectedVersions.value = [];
+  try {
+    // fire-and-forget: versions + live file stats arrive via events
+    await api.scanMinecraftImport(importSrc.value);
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    // scanning stays until the `done` event resets it
+  }
+}
+
+// refresh estimates when the selected versions change:
+//  - download size for the last selected version (network, fast)
+//  - migration size for the whole selection (disk walk, deferred until now)
+watch(selectedVersions, async (list) => {
+  if (mode.value !== "importmc" || list.length === 0 || !importSrc.value) return;
+  const v = list[list.length - 1];
+  const rawIds = list
+    .map((id) => mcVersions.value.find((x) => x.id === id)?.raw_id ?? id)
+    .filter(Boolean);
+  try {
+    const dl = await api.estimateDownload(v);
+    const imp = await api.estimateImport(importSrc.value, rawIds);
+    scan.value = {
+      import_files: imp.import_files,
+      import_bytes: imp.import_bytes,
+      download_files: dl.download_files,
+      download_bytes: dl.download_bytes,
+      assets_known: dl.assets_known,
+    };
+  } catch {
+    /* ignore */
+  }
+});
+
+function pathBasename(p: string): string {
+  const parts = p.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || "导入的实例";
+}
+
+function toggleVersion(id: string) {
+  const i = selectedVersions.value.indexOf(id);
+  if (i >= 0) {
+    selectedVersions.value.splice(i, 1);
+  } else {
+    selectedVersions.value.push(id);
+  }
+}
+
+async function importMc() {
+  if (!importSrc.value) return message.warning("请先选择 .minecraft 文件夹");
+  if (selectedVersions.value.length === 0) return message.warning("请至少选择一个游戏版本");
+  // align loaders / loader versions with the selected versions, using the
+  // auto-detected loader for each version
+  const loaders: string[] = [];
+  const loaderVersions: (string | null)[] = [];
+  const rawIds: string[] = [];
+  for (const sel of selectedVersions.value) {
+    const v = mcVersions.value.find((x) => x.id === sel);
+    loaders.push(v?.loader ?? "vanilla");
+    loaderVersions.push(v?.loader_version ?? null);
+    rawIds.push(v?.raw_id ?? sel);
+  }
+  importingMc.value = true;
+  importProgress.value = { current: 0, total: rawIds.length, name: "", phase: "migrate", done: false };
+  try {
+    const plans = await api.importMinecraftFolder(
+      importSrc.value,
+      importMcBaseName.value,
+      rawIds,
+      selectedVersions.value,
+      loaders,
+      loaderVersions,
+      migrateMode.value
+    );
+    const fellBack = migrateMode.value === "symlink" && plans.some((p) => p.symlink_fallback);
+    if (plans.length === 1) {
+      if (fellBack) {
+        message.warning("符号链接不可用（需要管理员或开发者模式），已自动改用复制");
+      } else {
+        message.success("导入并安装完成");
+      }
+      router.push(`/instance/${plans[0].instance_id}`);
+    } else {
+      if (fellBack) {
+        message.warning(`已导入 ${plans.length} 个实例（符号链接不可用，已自动改用复制）`);
+      } else {
+        message.success(`已导入 ${plans.length} 个实例并安装`);
+      }
+      router.push("/instances");
+    }
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    importingMc.value = false;
+    importProgress.value = null;
+  }
+}
+
+function loaderLabel(ld: string): string {
+  switch (ld) {
+    case "forge":
+      return "Forge";
+    case "neoforge":
+      return "NeoForge";
+    case "fabric":
+      return "Fabric";
+    case "quilt":
+      return "Quilt";
+    case "optifine":
+      return "OptiFine";
+    default:
+      return "原版";
+  }
+}
+
+let unlisteners: Array<() => void> = [];
+
 onMounted(async () => {
   instances.load();
   try {
@@ -127,6 +322,53 @@ onMounted(async () => {
   } catch (e) {
     message.error(String(e));
   }
+  // live import-scan progress from the backend
+  const u1 = await listen<{
+    import_files: number;
+    import_bytes: number;
+    download_files?: number;
+    download_bytes?: number;
+    assets_known?: boolean;
+    done?: boolean;
+  }>("import://scan-progress", (ev) => {
+    const p = ev.payload;
+    scan.value = {
+      import_files: p.import_files,
+      import_bytes: p.import_bytes,
+      download_files: p.download_files ?? scan.value?.download_files ?? 0,
+      download_bytes: p.download_bytes ?? scan.value?.download_bytes ?? 0,
+      assets_known: p.assets_known ?? scan.value?.assets_known ?? false,
+    };
+    if (p.done) scanning.value = false;
+  });
+  unlisteners.push(u1);
+  // versions arrive one-by-one; append and auto-select the first.
+  // Dedupe by id so a re-emit (or a second listener) never shows doubles.
+  const u2 = await listen<{ id: string; raw_id: string; inherits_base: boolean; loader: string; loader_version: string | null; size_bytes: number }>(
+    "import://scan-version",
+    (ev) => {
+      const v = ev.payload;
+      if (mcVersions.value.some((x) => x.id === v.id)) return;
+      mcVersions.value.push(v);
+      if (mcVersions.value.length === 1) {
+        selectedVersions.value = [v.id];
+      }
+    }
+  );
+  unlisteners.push(u2);
+  // migration progress as each selected version is processed
+  const u3 = await listen<{ current: number; total: number; name: string; phase: string; done: boolean }>(
+    "import://progress",
+    (ev) => {
+      importProgress.value = ev.payload;
+    }
+  );
+  unlisteners.push(u3);
+});
+
+onUnmounted(() => {
+  for (const u of unlisteners) u();
+  unlisteners = [];
 });
 </script>
 
@@ -139,6 +381,7 @@ onMounted(async () => {
     <div class="mode-tabs glass">
       <button :class="{ active: mode === 'fresh' }" @click="mode = 'fresh'">全新创建</button>
       <button :class="{ active: mode === 'import' }" @click="mode = 'import'">导入整合包</button>
+      <button :class="{ active: mode === 'importmc' }" @click="mode = 'importmc'">导入游戏文件夹</button>
     </div>
 
     <!-- fresh create -->
@@ -220,7 +463,7 @@ onMounted(async () => {
     </div>
 
     <!-- import -->
-    <div v-else class="import glass">
+    <div v-else-if="mode === 'import'" class="import glass">
       <div class="import-icon"><IconFolder /></div>
       <h2>导入整合包</h2>
       <p>支持 Modrinth 整合包（.mrpack）与 CurseForge 整合包（.zip）。</p>
@@ -228,6 +471,129 @@ onMounted(async () => {
       <button class="btn primary big" :disabled="importing" @click="importPack">
         <IconFolder /> {{ importing ? "导入中…" : "选择整合包文件" }}
       </button>
+    </div>
+
+    <!-- import existing .minecraft folder -->
+    <div v-else class="importmc glass">
+      <div class="fresh-head">
+        <button class="icon-box" title="选择图标" @click="showIconPicker = true">
+          <AppIcon :name="iconStr" />
+        </button>
+        <div class="fresh-title">
+          <h2>导入 .minecraft 游戏文件夹</h2>
+          <p>选择已有的游戏目录，将其存档、模组、配置等迁移到新实例</p>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>游戏文件夹</label>
+        <button class="folder-btn" @click="pickMcFolder">
+          <IconFolder /> {{ importSrc || "选择 .minecraft 文件夹" }}
+        </button>
+      </div>
+
+      <div class="field" v-if="importMcBaseName">
+        <label>实例名称（自动生成）</label>
+        <div class="name-preview">
+          {{ importMcBaseName }}<template v-if="selectedVersions.length"> · {{ selectedVersions.join(" / ") }}</template>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>游戏版本（可多选，每个版本各创建一个实例）</label>
+        <div v-if="mcVersions.length" class="detected-hint">
+          检测到 {{ mcVersions.length }} 个已安装版本，已选 {{ selectedVersions.length }} 个：
+        </div>
+        <div v-else-if="importSrc && !scanning" class="detected-hint warn">
+          未能在文件夹中找到任何版本（versions 目录为空）
+        </div>
+        <div class="ver-list">
+          <template v-for="g in groupedVersions" :key="g.loader">
+            <div class="ver-group-title">
+              {{ loaderLabel(g.loader) }} <span class="ver-group-count">{{ g.items.length }}</span>
+            </div>
+            <button
+              v-for="v in g.items"
+              :key="v.id"
+              class="ver-item"
+              :class="{ active: selectedVersions.includes(v.id) }"
+              @click="toggleVersion(v.id)"
+            >
+              <span class="ver-id mono">{{ v.id }}</span>
+              <span class="ver-type">
+                {{ fmtBytes(v.size_bytes) }}
+              </span>
+              <span class="ver-loader" :class="'ld-' + v.loader">
+                {{ loaderLabel(v.loader) }}{{ v.loader_version ? " " + v.loader_version : "" }}
+              </span>
+            </button>
+          </template>
+          <div v-if="!mcVersions.length && !scanning" class="ver-empty">未找到版本</div>
+        </div>
+        <div class="detected-hint">
+          加载器已按各版本文件夹自动识别，无需手动选择。
+        </div>
+      </div>
+
+      <div v-if="scan" class="scan-panel">
+        <div class="scan-row">
+          <span class="scan-label">将迁移（{{ migrateMode === 'symlink' ? '符号链接' : '复制' }}）</span>
+          <span class="scan-val">{{ scan.import_files }} 个文件 · {{ fmtBytes(scan.import_bytes) }}</span>
+        </div>
+        <div class="scan-row">
+          <span class="scan-label">需要下载（游戏核心）</span>
+          <span class="scan-val">
+            {{ scan.download_files }} 个文件 · {{ fmtBytes(scan.download_bytes) }}
+            <em v-if="!scan.assets_known">（资源文件大小需在安装时联网获取）</em>
+          </span>
+        </div>
+      </div>
+      <div v-else-if="scanning" class="scan-hint">正在计算…</div>
+
+      <div class="field">
+        <label>迁移方式</label>
+        <div class="loader-row">
+          <button
+            class="loader-btn"
+            :class="{ active: migrateMode === 'copy' }"
+            @click="migrateMode = 'copy'"
+          >
+            复制文件
+          </button>
+          <button
+            class="loader-btn"
+            :class="{ active: migrateMode === 'symlink' }"
+            @click="migrateMode = 'symlink'"
+          >
+            符号链接
+          </button>
+        </div>
+        <p class="sub-p">
+          复制方式占用额外磁盘空间但完全独立；符号链接不占用空间，但原文件夹不可删除或移动到其他磁盘。
+        </p>
+      </div>
+
+      <div v-if="importProgress" class="import-progress">
+        <div class="ip-row">
+          <span class="ip-label">
+            {{ importProgress.phase === "done" ? "安装完成" : "迁移中" }}：{{ importProgress.name }}
+          </span>
+          <span class="ip-count">{{ importProgress.current }} / {{ importProgress.total }}</span>
+        </div>
+        <div class="ip-bar">
+          <div
+            class="ip-fill"
+            :class="{ done: importProgress.phase === 'done' }"
+            :style="{ width: (importProgress.total ? (importProgress.current / importProgress.total) * 100 : 0) + '%' }"
+          ></div>
+        </div>
+      </div>
+
+      <div class="create-actions">
+        <button class="btn primary" :disabled="importingMc || !hasScan || selectedVersions.length === 0" @click="importMc">
+          <IconPlus /> {{ importingMc ? "导入中…" : "迁移并创建实例" }}
+        </button>
+      </div>
     </div>
 
     <IconPickerDialog v-model:show="showIconPicker" :value="iconStr" @save="iconStr = $event" />
@@ -346,15 +712,35 @@ onMounted(async () => {
   color: var(--accent);
 }
 .ver-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 6px;
-  max-height: 220px;
+  max-height: 340px;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 8px;
   background: rgba(255, 255, 255, 0.02);
+}
+.ver-group-title {
+  margin: 10px 2px 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 3px;
+}
+.ver-group-title:first-child {
+  margin-top: 2px;
+}
+.ver-group-count {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-3);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 0 6px;
+  margin-left: 4px;
 }
 .ver-item {
   display: flex;
@@ -386,6 +772,19 @@ onMounted(async () => {
   font-size: 10px;
   color: var(--text-3);
 }
+.ver-loader {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-2);
+  margin-top: 2px;
+}
+.ver-loader.ld-forge { color: #e8a04b; }
+.ver-loader.ld-neoforge { color: #7aa2f7; }
+.ver-loader.ld-fabric { color: #b48ead; }
+.ver-loader.ld-quilt { color: #9ece6a; }
+.ver-loader.ld-vanilla { color: var(--text-3); }
 .ver-empty {
   grid-column: 1 / -1;
   text-align: center;
@@ -476,5 +875,120 @@ onMounted(async () => {
 .import .sub-p {
   font-size: 12px;
   color: var(--text-3);
+}
+.folder-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  border: 1px dashed var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-2);
+  padding: 9px 16px;
+  border-radius: 9px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-btn:hover {
+  border-color: rgba(232, 154, 75, 0.5);
+  color: var(--accent);
+}
+.scan-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.scan-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.scan-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.scan-val {
+  font-size: 13px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.scan-val em {
+  color: var(--text-3);
+  font-style: normal;
+  font-size: 11px;
+}
+.scan-hint {
+  font-size: 13px;
+  color: var(--text-3);
+}
+.importmc {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.import-progress {
+  background: var(--glass-2, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ip-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.ip-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ip-count {
+  font-size: 13px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.ip-bar {
+  height: 6px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.ip-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+.ip-fill.done {
+  background: #57c98a;
+}
+.detected-hint {
+  font-size: 12px;
+  color: var(--text-2);
+  margin-top: 4px;
+}
+.detected-hint.warn {
+  color: #e0a85a;
 }
 </style>
