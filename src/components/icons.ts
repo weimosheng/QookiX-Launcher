@@ -70,3 +70,4 @@ export const IconFlame = make(`<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-
 export const IconWifi = make(`<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>`);
 export const IconCamera = make(`<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>`);
 export const IconCopy = make(`<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>`);
+export const IconClock = make(`<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>`);

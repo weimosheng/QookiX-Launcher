@@ -56,6 +56,8 @@ pub struct Settings {
     pub selected_account: Option<String>,
     /// Version isolation: keep libraries/assets inside each instance folder
     pub isolation: bool,
+    /// HTTP/SOCKS proxy URL for downloads (e.g. "http://127.0.0.1:7890")
+    pub proxy: Option<String>,
 }
 
 impl Default for Settings {
@@ -76,6 +78,7 @@ impl Default for Settings {
             ms_client_id: "00000000-0000-0000-0000-000000000000".into(),
             selected_account: None,
             isolation: false,
+            proxy: None,
         }
     }
 }

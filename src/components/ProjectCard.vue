@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { IconBox, IconCheck, IconCopy, IconDownload, IconHeart } from "./icons";
+import { IconBox, IconCheck, IconClock, IconCopy, IconDownload, IconHeart } from "./icons";
 import { translateCategory } from "../utils/categories";
 import type { ProjectHit } from "../types";
 
@@ -27,16 +27,31 @@ function fmt(n: number) {
   return String(n);
 }
 
-function typeLabel(t: string) {
-  return (
-    {
-      mod: "模组",
-      modpack: "整合包",
-      resourcepack: "资源包",
-      shader: "光影",
-      datapack: "数据包",
-    }[t] ?? t
-  );
+function fmtDate(s: string) {
+  if (!s) return "";
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return "";
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  if (diffMs < 0) return "刚刚";
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "刚刚";
+  if (diffMin < 60) return `${diffMin} 分钟前`;
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dayDiff = Math.floor((today.getTime() - target.getTime()) / 86400000);
+  const diffHour = Math.floor(diffMs / 3600000);
+  if (dayDiff === 0) return `${diffHour} 小时前`;
+  if (dayDiff === 1) return "昨天";
+  if (dayDiff === 2) return "前天";
+  if (dayDiff < 7) return `${dayDiff} 天前`;
+  const monthDiff = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+  if (monthDiff <= 0) return `${dayDiff} 天前`;
+  if (monthDiff === 1) return "上个月";
+  if (monthDiff < 12) return `${monthDiff} 个月前`;
+  const yearDiff = now.getFullYear() - d.getFullYear();
+  if (yearDiff === 1) return "去年";
+  return `${yearDiff} 年前`;
 }
 </script>
 
@@ -50,7 +65,10 @@ function typeLabel(t: string) {
         </div>
         <div class="p-body">
           <div class="p-title text-ellipsis" :title="project.title">{{ project.title }}</div>
-          <div class="p-author">{{ project.author }}</div>
+          <div class="p-author">
+            {{ project.author }}
+            <span v-if="fmtDate(project.updated)" class="p-updated"><IconClock /> {{ fmtDate(project.updated) }}</span>
+          </div>
           <div class="p-desc">{{ project.description }}</div>
           <div class="p-cats">
             <span v-for="c in project.categories.slice(0, 3)" :key="c" class="cat">{{ translateCategory(c) }}</span>
@@ -60,7 +78,6 @@ function typeLabel(t: string) {
       <div class="p-foot">
         <div class="p-stats">
           <span class="provider-badge" :class="project.provider">{{ project.provider === 'modrinth' ? 'Modrinth' : 'CurseForge' }}</span>
-          <span class="type-badge">{{ typeLabel(project.project_type) }}</span>
           <span class="dl"><IconDownload /> {{ fmt(project.downloads) }}</span>
           <span v-if="project.follows" class="fl"><IconHeart /> {{ fmt(project.follows) }}</span>
         </div>
@@ -96,9 +113,9 @@ function typeLabel(t: string) {
       <div class="p-side">
         <div class="p-stats">
           <span class="provider-badge" :class="project.provider">{{ project.provider === 'modrinth' ? 'Modrinth' : 'CurseForge' }}</span>
-          <span class="type-badge">{{ typeLabel(project.project_type) }}</span>
           <span class="dl"><IconDownload /> {{ fmt(project.downloads) }}</span>
           <span v-if="project.follows" class="fl"><IconHeart /> {{ fmt(project.follows) }}</span>
+          <span v-if="fmtDate(project.updated)" class="up"><IconClock /> {{ fmtDate(project.updated) }}</span>
         </div>
         <div class="p-side-actions">
           <button
@@ -126,6 +143,8 @@ function typeLabel(t: string) {
   gap: 12px;
   cursor: pointer;
   transition: transform 0.1s ease;
+  position: relative;
+  overflow: hidden;
 }
 .p-card:active {
   transform: scale(0.97);
@@ -200,6 +219,7 @@ function typeLabel(t: string) {
 .p-main {
   display: flex;
   gap: 13px;
+  flex: 1;
 }
 .p-icon-wrap {
   flex-shrink: 0;
@@ -231,6 +251,15 @@ function typeLabel(t: string) {
   font-size: 11px;
   color: var(--text-3);
   margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.p-updated {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
 }
 .p-desc {
   font-size: 12px;
@@ -273,17 +302,11 @@ function typeLabel(t: string) {
   vertical-align: -1px;
 }
 .dl,
-.fl {
+.fl,
+.up {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-}
-.type-badge {
-  background: var(--accent-soft);
-  color: var(--accent);
-  padding: 1px 7px;
-  border-radius: 6px;
-  font-weight: 600;
 }
 .provider-badge {
   font-size: 10px;

@@ -63,6 +63,11 @@ pub async fn search(
     let out: Vec<Value> = hits
         .iter()
         .map(|h| {
+            let gallery = h.get("gallery").and_then(|v| v.as_array());
+            let featured = gallery
+                .and_then(|g| g.first())
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             json!({
                 "provider": "modrinth",
                 "id": h.get("project_id").and_then(|v| v.as_str()).unwrap_or(""),
@@ -77,6 +82,8 @@ pub async fn search(
                 "categories": h.get("categories").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
                 "latest_version": h.get("latest_version").and_then(|v| v.as_str()).unwrap_or(""),
                 "game_versions": h.get("game_versions").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+                "updated": h.get("date_modified").and_then(|v| v.as_str()).unwrap_or(""),
+                "featured_image": featured,
                 "_sort_ts": h.get("date_modified").and_then(|v| v.as_str()).unwrap_or(""),
             })
         })
@@ -254,7 +261,23 @@ pub async fn install_version(
         instance,
         &source,
     );
-    crate::download::download_many(app.clone(), state, task_id, "content", items).await?;
+    if let Err(e) = crate::download::download_many(app.clone(), state, task_id, "content", items).await {
+        let _ = app.emit(
+            "install://progress",
+            serde_json::json!({
+                "taskId": task_id,
+                "stage": "done",
+                "message": format!("安装失败：{e}"),
+                "done": 1,
+                "total": 1,
+                "instanceId": &instance.id,
+                "instanceName": &instance.name,
+                "source": &source,
+                "ok": false,
+            }),
+        );
+        return Err(e);
+    }
 
     let record = InstalledContent {
         filename: filename.clone(),

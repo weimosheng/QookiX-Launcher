@@ -3,10 +3,11 @@ use crate::state::AppState;
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const MS_AUTH_SCOPE: &str = "XboxLive.signin offline_access";
-pub const TOKEN_URL: &str = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+pub const MS_AUTH_SCOPE: &str = "XboxLive.SignIn XboxLive.offline_access";
+pub const TOKEN_URL: &str =
+    "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
 pub const DEVICE_CODE_URL: &str =
-    "https://login.microsoftonline.com/common/oauth2/v2.0/devicecode";
+    "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
 
 /// Error code signalling that the user has not yet completed device-code auth.
 /// The frontend matches this exact string rather than a fragile `includes`.
@@ -79,6 +80,14 @@ pub async fn ms_start(state: &AppState) -> Result<serde_json::Value, String> {
     let status = resp.status();
     let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
     if !status.is_success() {
+        let err = body.get("error").and_then(|v| v.as_str()).unwrap_or("");
+        if err == "invalid_scope" {
+            return Err(
+                "当前 Microsoft Client ID 不支持 XboxLive.signin 权限。\n\
+                 请在设置中更换为支持 Xbox Live 登录的 Client ID（如官方启动器的 ID）"
+                    .into(),
+            );
+        }
         return Err(format!("设备码请求失败 (HTTP {status}): {}", body));
     }
     let device_code = body

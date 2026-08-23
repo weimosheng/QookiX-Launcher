@@ -4,7 +4,6 @@ use crate::util::rules_allow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
 #[derive(Clone)]
@@ -58,6 +57,7 @@ pub async fn launch_game(
     // (idempotent; also covers instances patched before this fix)
     crate::install::normalize_natives_args(&mut version_json);
 
+    let _ = app.emit("launch://progress", serde_json::json!({ "step": "正在检查 Java 运行时…", "progress": 40 }));
     let java = match pick_java(state, instance, &version_json).await {
         Ok(j) => j,
         Err(e) if e.starts_with("NEED_DOWNLOAD:") => {
@@ -89,7 +89,9 @@ pub async fn launch_game(
     let resolution = instance.resolution;
 
     // Ensure the game launches in Chinese
-    set_chinese_lang(&instance_dir);
+    set_chinese_lang(&instance_dir, &instance.mc_version);
+
+    let _ = app.emit("launch://progress", serde_json::json!({ "step": "正在准备启动参数…", "progress": 60 }));
 
     // ---- classpath ----
     let features = features_map(resolution.is_some());
@@ -158,18 +160,17 @@ pub async fn launch_game(
     std::fs::create_dir_all(state.logs_dir()).map_err(|e| e.to_string())?;
     let _ = std::fs::write(&log_path, format!("$ java {}\n", args.join(" ")));
 
+    let _ = app.emit("launch://progress", serde_json::json!({ "step": "正在启动游戏进程…", "progress": 80 }));
+
     let child = tokio::process::Command::from(cmd)
         .spawn()
         .map_err(|e| format!("启动 Java 失败: {e}"))?;
     let pid = child.id().unwrap_or(0);
+    let _ = app.emit("launch://progress", serde_json::json!({ "step": "启动成功，正在等待游戏窗口…", "progress": 100 }));
     emit_state(&app, &instance.id, "running", pid, None);
     {
-        let mut guard = state.game_process.lock().unwrap();
-        *guard = Some(child);
-    }
-    {
-        let mut guard = state.running_instance.lock().unwrap();
-        *guard = Some(instance.id.clone());
+        let mut guard = state.game_pids.lock().unwrap();
+        guard.insert(instance.id.clone(), pid);
     }
     let _ = app.emit(
         "launch://pid",
@@ -179,19 +180,25 @@ pub async fn launch_game(
     // stream stdout/stderr in the background
     let app2 = app.clone();
     let inst_id = instance.id.clone();
-    let gp = state.game_process.clone();
-    let ri = state.running_instance.clone();
+    let gp = state.game_pids.clone();
     let logs_dir = state.logs_dir();
+    let inst_dir = ctx.instance_dir.clone();
     tauri::async_runtime::spawn(async move {
-        let outcome = stream_output(&app2, gp, logs_dir, inst_id.clone()).await;
+        let outcome = stream_output(&app2, child, logs_dir.clone(), inst_id.clone()).await;
+        {
+            let mut guard = gp.lock().unwrap();
+            guard.remove(&inst_id);
+        }
         emit_state(&app2, &inst_id, "exited", pid, outcome);
         let _ = app2.emit(
             "launch://exit",
             serde_json::json!({ "instanceId": inst_id, "code": outcome }),
         );
-        {
-            let mut guard = ri.lock().unwrap();
-            *guard = None;
+        // 崩溃检查：进程异常退出时分析日志与崩溃文件并弹窗提示
+        if let Some(diag) = diagnose_crash(&inst_dir, &logs_dir, &inst_id, outcome) {
+            let mut v = serde_json::to_value(&diag).unwrap_or_default();
+            v["instanceId"] = serde_json::json!(inst_id);
+            let _ = app2.emit("launch://crash", v);
         }
     });
 
@@ -203,19 +210,10 @@ pub async fn launch_game(
 
 async fn stream_output(
     app: &tauri::AppHandle,
-    game_process: Arc<Mutex<Option<tokio::process::Child>>>,
+    mut child: tokio::process::Child,
     logs_dir: PathBuf,
     instance_id: String,
 ) -> Option<i32> {
-    // Take the child out of state to own its pipes
-    let child = {
-        let mut guard = game_process.lock().unwrap();
-        guard.take()
-    };
-    let Some(mut child) = child else {
-        return None;
-    };
-
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
 
@@ -266,28 +264,49 @@ async fn stream_output(
     for t in tasks {
         let _ = t.await;
     }
-    // restore for potential re-take (kill)
-    {
-        let mut guard = game_process.lock().unwrap();
-        *guard = Some(child);
-    }
     status.map(|s| s.code().unwrap_or(-1))
 }
 
 pub async fn kill_game(state: &AppState) -> Result<(), String> {
-    let child = {
-        let mut guard = state.game_process.lock().unwrap();
-        guard.take()
+    let pids: Vec<u32> = {
+        let mut guard = state.game_pids.lock().unwrap();
+        guard.drain().map(|(_, v)| v).collect()
     };
-    if let Some(mut child) = child {
-        let _ = child.kill().await;
-        let _ = child.wait().await;
+    for pid in pids {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            // Graceful: send WM_CLOSE via taskkill (no /F), give the game 3s to exit cleanly
+            let _ = Command::new("taskkill")
+                .args(["/PID", &pid.to_string()])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            // Force kill the entire process tree if still alive
+            let _ = Command::new("taskkill")
+                .args(["/T", "/F", "/PID", &pid.to_string()])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+        }
+        #[cfg(not(windows))]
+        {
+            // Graceful: SIGTERM first
+            let _ = Command::new("kill")
+                .args(["-15", &pid.to_string()])
+                .output();
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            // Force kill if still alive
+            let _ = Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .output();
+        }
     }
     Ok(())
 }
 
 pub fn is_running(state: &AppState) -> bool {
-    state.running_instance.lock().unwrap().is_some()
+    !state.game_pids.lock().unwrap().is_empty()
 }
 
 // ---------------------------------------------------------------------------
@@ -396,10 +415,14 @@ async fn pick_java(
     Ok(best.clone())
 }
 
-/// Set `lang:zh_CN` in the instance's `options.txt` so the game launches in Chinese.
-fn set_chinese_lang(instance_dir: &std::path::Path) {
+/// Set `lang:zh_CN` (or `zh_cn` for 1.13+) in the instance's `options.txt` so the game launches in Chinese.
+fn set_chinese_lang(instance_dir: &std::path::Path, mc_version: &str) {
     let options_path = instance_dir.join("options.txt");
-    let target_line = "lang:zh_CN";
+    // Minecraft 1.13+ uses lowercase language codes (zh_cn), older versions use zh_CN
+    let parts: Vec<&str> = mc_version.split('.').collect();
+    let major: u32 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let minor: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let target_line = if major == 1 && minor < 13 { "lang:zh_CN" } else { "lang:zh_cn" };
     if let Ok(text) = std::fs::read_to_string(&options_path) {
         let mut found = false;
         let updated: String = text
@@ -466,6 +489,8 @@ fn build_args(ctx: &LaunchContext) -> Vec<String> {
     };
     args.push(format!("-Xmx{max_mem}M"));
     args.push(format!("-Xms{min_mem}M"));
+    args.push("-Duser.language=zh".into());
+    args.push("-Duser.country=CN".into());
 
     // jvm args from json
     let mut features = features_map(ctx.resolution.is_some());
@@ -647,4 +672,364 @@ fn emit_state(app: &tauri::AppHandle, instance_id: &str, state: &str, pid: u32, 
             "code": code,
         }),
     );
+}
+
+// ---------------------------------------------------------------------------
+// 崩溃诊断
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Serialize, Clone, Default)]
+pub struct CrashDiagnosis {
+    /// oom | jvm | gl | java_ver | lwjgl | mod | unknown
+    pub severity: String,
+    /// 诊断结论标题
+    pub title: String,
+    /// 崩溃原因（中文）
+    pub reason: String,
+    /// 修复建议（中文，最多 200 字）
+    pub advice: String,
+    /// 日志/崩溃报告中代表性摘录
+    pub excerpt: String,
+    /// 游戏进程退出码（非正常退出时非 `0` 或 `null`）
+    pub exit_code: Option<i32>,
+    /// 触发的崩溃报告文件路径（若有）
+    pub crash_report: Option<String>,
+    /// PCL2 风格：与本次崩溃相关的模组列表（从崩溃报告解析）
+    pub affected_mods: Vec<String>,
+}
+
+/// 匹配规则助手：文件全名或路径中包含关键字的全局优先，内容全文匹配
+struct CrashRule {
+    severity: &'static str,
+    title: &'static str,
+    reason: &'static str,
+    advice: &'static str,
+    keys: &'static [&'static str],
+}
+
+const CRASH_RULES: &[CrashRule] = &[
+    CrashRule {
+        severity: "jvm",
+        title: "Java 虚拟机崩溃",
+        reason: "JVM 发生致命错误（hs_err_pid*.log 已生成）",
+        advice: "请检查 Java 运行版本是否匹配，并尝试在实例设置中更换 Java 路径或调低内存分配后重试。",
+        keys: &["hs_err_pid", "# there is insufficient memory for the java runtime", "native memory allocation (mmap) failed"],
+    },
+    CrashRule {
+        severity: "oom",
+        title: "内存不足",
+        reason: "内存分配失败（包含 Java 堆与原生内存）",
+        advice: "请进入实例设置调低已分配内存，或关闭其他占用内存的程序后重试。",
+        keys: &["outofmemoryerror", "could not reserve enough space", "not enough space", "java heap space", "native memory allocation (mmap) failed", "failed to allocate memory", "insufficient memory"],
+    },
+    CrashRule {
+        severity: "lwjgl",
+        title: "LWJGL 依赖缺失",
+        reason: "本地库加载失败（可能由 Java/Minecraft 组件缺失引起）",
+        advice: "请尝试重装/切换 Java 运行时；或彻底删除后重装该实例。",
+        keys: &["no classfound: org/lwjgl", "no lwjgl on java.library.path", "could not initialize class org.lwjgl", "unsatisfiedlinkerror", "failed to locate library"],
+    },
+    CrashRule {
+        severity: "java_ver",
+        title: "Java 版本过旧",
+        reason: "Java 运行库版本不满足启动要求",
+        advice: "请安装较新 JRE 后重试，可在「设置」中选择自动下载 JRE。",
+        keys: &["unsupportedclassversionerror", "unsupported major.minor", "class file version", "bad class file", "java version", "has been compiled by a more recent version"],
+    },
+    CrashRule {
+        severity: "gl",
+        title: "显卡 / OpenGL 初始化失败",
+        reason: "OpenGL / 显卡驱动初始化错误",
+        advice: "请检查显卡驱动是否最新、是否满足 Minecraft 对 OpenGL 3.2 的要求，更新驱动后重试。",
+        keys: &["pixel format not accelerated", "failed to create gl context", "no matching pixel format", "opengl 32bit", "glfw error", "failed to initialize glfw", "could not create glfw", "probably the driver does not support opengl", "glx genesys"],
+    },
+    CrashRule {
+        severity: "mod",
+        title: "模组/资源包加载失败",
+        reason: "Fabric/Forge 或某个模组加载时抛出严重异常",
+        advice: "请在实例设置中检查并禁用最近安装/更新过的模组后重启游戏，或查阅 Mod 日志确认冲突项。",
+        keys: &[
+            "mod loading has failed",
+            "mod loading was attempted",
+            "fatal error during mod loading",
+            "there was a severe problem during mod loading",
+            "mod launcher failed",
+            "mod initializer failed",
+            "mixin apply failed",
+            "duplicate modifier",
+            "mixins are missing dependencies",
+            "this is a fatal",
+            "incompatible mod",
+            "mod crashed",
+        ],
+    },
+];
+
+/// 取目录中最近被修改且文件名匹配 `pred` 的文件
+fn newest_match(dir: &std::path::Path, pred: impl Fn(&str) -> bool) -> Option<PathBuf> {
+    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if !pred(&name) { continue; }
+        let meta = entry.metadata().ok()?;
+        let t = meta.modified().ok()?;
+        best = Some(match best {
+            Some((bt, _)) if t > bt => (t, entry.path()),
+            _ => (t, entry.path()),
+        });
+    }
+    best.map(|(_, p)| p)
+}
+
+/// 日志尾部（长文件可用性优化：只取最后 `n` 行）
+fn tail(text: &str, n: usize) -> String {
+    text.lines().rev().take(n).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")
+}
+
+/// 崩溃诊断：在游戏进程非正常/被强杀后，结合崩溃现场报告、JVM 致命错误与实时日志粗定位原因。
+/// 仅在（report / hs_err / 日志关键词）命中时返回建议。
+fn diagnose_crash(instance_dir: &std::path::Path, logs_dir: &std::path::Path, instance_id: &str, code: Option<i32>) -> Option<CrashDiagnosis> {
+    use std::fs;
+
+    // ---- 收集崩溃证据 ----
+    let crash_dir = instance_dir.join("crash-reports");
+    let crash_report = newest_match(&crash_dir, |n| n.starts_with("crash-") && n.ends_with(".txt"));
+    let hs_err = newest_match(instance_dir, |n| n.starts_with("hs_err_pid") && n.ends_with(".log"));
+
+    // ---- 日志文本缓冲（用于关键词匹配与摘录） ----
+    let mut buf = String::new();
+    if let Some(p) = &crash_report {
+        if let Ok(t) = fs::read_to_string(p) { buf.push_str(&t); }
+    }
+    if let Some(p) = &hs_err {
+        if let Ok(t) = fs::read_to_string(p) { buf.push_str(&t); }
+    }
+    let live_log = logs_dir.join(format!("{}-live.log", instance_id));
+    if let Ok(t) = fs::read_to_string(&live_log) { buf.push_str(&tail(&t, 200)); }
+    let latest_log = instance_dir.join("logs").join("latest.log");
+    if let Ok(t) = fs::read_to_string(&latest_log) { buf.push_str(&tail(&t, 300)); }
+    let lower = buf.to_lowercase();
+    // PCL2 风格：预先解析崩溃报告中涉及的模组列表，供各类诊断使用
+    let involved_mods = extract_affected_mods(&buf);
+
+    // 优先摘录崩溃报告中的「Description」行，但忽略 Fabric 无意义的阶段名（如 "Loading: LWJGL system"）。
+    let mut excerpt = String::new();
+    let mut fabric_note = String::new();
+    if let Some(p) = &crash_report {
+        if let Ok(t) = fs::read_to_string(p) {
+            if let Some(line) = t.lines().find(|l| l.trim_start().starts_with("Description:")) {
+                let d = line.trim_start().strip_prefix("Description:").unwrap_or("").trim().replace('\u{a0}', " ");
+                // Fabric 崩溃时 Description 常为「Loading library...」这类无用阶段信息
+                if !d.is_empty() && !d.to_lowercase().contains("loading library") {
+                    excerpt = d.to_string();
+                }
+            }
+            // 摘录异常类型行（优先 Fabric 的 FormattedException、Caused by 链路、主异常类）
+            if excerpt.is_empty() {
+                for l in t.lines() {
+                    let s = l.trim();
+                    if s.is_empty() { continue; }
+                    if s.starts_with("net.fabricmc") || s.starts_with("java.") || s.starts_with("cpw.mods") {
+                        excerpt = s.replace('\u{a0}', " ");
+                        break;
+                    }
+                }
+            }
+            // Fabric 官方自带解决建议（mod 依赖缺失）
+            fabric_note = extract_fabric_solution(&t);
+        }
+    }
+
+    // Description 描述本身已明确是 Mod 阶段问题时，优先判定为“模组问题”，
+    // 避免其堆栈中出现的 lwjgl/opengl/glfw 字样被后续显卡规则误判。
+    let desc_lower = excerpt.to_lowercase();
+    let mod_desc_hints = [
+        "mod loading", "mods loading", "mod launcher", "fabric", "forge", "mixin",
+        "duplicate", "mod conflict", "mod crash", "incompatible mod", "shader",
+    ];
+    if !desc_lower.is_empty() && mod_desc_hints.iter().any(|k| desc_lower.contains(k)) {
+        return Some(CrashDiagnosis {
+            severity: "mod".into(),
+            title: "模组/资源包加载失败".into(),
+            reason: "Mod 加载阶段发生异常（依据崩溃报告描述）".into(),
+            advice: "请优先检查并禁用最近安装/更新过的模组后重启游戏；多个模组互相冲突时建议逐个启用排查。".into(),
+            excerpt: excerpt.clone(),
+            exit_code: code,
+            crash_report: crash_report.map(|p| p.to_string_lossy().to_string()),
+            affected_mods: involved_mods.clone(),
+        });
+    }
+
+    // Fabric 的“不兼容模组”异常是明确结论（含依赖缺失），其结果优先级高于
+    // 后续的 lwjgl/显卡等全文关键词规则，避免误判。
+    let fabric_evid = [
+        "some of your mods are incompatible",
+        "incompatible with the game",
+        "formattedexception",
+        "net.fabricmc.loader.impl",
+        "incompatible mods found",
+        "missing required dependency",
+        "缺少需要的模组",
+        "不兼容的模组",
+    ];
+    if fabric_evid.iter().any(|k| lower.contains(k)) {
+        let missing_dep = lower.contains("missing required dependency")
+            || lower.contains("fabric-api")
+            || lower.contains("需要 ")
+            || lower.contains("缺少需要的");
+        let advice = if !fabric_note.is_empty() {
+            format!("Mod 加载已被阻止：\n{}", fabric_note)
+        } else if !involved_mods.is_empty() {
+            format!(
+                "以下模组存在依赖或兼容问题：{}。请检查它们的依赖模组（如 fabric-api）是否安装完整。",
+                involved_mods.join("、")
+            )
+        } else if missing_dep {
+            "缺少模组依赖（如 fabric-api、fabric-language-kotlin 等），请安装缺失依赖后再启动游戏。".into()
+        } else {
+            "Mod 与游戏或 Mod 之间存在不兼容，请移除/更新冲突的模组后再试。".into()
+        };
+        return Some(CrashDiagnosis {
+            severity: "mod".into(),
+            title: "Mod 不兼容 / 依赖缺失".into(),
+            reason: if missing_dep {
+                "缺少必需的 Mod 依赖（Fabric 报错：不兼容模组）".into()
+            } else {
+                "Fabric 检测到 Mod 之间或 Mod 与游戏不兼容".into()
+            },
+            advice,
+            excerpt: excerpt.clone(),
+            exit_code: code,
+            crash_report: crash_report.map(|p| p.to_string_lossy().to_string()),
+            affected_mods: involved_mods.clone(),
+        });
+    }
+
+    // 关键词规则逐一匹配，非“unknown”规则命中后即可得出结论
+    for rule in CRASH_RULES {
+        if rule.keys.iter().any(|k| lower.contains(k)) {
+            return Some(CrashDiagnosis {
+                severity: rule.severity.into(),
+                title: rule.title.into(),
+                reason: rule.reason.into(),
+                advice: rule.advice.into(),
+                excerpt: excerpt.clone(),
+                exit_code: code,
+                crash_report: crash_report.map(|p| p.to_string_lossy().to_string()),
+                affected_mods: if involved_mods.is_empty() { Vec::new() } else { involved_mods.clone() },
+            });
+        }
+    }
+
+    // ---- 找不到规则但存在崩溃产物：归类为“未知崩溃” ----
+    if crash_report.is_some() || hs_err.is_some() {
+        // guidelines instruct: use generic unknown
+        return Some(CrashDiagnosis {
+            severity: "unknown".into(),
+            title: "游戏异常退出".into(),
+            reason: "未能定位到具体的崩溃原因".into(),
+            advice: "请将崩溃报告（crash-reports 或 hs_err 日志）提交到启动器仓库/社区，以便进一步分析。".into(),
+            excerpt: String::new(),
+            exit_code: code,
+            crash_report: crash_report.map(|p| p.to_string_lossy().to_string()),
+            affected_mods: involved_mods.clone(),
+        });
+    }
+
+    // ---- 一切正常（退出码 0 且无匹配关键信息） ----
+    None
+}
+
+/// 提取 Fabric 崩溃报告中的官方解决方案片段（如缺失模组依赖提示）。
+fn extract_fabric_solution(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut start: Option<usize> = None;
+    for (i, l) in lines.iter().enumerate() {
+        if l.contains("确定了一种可能的解决方法")
+            || l.contains("a possible solution")
+            || l.contains("This may fix")
+        {
+            start = Some(i);
+            break;
+        }
+    }
+    let Some(si) = start else { return String::new(); };
+    let mut out = String::new();
+    for l in lines.iter().skip(si) {
+        let s = l.trim();
+        if s.is_empty() { break; }
+        if s.starts_with("at net.fabricmc") || s.starts_with("at java.") || s.contains("更多信息") {
+            break;
+        }
+        out.push_str(s.trim_start_matches('-').trim());
+        out.push('\n');
+    }
+    out.trim().to_string()
+}
+
+/// PCL2 风格：从崩溃报告中解析与本次崩溃相关的模组列表。
+/// 优先读 Fabric/Forge 的报告「Mods affected」区块；否则从 `更多信息/More info`
+/// 的依赖提示行（`模组 'xxx' (id)` / `Mod 'xxx' (id)`）提取。
+fn extract_affected_mods(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut in_block = false;
+    for raw in text.lines() {
+        let s = raw.trim();
+        // -- Mods affected 区块 --
+        if s.eq_ignore_ascii_case("Mods affected:")
+            || s.starts_with("受影响")
+            || (s.contains("Mods affected") && s.contains(':'))
+            || s.starts_with("--Mods affected")
+        {
+            in_block = true;
+            continue;
+        }
+        if in_block {
+            if s.is_empty() || s.starts_with("Stacktrace") || s.starts_with("Time:") {
+                break;
+            }
+            let name = s.trim_start_matches(['-', '•', '*']).trim();
+            if name.is_empty() || name.starts_with("at ") || name.starts_with("at ") {
+                continue;
+            }
+            // 形如 `appleskin (AppleSkin)` / `sodium (Sodium)` / `minecraft (Minecraft) 1.20.1`
+            let pretty = name
+                .split_once(" — ")
+                .map(|(a, _)| a.trim())
+                .unwrap_or(name)
+                .split_once(" (")
+                .map(|(a, _)| a.trim())
+                .unwrap_or(name);
+            if pretty.is_empty() || !out.iter().any(|x| x == &pretty) {
+                if !pretty.is_empty() {
+                    out.push(pretty.to_string());
+                }
+            }
+            continue;
+        }
+        // More info 依赖提示行：`模组 'AppleSkin' (appleskin) 需要 ...` 或 `Mod 'AppleSkin' (appleskin)`
+        if s.starts_with("模组 '") {
+            if let Some(rest) = s.strip_prefix("模组 '") {
+                if let Some((name, _)) = rest.split_once("'") {
+                    let n = name.trim().to_string();
+                    if !n.is_empty() && !out.iter().any(|x| x == &n) {
+                        out.push(n);
+                    }
+                }
+            }
+        }
+        if s.starts_with("Mod '") {
+            if let Some(rest) = s.strip_prefix("Mod '") {
+                if let Some((name, _)) = rest.split_once("'") {
+                    let n = name.trim().to_string();
+                    if !n.is_empty() && !out.iter().any(|x| x == &n) {
+                        out.push(n);
+                    }
+                }
+            }
+        }
+    }
+    out.truncate(8);
+    out
 }

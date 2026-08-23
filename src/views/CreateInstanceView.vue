@@ -520,9 +520,6 @@ onUnmounted(() => {
               @click="toggleVersion(v.id)"
             >
               <span class="ver-id mono">{{ v.id }}</span>
-              <span class="ver-type">
-                {{ fmtBytes(v.size_bytes) }}
-              </span>
               <span class="ver-loader" :class="'ld-' + v.loader">
                 {{ loaderLabel(v.loader) }}{{ v.loader_version ? " " + v.loader_version : "" }}
               </span>

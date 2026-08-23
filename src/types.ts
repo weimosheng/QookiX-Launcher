@@ -16,6 +16,7 @@ export interface Settings {
   ms_client_id: string;
   selected_account: string | null;
   isolation: boolean;
+  proxy: string | null;
 }
 
 export interface JavaInfo {
@@ -72,6 +73,8 @@ export interface ProjectHit {
   categories: string[];
   latest_version: string;
   game_versions: string[];
+  updated: string;
+  featured_image: string;
 }
 
 export interface ProjectFile {

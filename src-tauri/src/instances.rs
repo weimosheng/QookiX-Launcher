@@ -516,8 +516,11 @@ fn one_version(dir_path: &std::path::Path, name: &str) -> MinecraftVersionInfo {
             }
         }
     }
-    let mut size_bytes = 0u64;
-    walk_dir(dir_path, &mut |len| size_bytes += len);
+    // NOTE: we deliberately do NOT walk the version folder here to compute
+    // `size_bytes` — that would defeat the "list versions first, stats later"
+    // flow. The migration size is computed on demand in `estimate_import_size`
+    // once the user has selected versions. The field is left at 0 here.
+    let size_bytes = 0u64;
     MinecraftVersionInfo {
         id,
         raw_id: name.to_string(),

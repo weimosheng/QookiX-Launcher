@@ -17,6 +17,7 @@ mod state;
 mod util;
 
 use state::AppState;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use tauri::Manager;
 
@@ -26,13 +27,13 @@ pub fn run() {
     let _ = settings::ensure_layout(&root);
     let loaded = settings::load_settings(&root);
 
+    let proxy = loaded.proxy.clone();
     let app_state = AppState {
         root,
         settings: RwLock::new(loaded),
-        client: settings::http_client(),
+        client: settings::http_client(proxy.as_deref()),
         semaphore: Arc::new(tokio::sync::Semaphore::new(8)),
-        game_process: Arc::new(Mutex::new(None)),
-        running_instance: Arc::new(Mutex::new(None)),
+        game_pids: Arc::new(Mutex::new(HashMap::new())),
         task_counter: std::sync::atomic::AtomicU64::new(1),
         install_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         ms_flow: Arc::new(Mutex::new(None)),
@@ -141,7 +142,7 @@ mod smoke {
 
     #[tokio::test]
     async fn mojang_manifest_and_version_json_parse() {
-        let client = crate::settings::http_client();
+        let client = crate::settings::http_client(None);
         let url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
         let text = crate::download::get_text(&client, url).await.unwrap_or_else(|e| {
             panic!("fetch failed: {e}");
@@ -170,7 +171,7 @@ mod smoke {
 
     #[tokio::test]
     async fn fabric_meta_parses() {
-        let client = crate::settings::http_client();
+        let client = crate::settings::http_client(None);
         let entry: LoaderMetaEntry = crate::download::get_json(
             &client,
             "https://meta.fabricmc.net/v2/versions/loader/1.20.1/0.15.11",
@@ -288,10 +289,9 @@ mod smoke {
         let state = crate::state::AppState {
             root: root.clone(),
             settings: RwLock::new(Default::default()),
-            client: crate::settings::http_client(),
+            client: crate::settings::http_client(None),
             semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
-            game_process: Arc::new(Mutex::new(None)),
-            running_instance: Arc::new(Mutex::new(None)),
+            game_pids: Arc::new(Mutex::new(HashMap::new())),
             task_counter: std::sync::atomic::AtomicU64::new(1),
             install_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ms_flow: Arc::new(Mutex::new(None)),
@@ -336,10 +336,9 @@ mod smoke {
         let state = crate::state::AppState {
             root: root.clone(),
             settings: RwLock::new(Default::default()),
-            client: crate::settings::http_client(),
+            client: crate::settings::http_client(None),
             semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
-            game_process: Arc::new(Mutex::new(None)),
-            running_instance: Arc::new(Mutex::new(None)),
+            game_pids: Arc::new(Mutex::new(HashMap::new())),
             task_counter: std::sync::atomic::AtomicU64::new(1),
             install_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ms_flow: Arc::new(Mutex::new(None)),

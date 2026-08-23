@@ -24,6 +24,8 @@ body,
   --panel: rgba(255, 255, 255, 0.04);
   --panel-hover: rgba(255, 255, 255, 0.07);
   --border: rgba(255, 255, 255, 0.08);
+  --feat-solid: #0f1218;
+  --feat-mid: rgba(15, 18, 24, 0.5);
   --text-1: #f2f3f7;
   --text-2: #c6c8d2;
   --text-3: #8b8e9c;
@@ -31,7 +33,7 @@ body,
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
 }
 
-.app.light {
+:root.light {
   --accent: #ffa050;
   --accent-deep: #e8893c;
   --accent-soft: rgba(255, 160, 80, 0.12);
@@ -41,9 +43,11 @@ body,
   --panel: rgba(255, 255, 255, 0.55);
   --panel-hover: rgba(255, 255, 255, 0.75);
   --border: rgba(0, 0, 0, 0.09);
+  --feat-solid: #edeef1;
+  --feat-mid: rgba(237, 238, 241, 0.5);
   --text-1: #1a1d24;
   --text-2: #4a4d58;
-  --text-3: #8b8e9c;
+  --text-3: #55586a;
   --scrollbar-thumb: rgba(0, 0, 0, 0.15);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
 }
@@ -121,4 +125,8 @@ a:active {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+.n-loading-bar-container {
+  top: 40px !important;
 }

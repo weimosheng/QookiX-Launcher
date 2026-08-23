@@ -117,6 +117,7 @@ async function search() {
     if (page.value === 0) total.value = cached.total;
     cfError.value = cached.cf_error ?? "";
     cfCount.value = cached.cf_count ?? 0;
+    loading.value = false;
     return;
   }
   loading.value = true;
@@ -248,20 +249,26 @@ watch(category, () => {
 });
 
 watch([gameVersion, loader], () => {
-  // 如果手动改了版本/加载器，且不再匹配所选实例，则取消关联
+  // 如果手动改了版本/加载器，且不再匹配所选实例，则切换为"不关联实例"
   const inst = instances.value.find((i) => i.id === selectedInstanceId.value);
   if (inst) {
     const versionMismatch = gameVersion.value !== inst.mc_version;
     const loaderMismatch = showLoaderFilter.value && loader.value !== (inst.loader === "vanilla" ? "" : inst.loader);
     if (versionMismatch || loaderMismatch) {
-      selectedInstanceId.value = null;
+      suppressInstanceClear = true;
+      selectedInstanceId.value = "";
     }
   }
   page.value = 0;
   search();
 });
 
+let suppressInstanceClear = false;
 watch(selectedInstanceId, () => {
+  if (suppressInstanceClear) {
+    suppressInstanceClear = false;
+    return;
+  }
   const inst = instances.value.find((i) => i.id === selectedInstanceId.value);
   if (inst) {
     gameVersion.value = inst.mc_version;
@@ -304,6 +311,8 @@ async function openInstallDep(dep: ProjectDependency) {
       categories: [],
       latest_version: "",
       game_versions: [],
+      updated: "",
+      featured_image: "",
     };
   }
   showInstall.value = true;
@@ -468,11 +477,27 @@ onMounted(async () => {
         </div>
         <div v-if="showLoaderFilter" class="filter-group">
           <label>加载器</label>
-          <n-select v-model:value="loader" :options="loaderOptions" size="small" />
+          <div class="filter-chips">
+            <button
+              v-for="opt in loaderOptions"
+              :key="opt.value"
+              class="filter-chip"
+              :class="{ active: loader === opt.value }"
+              @click="loader = opt.value"
+            >{{ opt.label }}</button>
+          </div>
         </div>
         <div class="filter-group">
           <label>类别</label>
-          <n-select v-model:value="category" :options="catOptions" size="small" />
+          <div class="filter-chips">
+            <button
+              v-for="opt in catOptions"
+              :key="opt.value"
+              class="filter-chip"
+              :class="{ active: category === opt.value }"
+              @click="category = opt.value"
+            >{{ opt.label }}</button>
+          </div>
           <p v-if="provider === 'all'" class="filter-hint">全部来源下分类按 Modrinth 筛选，CurseForge 结果不受分类影响</p>
         </div>
         <div class="filter-actions">
@@ -615,6 +640,32 @@ onMounted(async () => {
   font-size: 11px;
   color: var(--text-3);
   margin: 4px 0 0;
+}
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.filter-chip {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-2);
+  border-radius: 7px;
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.12s;
+}
+.filter-chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-1);
+}
+.filter-chip.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .filter-actions {
   display: flex;

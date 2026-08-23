@@ -161,7 +161,11 @@ pub async fn download_many(
                         break;
                     }
                     Err(e) => {
+                        let permanent = e.contains("HTTP 4") || e.contains("HTTP 5");
                         result = Err(e);
+                        if permanent {
+                            break;
+                        }
                         let _ = tokio::time::sleep(std::time::Duration::from_millis(400 * (attempt + 1) as u64)).await;
                     }
                 }
@@ -187,7 +191,7 @@ pub async fn download_many(
                     "ts": now_ms(),
                 }),
             );
-            result.map_err(|e| format!("{}: {}", item.label, e))
+            result.map_err(|e| format!("{}: {} ({})", item.label, e, item.url))
         }));
     }
 
@@ -256,65 +260,9 @@ async fn download_one(
     let part = item.dest.with_extension("part");
     let _ = std::fs::remove_file(&part);
 
-    // Probe: check if server supports range requests and get content length
-    let head = client
-        .get(&item.url)
-        .header("Accept-Encoding", "identity")
-        .header("Range", "bytes=0-0")
-        .timeout(std::time::Duration::from_secs(30))
-        .send()
-        .await
-        .map_err(|e| format!("请求失败: {e}"))?;
-
-    let status = head.status();
-    if !status.is_success() && status.as_u16() != 206 {
-        return Err(format!("HTTP {status}"));
-    }
-
-    let accepts_ranges = head
-        .headers()
-        .get("accept-ranges")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.eq_ignore_ascii_case("bytes"))
-        .unwrap_or(false);
-
-    // Content-Length from 206 response is 1 (we asked for 1 byte),
-    // so use Content-Range header to get total size
-    let content_range_total = head
-        .headers()
-        .get("content-range")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.rsplit('/').next())
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(0);
-
-    // Fall back to Content-Length if no Content-Range
-    let content_length = if content_range_total > 0 {
-        content_range_total
-    } else {
-        head.headers()
-            .get("content-length")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.parse::<u64>().ok())
-            .unwrap_or(0)
-    };
-
-    drop(head);
-
-    // Use chunked download if: server supports ranges, file is large enough,
-    // and we have multiple threads available
-    let chunk_threshold = 2 * 1024 * 1024u64; // 2 MB
-    let chunk_count = if accepts_ranges && content_length > chunk_threshold && threads > 1 {
-        std::cmp::min(threads, 4) // cap at 4 chunks per file
-    } else {
-        1
-    };
-
-    if chunk_count > 1 {
-        download_chunked(client, &item.url, &part, content_length, chunk_count, on_progress).await?
-    } else {
-        download_streamed(client, &item.url, &part, on_progress).await?
-    }
+    // Streamed download only — some CDNs (e.g. edge.forgecdn.net) 404 on Range requests.
+    let _ = threads;
+    download_streamed(client, &item.url, &part, on_progress).await?;
 
     if let Some(sha) = &item.sha512 {
         let actual = file_sha512(&part).ok_or("校验失败: 无法读取")?;
@@ -382,6 +330,7 @@ async fn download_streamed(
 }
 
 /// Parallel chunked download using HTTP Range requests.
+#[allow(dead_code)]
 async fn download_chunked(
     client: &reqwest::Client,
     url: &str,

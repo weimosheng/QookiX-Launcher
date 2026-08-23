@@ -1,4 +1,5 @@
 use crate::models::Settings;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -11,10 +12,8 @@ pub struct AppState {
     /// Download concurrency limit
     #[allow(dead_code)]
     pub semaphore: Arc<Semaphore>,
-    /// Currently running game process (if any)
-    pub game_process: Arc<Mutex<Option<tokio::process::Child>>>,
-    /// Which instance is currently launching / running
-    pub running_instance: Arc<Mutex<Option<String>>>,
+    /// Currently running game pids keyed by instance id
+    pub game_pids: Arc<Mutex<HashMap<String, u32>>>,
     /// Monotonic task counter for event correlation
     pub task_counter: AtomicU64,
     /// Cancel flag for the active install task

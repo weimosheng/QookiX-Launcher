@@ -148,6 +148,10 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
     if let Some(v) = patch.get("isolation").and_then(|v| v.as_bool()) {
         settings.isolation = v;
     }
+    if let Some(v) = patch.get("proxy") {
+        let p = v.as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        settings.proxy = p;
+    }
     let cloned = settings.clone();
     drop(settings);
     persist(state)?;
@@ -171,8 +175,8 @@ pub fn ensure_layout(root: &std::path::Path) -> std::io::Result<()> {
 }
 
 /// Shared http client builder with a browser-ish UA.
-pub fn http_client() -> reqwest::Client {
-    reqwest::Client::builder()
+pub fn http_client(proxy: Option<&str>) -> reqwest::Client {
+    let mut builder = reqwest::Client::builder()
         .user_agent(format!(
             "QookiX-Launcher/{} (desktop)",
             env!("CARGO_PKG_VERSION")
@@ -180,9 +184,15 @@ pub fn http_client() -> reqwest::Client {
         .gzip(true)
         .brotli(true)
         .connect_timeout(std::time::Duration::from_secs(15))
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-        .expect("failed to build http client")
+        .timeout(std::time::Duration::from_secs(60));
+    if let Some(p) = proxy {
+        if !p.is_empty() {
+            if let Ok(proxy) = reqwest::Proxy::all(p) {
+                builder = builder.proxy(proxy);
+            }
+        }
+    }
+    builder.build().expect("failed to build http client")
 }
 
 #[allow(dead_code)]

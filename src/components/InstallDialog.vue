@@ -132,7 +132,7 @@ async function loadDeps() {
   }
 }
 
-watch(selectedVersion, () => loadDeps());
+watch(selectedVersion, () => { if (!isModpack.value) loadDeps(); });
 
 async function loadVersions() {
   if (!props.project) return;
@@ -202,10 +202,11 @@ async function install() {
     return;
   }
   if (!selectedVersion.value) {
-    message.warning("请选择一个版本");
+    message.warning(versions.value.length ? "请选择一个版本" : "该 mod 没有可用版本，可能不兼容当前实例或加载失败");
     return;
   }
   installing.value = true;
+  message.success("已添加到下载队列");
   try {
     await api.installContent(
       selectedInstance.value ?? "",
@@ -214,7 +215,7 @@ async function install() {
       selectedVersion.value,
       props.project.project_type
     );
-    message.success("已添加到下载队列");
+    message.success("安装完成");
     emit("update:show", false);
   } catch (e) {
     message.error(String(e));
@@ -255,7 +256,7 @@ function fmtDate(s: string) {
           <div class="id-desc">{{ props.project.description }}</div>
           <div class="id-links">
             <a v-if="mcWikiUrl" :href="mcWikiUrl" target="_blank" class="id-link"><IconGlobe /> MC百科</a>
-            <a v-if="sourceUrl" :href="sourceUrl" target="_blank" class="id-link"><IconExternal /> 官网</a>
+            <a v-if="sourceUrl" :href="sourceUrl" target="_blank" class="id-link"><IconExternal /> 在浏览器打开</a>
             <button class="id-link" @click="copyName"><IconCopy /> 复制名称</button>
           </div>
         </div>
@@ -328,7 +329,7 @@ function fmtDate(s: string) {
     <template #footer>
       <div class="id-footer">
         <n-button @click="emit('update:show', false)">关闭</n-button>
-        <n-button type="primary" :loading="installing" :disabled="!selectedVersion" @click="install">
+        <n-button type="primary" :loading="installing" @click="install">
           一键安装
         </n-button>
       </div>
@@ -354,11 +355,7 @@ function fmtDate(s: string) {
   border-radius: 12px;
   object-fit: cover;
   flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.06);
-}
-.id-info {
-  min-width: 0;
-  flex: 1;
+  background: var(--panel);
 }
 .id-title {
   font-size: 16px;
@@ -369,19 +366,19 @@ function fmtDate(s: string) {
   display: flex;
   gap: 10px;
   font-size: 12px;
-  color: #8b8e9c;
+  color: var(--text-3);
   margin-bottom: 6px;
 }
 .id-type {
-  background: rgba(232, 154, 75, 0.16);
-  color: #e89a4b;
+  background: var(--accent-soft);
+  color: var(--accent);
   border-radius: 6px;
   padding: 0 7px;
   font-weight: 600;
 }
 .id-desc {
   font-size: 12px;
-  color: #8b8e9c;
+  color: var(--text-3);
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -398,9 +395,9 @@ function fmtDate(s: string) {
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: #8b8e9c;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-3);
+  background: var(--panel);
+  border: 1px solid var(--border);
   border-radius: 7px;
   padding: 3px 9px;
   text-decoration: none;
@@ -416,9 +413,9 @@ function fmtDate(s: string) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.05);
-  color: #c6c8d2;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-2);
   border-radius: 8px;
   padding: 6px 11px;
   font-size: 12px;
@@ -428,7 +425,7 @@ function fmtDate(s: string) {
   flex-shrink: 0;
 }
 .id-site:hover {
-  color: #e89a4b;
+  color: var(--accent);
   border-color: rgba(232, 154, 75, 0.45);
 }
 .id-form {
@@ -441,7 +438,7 @@ function fmtDate(s: string) {
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
-  color: #c6c8d2;
+  color: var(--text-2);
 }
 .id-modpack-hint {
   color: var(--accent, #50c878);
@@ -457,7 +454,7 @@ function fmtDate(s: string) {
   position: relative;
   display: flex;
   gap: 3px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--panel);
   border-radius: 8px;
   padding: 2px;
 }
@@ -472,7 +469,7 @@ function fmtDate(s: string) {
 .id-type-tabs button {
   border: none;
   background: transparent;
-  color: #8b8e9c;
+  color: var(--text-3);
   padding: 4px 10px;
   border-radius: 6px;
   font-size: 12px;
@@ -486,7 +483,7 @@ function fmtDate(s: string) {
 .id-loading {
   padding: 20px;
   text-align: center;
-  color: #8b8e9c;
+  color: var(--text-3);
   font-size: 13px;
 }
 .id-ver-list {
@@ -495,10 +492,10 @@ function fmtDate(s: string) {
   gap: 4px;
   max-height: 200px;
   overflow-y: auto;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 6px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--panel);
 }
 .id-ver-row {
   display: flex;
@@ -506,7 +503,7 @@ function fmtDate(s: string) {
   gap: 8px;
   border: 1px solid transparent;
   background: transparent;
-  color: #c6c8d2;
+  color: var(--text-2);
   padding: 6px 10px;
   border-radius: 8px;
   cursor: pointer;
@@ -514,11 +511,11 @@ function fmtDate(s: string) {
   text-align: left;
 }
 .id-ver-row:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--panel);
 }
 .id-ver-row.active {
   border-color: rgba(232, 154, 75, 0.5);
-  background: rgba(232, 154, 75, 0.14);
+  background: var(--accent-soft);
 }
 .id-ver-num {
   font-size: 12px;
@@ -538,8 +535,8 @@ function fmtDate(s: string) {
   color: #4ec9a0;
 }
 .id-ver-type.beta {
-  background: rgba(232, 154, 75, 0.16);
-  color: #e89a4b;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 .id-ver-type.alpha {
   background: rgba(229, 83, 75, 0.14);
@@ -547,7 +544,7 @@ function fmtDate(s: string) {
 }
 .id-ver-mc {
   font-size: 11px;
-  color: #8b8e9c;
+  color: var(--text-3);
   flex: 1;
   text-align: right;
   overflow: hidden;
@@ -556,12 +553,12 @@ function fmtDate(s: string) {
 }
 .id-ver-date {
   font-size: 11px;
-  color: #8b8e9c;
+  color: var(--text-3);
   flex-shrink: 0;
 }
 .id-empty {
   text-align: center;
-  color: #8b8e9c;
+  color: var(--text-3);
   font-size: 13px;
   padding: 16px 0;
 }
@@ -573,7 +570,7 @@ function fmtDate(s: string) {
 .id-deps-label {
   font-size: 12px;
   font-weight: 700;
-  color: #8b8e9c;
+  color: var(--text-3);
 }
 .id-deps-list {
   display: flex;
@@ -584,9 +581,9 @@ function fmtDate(s: string) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
-  color: #c6c8d2;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-2);
   border-radius: 8px;
   padding: 4px 10px;
   font-size: 12px;
@@ -611,23 +608,23 @@ function fmtDate(s: string) {
   color: #7cb8f5;
 }
 .id-dep-chip.incompatible .id-dep-tag {
-  background: rgba(255, 255, 255, 0.08);
-  color: #8b8e9c;
+  background: var(--border);
+  color: var(--text-3);
 }
 .id-deps-loading {
   font-size: 12px;
-  color: #8b8e9c;
+  color: var(--text-3);
 }
 .id-msg {
   font-size: 13px;
-  color: #e89a4b;
+  color: var(--accent);
 }
 .id-noinst {
   font-size: 12px;
-  color: #8b8e9c;
+  color: var(--text-3);
 }
 .id-noinst a {
-  color: #e89a4b;
+  color: var(--accent);
   cursor: pointer;
 }
 .id-footer {

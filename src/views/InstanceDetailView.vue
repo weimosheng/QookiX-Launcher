@@ -3,7 +3,6 @@ import { onBeforeUnmount, onMounted, ref, watch, computed, nextTick } from "vue"
 import { useRoute, useRouter } from "vue-router";
 import { useInstancesStore } from "../stores/instances";
 import { useAccountsStore } from "../stores/accounts";
-import { useTasksStore } from "../stores/tasks";
 import { useSettingsStore } from "../stores/settings";
 import { useMessage, NModal, NSelect, NButton } from "naive-ui";
 import { api } from "../api";
@@ -35,14 +34,12 @@ import {
   IconRefresh,
   IconRepeat,
   IconSearch,
-  IconStop,
   IconTrash,
 } from "../components/icons";
 const route = useRoute();
 const router = useRouter();
 const instances = useInstancesStore();
 const accounts = useAccountsStore();
-const tasks = useTasksStore();
 const message = useMessage();
 
 const confirmState = ref<{ title: string; content: string; positiveText: string; onOk: () => void | Promise<void> } | null>(null);
@@ -62,7 +59,9 @@ async function handleConfirm() {
 }
 
 const instanceId = route.params.id as string;
-const tab = ref("mods");
+const tab = ref<string>(
+  (Array.isArray(route.query.tab) ? route.query.tab[0] : route.query.tab) ?? "mods"
+);
 
 const instance = computed(() => instances.get(instanceId));
 
@@ -106,6 +105,17 @@ const tabs = computed(() =>
   ALL_TABS.filter((t) => !t.folder || folders.value[t.folder] || t.key === tab.value)
 );
 
+// 支持通过 URL query 切换 tab（如崩溃弹窗「查看日志」跳转）
+watch(
+  () => route.query.tab,
+  (v) => {
+    const next = Array.isArray(v) ? v[0] : v;
+    if (typeof next === "string" && ALL_TABS.some((t) => t.key === next)) {
+      tab.value = next;
+    }
+  }
+);
+
 // Sliding active-highlight indicator for the tab bar
 const tabsBox = ref<HTMLElement | null>(null);
 const { indicatorStyle: tabIndicatorStyle, refresh: refreshTabIndicator } = useSlidingIndicator(
@@ -122,7 +132,7 @@ watch(
 function loaderLabel() {
   const i = instance.value;
   if (!i) return "";
-  return i.loader === "vanilla" ? "原版" : i.loader.toUpperCase();
+  return i.loader === "vanilla" ? "原版" : i.loader.charAt(0).toUpperCase() + i.loader.slice(1);
 }
 
 async function loadFolders() {
@@ -667,10 +677,9 @@ watch(
         </div>
       </div>
       <div class="d-actions">
-        <button class="btn primary" :disabled="tasks.gameRunning" @click="launch">
-          <IconStop v-if="tasks.gameRunning" />
-          <IconPlay v-else />
-          {{ tasks.gameRunning ? "运行中" : "启动游戏" }}
+        <button class="btn primary" @click="launch">
+          <IconPlay />
+          启动游戏
         </button>
         <button class="btn ghost" title="打开游戏目录" @click="openFolder()">
           <IconFolder />
@@ -839,7 +848,7 @@ watch(
             <div class="c-actions">
               <button
                 class="mini-btn play"
-                :disabled="!!launchingWorld || tasks.gameRunning"
+                :disabled="!!launchingWorld"
                 @click="launchWorld(f.name)"
               >
                 <IconPlay /> {{ launchingWorld === f.name ? "启动中…" : "直接启动" }}
@@ -1107,6 +1116,7 @@ watch(
   width: 56px;
   height: 56px;
   border-radius: 14px;
+  overflow: hidden;
   background: linear-gradient(135deg, rgba(232, 154, 75, 0.3), rgba(232, 154, 75, 0.1));
   display: flex;
   align-items: center;
@@ -1775,6 +1785,7 @@ textarea.text-input {
   width: 38px;
   height: 38px;
   border-radius: 10px;
+  overflow: hidden;
   background: linear-gradient(135deg, rgba(232, 154, 75, 0.28), rgba(232, 154, 75, 0.08));
   display: flex;
   align-items: center;

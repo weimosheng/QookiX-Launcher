@@ -55,8 +55,7 @@ export const useTasksStore = defineStore("tasks", {
     tasks: {} as Record<number, TaskEntry>,
     order: [] as number[],
     logs: {} as Record<string, LogEntry[]>,
-    runningInstance: null as string | null,
-    gameRunning: false,
+    runningInstances: [] as string[],
     lastExit: null as { instanceId: string; code: number | null } | null,
   }),
   getters: {
@@ -68,6 +67,12 @@ export const useTasksStore = defineStore("tasks", {
     },
     activeCount(): number {
       return this.taskList.filter((t) => !t.finished).length;
+    },
+    gameRunning(): boolean {
+      return this.runningInstances.length > 0;
+    },
+    runningInstance(): string | null {
+      return this.runningInstances[0] ?? null;
     },
   },
   actions: {
@@ -139,11 +144,11 @@ export const useTasksStore = defineStore("tasks", {
       listen<LaunchStateEvent>("launch://state", (e) => {
         const p = e.payload;
         if (p.state === "running") {
-          this.runningInstance = p.instanceId;
-          this.gameRunning = true;
+          if (!this.runningInstances.includes(p.instanceId)) {
+            this.runningInstances = [...this.runningInstances, p.instanceId];
+          }
         } else {
-          this.runningInstance = null;
-          this.gameRunning = false;
+          this.runningInstances = this.runningInstances.filter((id) => id !== p.instanceId);
           this.lastExit = { instanceId: p.instanceId, code: p.code };
         }
       });

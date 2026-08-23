@@ -3,15 +3,13 @@ import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useInstancesStore } from "../stores/instances";
 import { useAccountsStore } from "../stores/accounts";
-import { useTasksStore } from "../stores/tasks";
 import { useMessage } from "naive-ui";
 import AppIcon from "../components/AppIcon.vue";
-import { IconChevronRight, IconCompass, IconPlay, IconStop, IconUser } from "../components/icons";
+import { IconChevronRight, IconCompass, IconPlay, IconUser } from "../components/icons";
 
 const router = useRouter();
 const instances = useInstancesStore();
 const accounts = useAccountsStore();
-const tasks = useTasksStore();
 const message = useMessage();
 const launching = ref(false);
 
@@ -20,18 +18,19 @@ const lastPlayed = computed(() =>
 );
 
 function loaderBadge(i: { loader: string }) {
-  return i.loader === "vanilla" ? "原版" : i.loader.toUpperCase();
+  return i.loader === "vanilla" ? "原版" : i.loader.charAt(0).toUpperCase() + i.loader.slice(1);
 }
 
+const greeting = computed(() => {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 11) return "早上好";
+  if (h >= 11 && h < 13) return "中午好";
+  if (h >= 13 && h < 18) return "下午好";
+  if (h >= 18 && h < 22) return "晚上好";
+  return "夜深了";
+});
+
 async function quickLaunch() {
-  if (tasks.gameRunning) {
-    try {
-      await instances.stop();
-    } catch (e) {
-      message.error(`停止游戏失败: ${String(e)}`);
-    }
-    return;
-  }
   const target = lastPlayed.value ?? instances.instances[0];
   if (!target) {
     message.info("还没有实例，先创建一个吧");
@@ -65,13 +64,12 @@ onMounted(() => {
     <section class="hero glass">
       <div class="hero-glow"></div>
       <div class="hero-text">
+        <div class="greeting">{{ greeting }}</div>
         <h1>开始你的 <span class="accent">方块之旅</span></h1>
-        <p>现代、简洁、无广告的 Minecraft 启动器</p>
         <div class="hero-actions">
           <button class="btn primary big" :disabled="launching" @click="quickLaunch">
-            <IconStop v-if="tasks.gameRunning" />
-            <IconPlay v-else />
-            <span>{{ tasks.gameRunning ? "停止游戏" : launching ? "启动中…" : "快速开始" }}</span>
+            <IconPlay />
+            <span>{{ launching ? "启动中…" : "快速开始" }}</span>
           </button>
           <button class="btn ghost big" @click="router.push('/browse')">
             <IconCompass /> 浏览内容
@@ -129,7 +127,7 @@ onMounted(() => {
 .hero {
   position: relative;
   overflow: hidden;
-  padding: 34px 38px;
+  padding: 22px 38px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -152,6 +150,15 @@ onMounted(() => {
   font-size: 30px;
   margin: 0 0 10px;
   letter-spacing: 0.3px;
+  line-height: 1.1;
+}
+.greeting {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 0;
+  line-height: 1.2;
+  letter-spacing: 0.5px;
 }
 .accent {
   color: var(--accent);
@@ -181,8 +188,8 @@ onMounted(() => {
   font-family: inherit;
 }
 .btn.big {
-  padding: 12px 22px;
-  font-size: 15px;
+  padding: 8px 16px;
+  font-size: 13px;
 }
 .btn.primary {
   background: linear-gradient(135deg, var(--accent), var(--accent-deep));
@@ -257,6 +264,7 @@ onMounted(() => {
   width: 44px;
   height: 44px;
   border-radius: 12px;
+  overflow: hidden;
   background: linear-gradient(135deg, rgba(232, 154, 75, 0.25), rgba(232, 154, 75, 0.08));
   display: flex;
   align-items: center;

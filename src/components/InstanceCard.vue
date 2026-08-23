@@ -2,7 +2,6 @@
 import { ref } from "vue";
 import { useRouter } from "vue-router";
 import { useInstancesStore } from "../stores/instances";
-import { useTasksStore } from "../stores/tasks";
 import { useMessage, NModal, NButton } from "naive-ui";
 import { api } from "../api";
 import AppIcon from "./AppIcon.vue";
@@ -11,7 +10,6 @@ import type { Instance } from "../types";
 
 const props = defineProps<{ instance: Instance }>();
 const instances = useInstancesStore();
-const tasks = useTasksStore();
 const router = useRouter();
 const message = useMessage();
 
@@ -29,7 +27,7 @@ async function handleConfirm() {
 }
 
 function loaderBadge() {
-  return props.instance.loader === "vanilla" ? "原版" : props.instance.loader.toUpperCase();
+  return props.instance.loader === "vanilla" ? "原版" : props.instance.loader.charAt(0).toUpperCase() + props.instance.loader.slice(1);
 }
 
 async function launch() {
@@ -89,7 +87,6 @@ function confirmDelete() {
       <div class="actions" @click.stop>
         <button
           class="icon-btn play"
-          :disabled="tasks.gameRunning"
           title="启动游戏"
           @click="launch"
         >
@@ -137,6 +134,7 @@ function confirmDelete() {
   width: 46px;
   height: 46px;
   border-radius: 12px;
+  overflow: hidden;
   background: linear-gradient(135deg, rgba(232, 154, 75, 0.28), rgba(232, 154, 75, 0.08));
   display: flex;
   align-items: center;

@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { onMounted, computed } from "vue";
-import { darkTheme, lightTheme, NConfigProvider, NDialogProvider, NMessageProvider, NNotificationProvider } from "naive-ui";
+import { onMounted, computed, watch } from "vue";
+import { darkTheme, lightTheme, NConfigProvider, NDialogProvider, NLoadingBarProvider, NMessageProvider, NNotificationProvider } from "naive-ui";
 import TitleBar from "./components/TitleBar.vue";
 import SideBar from "./components/SideBar.vue";
+import LoadingBarBridge from "./components/LoadingBarBridge.vue";
+import LaunchProgress from "./components/LaunchProgress.vue";
+import CrashDialog from "./components/CrashDialog.vue";
 import { useSettingsStore } from "./stores/settings";
 import { useAccountsStore } from "./stores/accounts";
 import { useInstancesStore } from "./stores/instances";
@@ -18,6 +21,10 @@ const isDark = computed(() => settings.settings?.theme !== "light");
 const activeTheme = computed(() => (isDark.value ? darkTheme : lightTheme));
 const themeOverrides = computed(() => (isDark.value ? darkThemeOverrides : lightThemeOverrides));
 
+watch(isDark, () => {
+  document.documentElement.classList.toggle("light", !isDark.value);
+}, { immediate: true });
+
 onMounted(() => {
   tasks.init();
   settings.load();
@@ -28,23 +35,29 @@ onMounted(() => {
 
 <template>
   <n-config-provider :theme="activeTheme" :theme-overrides="themeOverrides" :inline-theme-disabled="true">
-    <n-dialog-provider>
-      <n-message-provider>
-        <n-notification-provider>
-          <div class="app app-bg" :class="{ light: !isDark }">
-            <TitleBar />
-            <div class="body">
-              <SideBar />
-              <main class="content">
-                <router-view v-slot="{ Component }">
-                  <component :is="Component" />
-                </router-view>
-              </main>
-            </div>
-          </div>
-        </n-notification-provider>
-      </n-message-provider>
-    </n-dialog-provider>
+    <n-loading-bar-provider>
+      <LoadingBarBridge>
+        <n-dialog-provider>
+          <n-message-provider>
+            <n-notification-provider>
+              <div class="app app-bg" :class="{ light: !isDark }">
+                <TitleBar />
+                <div class="body">
+                  <SideBar />
+                  <main class="content">
+                    <router-view v-slot="{ Component }">
+                      <component :is="Component" />
+                    </router-view>
+                  </main>
+                </div>
+                </div>
+                <LaunchProgress />
+                <CrashDialog />
+              </n-notification-provider>
+          </n-message-provider>
+        </n-dialog-provider>
+      </LoadingBarBridge>
+    </n-loading-bar-provider>
   </n-config-provider>
 </template>
 

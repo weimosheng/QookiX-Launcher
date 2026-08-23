@@ -202,6 +202,12 @@ pub async fn search(
         .iter()
         .map(|m| {
             let logo = m.get("logo").and_then(|l| l.get("url")).and_then(|v| v.as_str()).unwrap_or("");
+            let featured = m.get("screenshots")
+                .and_then(|s| s.as_array())
+                .and_then(|s| s.first())
+                .and_then(|x| x.get("url"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             json!({
                 "provider": "curseforge",
                 "id": m.get("id").and_then(|v| v.as_u64()).unwrap_or(0).to_string(),
@@ -216,6 +222,8 @@ pub async fn search(
                 "categories": m.get("categories").and_then(|c| c.as_array()).map(|c| c.iter().filter_map(|x| x.get("name").and_then(|v| v.as_str()).map(|s| s.to_string())).collect::<Vec<_>>()).unwrap_or_default(),
                 "latest_version": "",
                 "game_versions": m.get("gameVersions").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+                "updated": m.get("dateModified").and_then(|v| v.as_str()).unwrap_or(""),
+                "featured_image": featured,
                 "_sort_ts": m.get("dateModified").and_then(|v| v.as_str()).unwrap_or(""),
             })
         })
@@ -300,13 +308,13 @@ pub async fn files(state: &AppState, mod_id: &str, mc_version: &str) -> Result<V
 
 /// Download URL for a CurseForge file (edge CDN fallback when downloadUrl is absent).
 fn file_download_url(file: &Value) -> String {
-    if let Some(u) = file.get("download_url").and_then(|v| v.as_str()) {
+    if let Some(u) = file.get("downloadUrl").and_then(|v| v.as_str()) {
         if !u.is_empty() {
             return u.to_string();
         }
     }
     let id = file.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
-    let filename = file.get("filename").and_then(|v| v.as_str()).unwrap_or("file.jar");
+    let filename = file.get("fileName").and_then(|v| v.as_str()).unwrap_or("file.jar");
     let a = id / 1000;
     let b = id % 1000;
     format!("https://edge.forgecdn.net/files/{a}/{b}/{filename}")
@@ -365,7 +373,23 @@ pub async fn install_file(
         instance,
         &source,
     );
-    crate::download::download_many(app.clone(), state, task_id, "content", items).await?;
+    if let Err(e) = crate::download::download_many(app.clone(), state, task_id, "content", items).await {
+        let _ = app.emit(
+            "install://progress",
+            serde_json::json!({
+                "taskId": task_id,
+                "stage": "done",
+                "message": format!("安装失败：{e}"),
+                "done": 1,
+                "total": 1,
+                "instanceId": &instance.id,
+                "instanceName": &instance.name,
+                "source": &source,
+                "ok": false,
+            }),
+        );
+        return Err(e);
+    }
 
     let record = InstalledContent {
         filename: filename.clone(),

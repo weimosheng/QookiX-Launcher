@@ -207,7 +207,7 @@ pub async fn launch_instance(
     world: Option<String>,
 ) -> Result<LaunchResult, String> {
     if launch::is_running(&state) {
-        return Err("已有游戏在运行中".into());
+        // allow multi-instance; just log
     }
     let instance = crate::instances::get_instance(&state, &instance_id)?;
     // resolve account: instance override -> global selected -> first
@@ -224,7 +224,9 @@ pub async fn launch_instance(
         accounts.first().cloned()
     };
     let account = account.ok_or("请先在左下角账号栏添加账号（正版或离线）")?;
+    let _ = app.emit("launch://progress", serde_json::json!({ "step": "正在登录账号…", "progress": 10 }));
     let account = accounts::refresh_microsoft(&state, &account).await?;
+    let _ = app.emit("launch://progress", serde_json::json!({ "step": "账号准备完成", "progress": 25 }));
     let resolved = launch::ResolvedAccount {
         username: account.username().to_string(),
         uuid: account.uuid().to_string(),

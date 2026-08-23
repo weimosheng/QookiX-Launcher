@@ -16,7 +16,7 @@ const logs = computed(() => tasks.logs[props.instanceId] ?? []);
 
 const logText = computed(() => logs.value.map((l) => l.line).join("\n"));
 
-watch(logs, async () => {
+watch(() => logs.value.length, async () => {
   if (autoScroll.value) {
     await nextTick();
     if (box.value) box.value.scrollTop = box.value.scrollHeight;

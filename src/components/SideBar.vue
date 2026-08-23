@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { useRoute } from "vue-router";
-import { nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import AccountChip from "./AccountChip.vue";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
+import { useTasksStore } from "../stores/tasks";
+import { useInstancesStore } from "../stores/instances";
+import { useMessage } from "naive-ui";
 import {
   IconChevronsLeft,
   IconCompass,
@@ -11,19 +14,25 @@ import {
   IconHome,
   IconList,
   IconSettings,
+  IconStop,
 } from "./icons";
 
 const route = useRoute();
+const tasks = useTasksStore();
+const instances = useInstancesStore();
+const message = useMessage();
 
 const collapsed = ref(true);
 
 const nav = [
   { name: "home", label: "首页", icon: IconHome, to: "/" },
   { name: "browse", label: "内容", icon: IconCompass, to: "/browse" },
-  { name: "downloads", label: "下载", icon: IconDownload, to: "/downloads" },
   { name: "instances", label: "实例", icon: IconGrid, to: "/instances" },
   { name: "settings", label: "设置", icon: IconSettings, to: "/settings" },
+  { name: "downloads", label: "下载", icon: IconDownload, to: "/downloads" },
 ];
+
+const downloadCount = computed(() => tasks.activeCount);
 
 function isActive(n: { to: string }) {
   if (n.to === "/") return route.path === "/";
@@ -43,6 +52,15 @@ watch(
   () => nextTick(() => refresh())
 );
 watch(collapsed, () => nextTick(() => snap()));
+
+async function stopAll() {
+  try {
+    await instances.stop();
+    message.success("已关闭所有实例");
+  } catch (e) {
+    message.error(String(e));
+  }
+}
 </script>
 
 <template>
@@ -59,10 +77,19 @@ watch(collapsed, () => nextTick(() => snap()));
       >
         <component :is="n.icon" class="nav-icon" />
         <span v-if="!collapsed" class="nav-label">{{ n.label }}</span>
+        <span
+          v-if="n.name === 'downloads' && downloadCount > 0"
+          class="nav-badge"
+          :title="`正在下载 ${downloadCount} 项`"
+        >{{ downloadCount }}</span>
       </router-link>
     </nav>
 
     <div class="side-foot">
+      <button v-if="tasks.gameRunning" class="stop-all-btn" @click="stopAll">
+        <IconStop />
+        <span v-if="!collapsed">关闭所有实例</span>
+      </button>
       <AccountChip :collapsed="collapsed" />
       <button class="collapse-btn" @click="collapsed = !collapsed">
         <IconChevronsLeft v-if="!collapsed" />
@@ -94,6 +121,7 @@ watch(collapsed, () => nextTick(() => snap()));
   gap: 4px;
 }
 .nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -143,6 +171,24 @@ watch(collapsed, () => nextTick(() => snap()));
 .nav-label {
   animation: fade-in 0.2s ease;
 }
+.nav-badge {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  box-sizing: border-box;
+  pointer-events: none;
+  animation: fade-in 0.18s ease;
+}
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -180,5 +226,29 @@ watch(collapsed, () => nextTick(() => snap()));
 }
 .sidebar.collapsed .collapse-btn:hover {
   background: transparent;
+}
+.stop-all-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 40px;
+  box-sizing: border-box;
+  padding: 0 14px;
+  border: 1px solid rgba(229, 83, 75, 0.4);
+  border-radius: 10px;
+  background: rgba(229, 83, 75, 0.12);
+  color: #f0907f;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.14s;
+}
+.stop-all-btn:hover {
+  background: rgba(229, 83, 75, 0.2);
+}
+.sidebar.collapsed .stop-all-btn {
+  justify-content: center;
+  padding: 0;
 }
 </style>

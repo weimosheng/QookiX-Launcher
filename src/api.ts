@@ -1,4 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as rawInvoke } from "@tauri-apps/api/core";
+import { trackStart, trackEnd, trackError } from "./loadingBar";
 import type {
   Account,
   Instance,
@@ -7,6 +8,26 @@ import type {
   ProjectVersion,
   Settings,
 } from "./types";
+
+const SILENT_COMMANDS = new Set(["install_game", "install_content", "download_java", "mc_wiki_url", "project_dependencies", "launch_instance"]);
+
+function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const silent = SILENT_COMMANDS.has(cmd);
+  if (!silent) trackStart();
+  return rawInvoke<T>(cmd, args).then(
+    (res) => {
+      if (!silent) trackEnd();
+      return res;
+    },
+    (err) => {
+      if (!silent) {
+        trackError();
+        trackEnd();
+      }
+      throw err;
+    },
+  );
+}
 
 export const api = {
   // settings & java
@@ -88,7 +109,12 @@ export const api = {
     loaderVersions: (string | null)[],
     mode: "copy" | "symlink"
   ) =>
-    invoke<{ instance_id: string; total_bytes: number; file_count: number }[]>("import_minecraft_folder", {
+    invoke<{
+      instance_id: string;
+      total_bytes: number;
+      file_count: number;
+      symlink_fallback?: boolean;
+    }[]>("import_minecraft_folder", {
       source,
       name,
       rawIds,

@@ -278,6 +278,15 @@ onMounted(() => {
             />
             <p class="hint">可选。不填则 CurseForge 内容中心不可用，Modrinth 不受影响。</p>
           </div>
+          <div class="card glass">
+            <h3>下载代理</h3>
+            <input
+              v-model="settings.settings.proxy"
+              class="text-input mono"
+              placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080"
+            />
+            <p class="hint">可选。用于绕过 CDN 下载失败（404/连接失败）。修改后需重启启动器生效。</p>
+          </div>
         </div>
       </n-tab-pane>
 

@@ -17,17 +17,18 @@ const activeTab = ref<"active" | "finished">("active");
 
 // 顶部 tab 的滑动高亮指示器
 const tabBox = ref<HTMLElement | null>(null);
-const { indicatorStyle: tabIndicatorStyle, refresh: refreshTabIndicator } = useSlidingIndicator(
+const { indicatorStyle: tabIndicatorStyle, refresh: refreshTabIndicator, snap: snapTabIndicator } = useSlidingIndicator(
   tabBox,
   () => Array.from(tabBox.value?.querySelectorAll<HTMLElement>(".tabs button") ?? []),
   () => (activeTab.value === "active" ? 0 : 1),
   { axis: "horizontal" }
 );
-watch(activeTab, () => nextTick(() => refreshTabIndicator()));
-
 const activeTasks = computed(() => tasks.taskList.filter((t) => !t.finished));
 const finishedTasks = computed(() => tasks.taskList.filter((t) => t.finished));
 const visibleTasks = computed(() => activeTab.value === "active" ? activeTasks.value : finishedTasks.value);
+
+watch(activeTab, () => nextTick(() => refreshTabIndicator()));
+watch([() => activeTasks.value.length, () => finishedTasks.value.length], () => nextTick(() => snapTabIndicator()));
 
 const STAGE_LABELS: Record<string, string> = {
   manifest: "获取版本信息",
@@ -40,7 +41,17 @@ const STAGE_LABELS: Record<string, string> = {
   content: "内容下载",
   modpack: "整合包下载",
   "modpack-install": "写入整合包",
+  runtime: "Java 运行时",
   done: "完成",
+  prepare: "准备中",
+  download: "下载",
+  extract: "解压",
+  verify: "校验",
+  install: "安装",
+  fetch: "获取",
+  resolve: "解析依赖",
+  copy: "复制文件",
+  write: "写入文件",
 };
 
 function stageLabel(t: TaskEntry) {
