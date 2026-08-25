@@ -5,6 +5,7 @@ export interface Settings {
   java_path: string | null;
   max_memory_mb: number;
   min_memory_mb: number;
+  memory_mode: string;
   jvm_args: string;
   game_args: string;
   download_threads: number;
@@ -117,6 +118,10 @@ export interface InstalledContent {
   filename: string;
   source: string;
   project_id: string | null;
+  /** Modrinth/CurseForge 项目 slug，用于内容中心检索与中文名映射 */
+  slug?: string | null;
+  /** 后端按 WikiEntries 映射出的中文名（未命中为 null） */
+  cn_name?: string | null;
   version_id: string | null;
   name: string | null;
   version: string | null;
@@ -134,6 +139,7 @@ export interface UpdateInfo {
   latestVersionId: string;
   projectTitle: string | null;
   kind: string;
+  provider: string;
 }
 
 export interface InstallProgressEvent {

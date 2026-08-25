@@ -34,6 +34,8 @@ pub struct Settings {
     pub java_path: Option<String>,
     pub max_memory_mb: u32,
     pub min_memory_mb: u32,
+    /// Memory mode: "auto" | "custom" (default "custom")
+    pub memory_mode: String,
     /// Extra JVM arguments (one per line or space separated)
     pub jvm_args: String,
     /// Extra game arguments
@@ -67,6 +69,7 @@ impl Default for Settings {
             java_path: None,
             max_memory_mb: 4096,
             min_memory_mb: 512,
+            memory_mode: "auto".into(),
             jvm_args: String::new(),
             game_args: String::new(),
             download_threads: 8,
@@ -118,6 +121,9 @@ pub struct InstalledContent {
     pub source: String,
     /// Modrinth project id or CurseForge mod id
     pub project_id: Option<String>,
+    /// Modrinth/CurseForge project slug (用于 WikiEntries 中文名映射)
+    #[serde(default)]
+    pub slug: Option<String>,
     /// Modrinth version id or CurseForge file id
     pub version_id: Option<String>,
     pub name: Option<String>,

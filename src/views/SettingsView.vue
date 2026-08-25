@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { NTabs, NTabPane, NSwitch, useMessage } from "naive-ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useSettingsStore } from "../stores/settings";
 import { api } from "../api";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
-import { IconCheck, IconCpu, IconSearch } from "../components/icons";
+import { IconCpu, IconSearch } from "../components/icons";
 import type { JavaInfo } from "../types";
 
 const settings = useSettingsStore();
@@ -33,21 +33,49 @@ watch(() => settings.settings?.close_behavior, () => nextTick(() => refreshClose
 
 const javaCandidates = ref<JavaInfo[]>([]);
 const detecting = ref(false);
-const saving = ref(false);
-const autoMem = ref(false);
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
 const tab = ref("general");
 
-async function autoMemory() {
-  autoMem.value = true;
+const memTotal = ref(0);
+const memUsed = ref(0);
+const memAvailable = ref(0);
+let memTimer: ReturnType<typeof setInterval> | null = null;
+
+function fmtMem(mb: number): string {
+  if (!mb || mb <= 0) return "0 MB";
+  if (mb >= 1024) return (mb / 1024).toFixed(mb % 1024 === 0 ? 0 : 1) + " GB";
+  return Math.round(mb) + " MB";
+}
+
+const effectiveMemory = computed(() => {
+  if (settings.settings?.memory_mode === "auto") {
+    // Base: 40% of available (min 2048 MB), cap at 75% of available
+    const cap = Math.max(512, Math.floor(memAvailable.value * 3 / 4));
+    return Math.max(512, Math.min(Math.max(2048, Math.floor(memAvailable.value * 40 / 100)), cap, 8192));
+  }
+  return settings.settings?.max_memory_mb ?? 4096;
+});
+const usedPercent = computed(() => {
+  if (!memTotal.value) return 0;
+  return Math.min(100, Math.round((memUsed.value / memTotal.value) * 100));
+});
+const allocPercent = computed(() => {
+  if (!memTotal.value) return 0;
+  return Math.min(100, Math.round((effectiveMemory.value / memTotal.value) * 100));
+});
+const allocStart = computed(() => usedPercent.value);
+const allocWidth = computed(() =>
+  Math.max(0, Math.min(allocPercent.value, 100 - usedPercent.value))
+);
+
+async function loadMemoryInfo() {
   try {
     const res = await api.autoDetectMemory();
-    settings.settings!.max_memory_mb = res.max_mb;
-    settings.settings!.min_memory_mb = res.min_mb;
-    message.success(`已自动设置：最大 ${res.max_mb} MB / 初始 ${res.min_mb} MB（系统 ${res.total_mb} MB）`);
-  } catch (e) {
-    message.error(String(e));
-  } finally {
-    autoMem.value = false;
+    memTotal.value = res.total_mb;
+    memUsed.value = res.used_mb;
+    memAvailable.value = res.available_mb ?? Math.max(0, res.total_mb - res.used_mb);
+  } catch {
+    /* ignore */
   }
 }
 
@@ -64,16 +92,27 @@ async function detect() {
 }
 
 async function save() {
-  saving.value = true;
   try {
+    skipNextSave = true;
     await settings.save();
-    message.success("设置已保存");
   } catch (e) {
     message.error(String(e));
-  } finally {
-    saving.value = false;
   }
 }
+
+let skipNextSave = true;
+watch(
+  () => settings.settings,
+  () => {
+    if (skipNextSave) {
+      skipNextSave = false;
+      return;
+    }
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(save, 500);
+  },
+  { deep: true }
+);
 
 async function openPath(path: string) {
   try {
@@ -87,6 +126,12 @@ onMounted(() => {
   settings.load();
   // cached scan: no full rescan if another view already fetched recently
   settings.loadJava().then((c) => (javaCandidates.value = c));
+  loadMemoryInfo();
+  memTimer = setInterval(loadMemoryInfo, 10000);
+});
+onUnmounted(() => {
+  if (memTimer) clearInterval(memTimer);
+  if (saveTimer) clearTimeout(saveTimer);
 });
 </script>
 
@@ -97,9 +142,6 @@ onMounted(() => {
         <h1>设置</h1>
         <p class="sub">Java、内存、下载与账号相关配置</p>
       </div>
-      <button class="btn primary" :disabled="saving" @click="save">
-        <IconCheck /> 保存设置
-      </button>
     </div>
 
     <n-tabs v-model:value="tab" type="line" animated class="st-tabs">
@@ -188,7 +230,17 @@ onMounted(() => {
 
           <div class="card glass">
             <h3>内存分配（默认值）</h3>
-            <div class="mem-row">
+            <div class="mem-mode-row">
+              <label class="radio-label" :class="{ active: settings.settings.memory_mode === 'auto' }">
+                <input v-model="settings.settings.memory_mode" type="radio" value="auto" />
+                自动配置
+              </label>
+              <label class="radio-label" :class="{ active: settings.settings.memory_mode !== 'auto' }">
+                <input v-model="settings.settings.memory_mode" type="radio" value="custom" />
+                手动配置
+              </label>
+            </div>
+            <div v-if="settings.settings.memory_mode !== 'auto'" class="mem-row">
               <div>
                 <label>最大内存</label>
                 <input
@@ -201,23 +253,21 @@ onMounted(() => {
                 />
                 <div class="mem-val">{{ settings.settings.max_memory_mb }} MB</div>
               </div>
-              <div>
-                <label>初始内存</label>
-                <input
-                  v-model.number="settings.settings.min_memory_mb"
-                  type="range"
-                  min="256"
-                  max="4096"
-                  step="128"
-                  class="range"
-                />
-                <div class="mem-val">{{ settings.settings.min_memory_mb }} MB</div>
+            </div>
+            <div class="mem-gauge">
+              <div class="mem-gauge-track">
+                <div class="mem-gauge-used" :style="{ width: usedPercent + '%' }"></div>
+                <div
+                  class="mem-gauge-alloc"
+                  :style="{ left: allocStart + '%', width: allocWidth + '%' }"
+                ></div>
+              </div>
+              <div class="mem-gauge-labels">
+                <span><i class="dot used"></i>已使用 {{ fmtMem(memUsed) }}（{{ usedPercent }}%）</span>
+                <span><i class="dot alloc"></i>游戏分配 {{ fmtMem(effectiveMemory) }}（{{ allocPercent }}%）</span>
+                <span><i class="dot total"></i>总内存 {{ fmtMem(memTotal) }} / 可用 {{ fmtMem(memAvailable) }}</span>
               </div>
             </div>
-            <button class="btn ghost auto-mem-btn" :disabled="autoMem" @click="autoMemory">
-              <IconCpu /> {{ autoMem ? "检测中…" : "自动检测" }}
-            </button>
-            <p class="hint">根据系统总内存自动推荐合适的分配值。</p>
           </div>
 
           <div class="card glass">
@@ -480,9 +530,81 @@ textarea.text-input {
   font-weight: 600;
   margin-top: 4px;
 }
-.auto-mem-btn {
-  margin-top: 10px;
+.mem-mode-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.radio-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+}
+.radio-label input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.radio-label.active {
+  color: var(--accent);
+  font-weight: 600;
+}
+.mem-gauge {
+  margin-top: 14px;
+}
+.mem-gauge-track {
+  position: relative;
+  height: 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.mem-gauge-used,
+.mem-gauge-alloc {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  height: 100%;
+  transition: width 0.2s, left 0.2s;
+}
+.mem-gauge-used {
+  left: 0;
+  background: linear-gradient(90deg, #5a8ef0, #8ab4ff);
+}
+.mem-gauge-alloc {
+  background: linear-gradient(90deg, #e89a4b, #f2c079);
+}
+.mem-gauge-labels {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 6px;
+}
+.mem-gauge-labels span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dot.used {
+  background: #8ec4ff;
+}
+.dot.alloc {
+  background: #e89a4b;
+}
+.dot.total {
+  background: #9aa4b2;
 }
 .range {
   width: 100%;

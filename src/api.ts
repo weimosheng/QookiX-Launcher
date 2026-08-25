@@ -9,7 +9,7 @@ import type {
   Settings,
 } from "./types";
 
-const SILENT_COMMANDS = new Set(["install_game", "install_content", "download_java", "mc_wiki_url", "project_dependencies", "launch_instance"]);
+const SILENT_COMMANDS = new Set(["install_game", "install_content", "download_java", "mc_wiki_url", "project_dependencies", "launch_instance", "apply_update"]);
 
 function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const silent = SILENT_COMMANDS.has(cmd);
@@ -216,4 +216,32 @@ export const api = {
     invoke<{ name: string; label: string; path: string }[]>("extract_game_icons", {
       instanceId: instanceId ?? null,
     }),
+
+  // skins
+  listSkins: () =>
+    invoke<{ name: string; filename: string; path: string; size: number; modified: number }[]>("list_skins"),
+  readSkinDataUrl: (filename: string) => invoke<string>("read_skin_data_url", { filename }),
+  saveSkinFromData: (name: string, data: string) =>
+    invoke<{ name: string; filename: string; path: string; size: number; modified: number }>("save_skin_from_data", {
+      name,
+      data,
+    }),
+  downloadSkinFromUrl: (name: string, url: string) =>
+    invoke<{ name: string; filename: string; path: string; size: number; modified: number }>(
+      "download_skin_from_url",
+      { name, url },
+    ),
+  deleteSkin: (filename: string) => invoke<void>("delete_skin", { filename }),
+  fetchPlayerSkin: (username: string) =>
+    invoke<{ data_url: string; model: string; cape_data_url: string | null }>("fetch_player_skin", { username }),
+  fetchPlayerCapes: (accountUuid: string) =>
+    invoke<{ id: string; name: string; data_url: string; active: boolean }[]>("fetch_player_capes", {
+      accountUuid,
+    }),
+  applySkinToAccount: (accountUuid: string, skinData: string, variant: string) =>
+    invoke<void>("apply_skin_to_account", { accountUuid, skinData, variant }),
+  applyCapeToAccount: (accountUuid: string, capeId: string | null) =>
+    invoke<void>("apply_cape_to_account", { accountUuid, capeId }),
+  applySkinOffline: (skinData: string, variant: string, uuid: string) =>
+    invoke<void>("apply_skin_offline", { skinData, variant, uuid }),
 };

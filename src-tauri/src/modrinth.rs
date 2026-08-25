@@ -279,10 +279,21 @@ pub async fn install_version(
         return Err(e);
     }
 
+    let slug = project_info(state, &project_id)
+        .await
+        .ok()
+        .and_then(|p| {
+            p.get("slug")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .filter(|s| !s.is_empty());
+
     let record = InstalledContent {
         filename: filename.clone(),
         source: "modrinth".into(),
         project_id: Some(project_id.clone()),
+        slug: slug.clone(),
         version_id: Some(version_id.to_string()),
         name: Some(project_name.clone()),
         version: Some(version_number.clone()),
@@ -599,6 +610,7 @@ async fn install_modpack_inner(
                     filename: name.clone(),
                     source: "modrinth".into(),
                     project_id: meta.0,
+                    slug: None,
                     version_id: meta.1,
                     name: Some(name),
                     version: None,
@@ -665,7 +677,8 @@ pub async fn check_updates(
                     "latestVersionId": latest_id,
                     "projectTitle": item.name,
                     "kind": kind,
-                }));
+                    "provider": "modrinth",
+                    }));
             }
         }
     }

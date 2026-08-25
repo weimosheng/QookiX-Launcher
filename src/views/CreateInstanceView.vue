@@ -78,12 +78,12 @@ const loaderOptions = computed(() => [
 ]);
 
 async function create() {
-  if (!name.value.trim()) return message.warning("请输入实例名称");
   if (!mcVersion.value) return message.warning("请选择游戏版本");
+  const instName = name.value.trim() || mcVersion.value;
   creating.value = true;
   try {
     const inst = await instances.create(
-      name.value.trim(),
+      instName,
       mcVersion.value,
       loader.value,
       loaderVersion.value || null
@@ -315,6 +315,16 @@ function loaderLabel(ld: string): string {
 let unlisteners: Array<() => void> = [];
 
 onMounted(async () => {
+  const BGS = ["amber", "blue", "green", "purple", "red", "slate", "dark"];
+  const bg = BGS[Math.floor(Math.random() * BGS.length)];
+  iconStr.value = `bg:${bg}`;
+  try {
+    const icons = await api.extractGameIcons(undefined);
+    if (icons.length > 0) {
+      const pick = icons[Math.floor(Math.random() * icons.length)];
+      iconStr.value = `bg:${bg},img:${pick.path}`;
+    }
+  } catch { /* no jars yet — bg only is fine */ }
   instances.load();
   try {
     const m = await api.getVersionManifest();
@@ -398,7 +408,7 @@ onUnmounted(() => {
 
       <div class="field">
         <label>实例名称</label>
-        <n-input v-model:value="name" placeholder="例如：我的生存世界" maxlength="40" />
+        <n-input v-model:value="name" placeholder="留空则自动用版本号命名" maxlength="40" />
       </div>
 
       <div class="field">
@@ -660,12 +670,19 @@ onUnmounted(() => {
   width: 64px;
   height: 64px;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.05);
+  background: transparent;
   border: 1px dashed rgba(255, 255, 255, 0.2);
   overflow: hidden;
   cursor: pointer;
   font-size: 30px;
   transition: all 0.12s;
+  box-sizing: border-box;
+  padding: 0;
+  position: relative;
+}
+.icon-box :deep(.app-icon) {
+  position: absolute;
+  inset: 0;
 }
 .icon-box:hover {
   border-color: rgba(232, 154, 75, 0.6);

@@ -135,13 +135,16 @@ function confirmDelete() {
   height: 46px;
   border-radius: 12px;
   overflow: hidden;
-  background: linear-gradient(135deg, rgba(232, 154, 75, 0.28), rgba(232, 154, 75, 0.08));
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: transparent;
+  position: relative;
   font-size: 21px;
   color: var(--accent);
   flex-shrink: 0;
+  box-sizing: border-box;
+}
+.icon :deep(.app-icon) {
+  position: absolute;
+  inset: 0;
 }
 .title-wrap {
   flex: 1;

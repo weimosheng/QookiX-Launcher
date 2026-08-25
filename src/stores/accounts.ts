@@ -13,6 +13,8 @@ export const useAccountsStore = defineStore("accounts", {
     msFailed: "",
     /** Set by the sidebar chip / home button to open the account manager popover */
     showManager: false,
+    /** Bumped after skin apply to force avatar refresh */
+    avatarVersion: 0,
   }),
   getters: {
     /** The currently playing account: settings.selected_account, else first */
@@ -105,6 +107,9 @@ export const useAccountsStore = defineStore("accounts", {
         await settings.patch({ selected_account: null });
       }
       await this.load();
+    },
+    bumpAvatar() {
+      this.avatarVersion++;
     },
   },
 });

@@ -12,6 +12,7 @@ import LogViewer from "../components/LogViewer.vue";
 import AppIcon from "../components/AppIcon.vue";
 import IconPickerDialog from "../components/IconPickerDialog.vue";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ContentItem, ProjectVersion, UpdateInfo } from "../types";
 
 function sourceLabel(s: string) {
@@ -21,7 +22,6 @@ import {
   IconBox,
   IconCamera,
   IconCheck,
-  IconChevronRight,
   IconClose,
   IconDownload,
   IconExternal,
@@ -67,7 +67,7 @@ const instance = computed(() => instances.get(instanceId));
 
 const contentItems = ref<ContentItem[]>([]);
 const iconErrors = ref(new Set<string>());
-const updates = ref<UpdateInfo[]>([]);
+const updates = ref<Record<string, UpdateInfo>>({});
 const checkingUpdates = ref(false);
 const loadingContent = ref(false);
 
@@ -100,9 +100,13 @@ const ALL_TABS = [
   { key: "settings", label: "设置", icon: IconExternal },
 ];
 
-// folder-backed tabs are only shown when the corresponding folder exists
+// folder-backed tabs are only shown when the corresponding folder exists;
+// vanilla instances have no mods so hide that tab entirely.
 const tabs = computed(() =>
-  ALL_TABS.filter((t) => !t.folder || folders.value[t.folder] || t.key === tab.value)
+  ALL_TABS.filter((t) => {
+    if (t.key === "mods" && instance.value?.loader === "vanilla") return false;
+    return !t.folder || folders.value[t.folder] || t.key === tab.value;
+  })
 );
 
 // 支持通过 URL query 切换 tab（如崩溃弹窗「查看日志」跳转）
@@ -115,6 +119,13 @@ watch(
     }
   }
 );
+
+// If the active tab is hidden (e.g. "mods" on vanilla), switch to first visible
+watch(tabs, (ts) => {
+  if (!ts.some((t) => t.key === tab.value) && ts.length > 0) {
+    tab.value = ts[0].key;
+  }
+});
 
 // Sliding active-highlight indicator for the tab bar
 const tabsBox = ref<HTMLElement | null>(null);
@@ -222,8 +233,12 @@ async function checkUpdates() {
   checkingUpdates.value = true;
   try {
     const kind = kindOf(tab.value);
-    updates.value = await api.checkUpdates(instanceId, kind);
-    if (!updates.value.length) message.success("所有内容都是最新版本");
+    const list = await api.checkUpdates(instanceId, kind);
+    const map: Record<string, UpdateInfo> = {};
+    for (const u of list) map[u.filename] = u;
+    updates.value = map;
+    if (!list.length) message.success("所有内容都是最新版本");
+    else message.info(`发现 ${list.length} 个可更新内容`);
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -234,10 +249,11 @@ async function checkUpdates() {
 async function applyUpdate(u: UpdateInfo) {
   try {
     const kind = kindOf(tab.value);
-    await api.applyUpdate(instanceId, kind, u.filename, "modrinth", u.projectId, u.latestVersionId);
-    message.success("已更新 " + (u.projectTitle ?? u.filename));
-    updates.value = [];
-    await loadContent();
+    await api.applyUpdate(instanceId, kind, u.filename, u.provider, u.projectId, u.latestVersionId);
+    message.success("已加入下载队列：" + (u.projectTitle ?? u.filename));
+    const next = { ...updates.value };
+    delete next[u.filename];
+    updates.value = next;
   } catch (e) {
     message.error(String(e));
   }
@@ -325,22 +341,59 @@ function onDocMouseDown(e: MouseEvent) {
     showPreview.value = false;
   }
 }
-onMounted(() => document.addEventListener("mousedown", onDocMouseDown));
-onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown));
+let unlistenUpdate: UnlistenFn | null = null;
+onMounted(async () => {
+  document.addEventListener("mousedown", onDocMouseDown);
+  try {
+    unlistenUpdate = await listen<{ filename: string; ok: boolean; error?: string }>(
+      "content://update-finished",
+      (ev) => {
+        const p = ev.payload;
+        if (p.ok) {
+          message.success((updates.value[p.filename]?.projectTitle ?? p.filename) + " 已更新");
+        } else {
+          message.error("更新失败 " + p.filename + (p.error ? "：" + p.error : ""));
+        }
+        loadContent();
+      }
+    );
+  } catch {
+    /* 事件监听不可用不影响主流程 */
+  }
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("mousedown", onDocMouseDown);
+  unlistenUpdate?.();
+  unlistenUpdate = null;
+  if (memTimer) clearInterval(memTimer);
+  if (saveTimer) clearTimeout(saveTimer);
+});
 
 function fmtIsoDate(s: string) {
   return s ? s.slice(0, 10) : "";
 }
 
 function modSearchTerm(item: ContentItem): string {
-  const name = item.record.name ?? "";
-  if (name && !name.endsWith(".jar") && name !== item.record.filename) return name;
-  const base = item.record.filename.replace(/\.jar$/i, "");
+  const rec = item.record;
+  // 优先用 slug 检索：内容中心按 slug 精确匹配，命中率最高
+  if (rec.slug) return rec.slug as string;
+  // 其次用项目标题（远程模组）
+  if (rec.name && rec.name !== rec.filename) return rec.name;
+  // 本地文件回退到文件名
+  const base = rec.filename.replace(/\.(jar|zip|litemod|disabled)$/i, "");
   const loaders = ["fabric", "forge", "neoforge", "quilt", "rift", "optifine", "vanilla"];
   const parts = base
     .split(/[-_]/)
     .filter((p) => p && !loaders.includes(p.toLowerCase()) && !/\d/.test(p));
   return parts.length ? parts.join("-") : base;
+}
+
+/** 构建搜索跳转参数：带上来源 provider，让内容中心直接定位到对应平台 */
+function buildModSearchQuery(item: ContentItem) {
+  const q = modSearchTerm(item);
+  const source = item.record.source;
+  const provider = source === "modrinth" || source === "curseforge" ? source : null;
+  return provider ? { q, provider } : { q };
 }
 
 async function openSwitchVersion(item: ContentItem) {
@@ -392,7 +445,7 @@ async function doSwitchVersion() {
   try {
     const kind = kindOf(tab.value);
     await api.applyUpdate(instanceId, kind, s.item.record.filename, s.provider, s.projectId, s.selected);
-    message.success("已切换版本");
+    message.success("已将切换版本任务添加到下载队列");
     switchState.value.show = false;
     await loadContent();
   } catch (e) {
@@ -468,7 +521,7 @@ const edit = ref({
 const memTotal = ref(0);
 const memUsed = ref(0);
 const memAvailable = ref(0);
-const autoMem = ref(0);
+let memTimer: ReturnType<typeof setInterval> | null = null;
 
 /** Format MB into a readable "GB / MB" string. */
 function fmtMem(mb: number): string {
@@ -484,13 +537,21 @@ const sliderMax = computed(() => {
   return Math.max(1024, memAvailable.value);
 });
 
-const globalMemory = computed(() => useSettingsStore().settings?.max_memory_mb ?? 4096);
+const settingsStore = useSettingsStore();
+const globalMemoryMode = computed(() => settingsStore.settings?.memory_mode ?? "custom");
+const globalMemory = computed(() => {
+  if (globalMemoryMode.value === "auto") return autoMemory.value;
+  return settingsStore.settings?.max_memory_mb ?? 4096;
+});
 
 const autoMemory = computed(() => {
-  let rec = autoMem.value || Math.round(memTotal.value * 0.5);
-  // 自动配置不超出当前可用（剩余）内存
-  if (memAvailable.value > 0 && rec > memAvailable.value) rec = memAvailable.value;
-  return rec;
+  const modCount = instance.value?.mods?.length ?? 0;
+  // Base: 40% of available (min 2048 MB), +512 MB per 100 mods (cap +4 GB)
+  let rec = Math.max(2048, Math.floor(memAvailable.value * 40 / 100)) + Math.min(4096, Math.floor(modCount * 512 / 100));
+  // Cap at 75% of available memory, leave room for OS
+  const cap = Math.max(512, Math.floor(memAvailable.value * 3 / 4));
+  rec = Math.min(rec, cap, 8192);
+  return Math.max(rec, 512);
 });
 
 const effectiveMemory = computed(() => {
@@ -519,16 +580,20 @@ async function loadMemoryInfo() {
     memTotal.value = res.total_mb;
     memUsed.value = res.used_mb;
     memAvailable.value = res.available_mb ?? Math.max(0, res.total_mb - res.used_mb);
-    autoMem.value = res.max_mb;
   } catch {
     /* ignore, fall back to defaults */
   }
 }
 
+let skipNextEditSync = false;
 watch(
   () => instance.value,
   (i) => {
     if (!i) return;
+    if (skipNextEditSync) {
+      skipNextEditSync = false;
+      return;
+    }
     edit.value = {
       icon: i.icon ?? "",
       max_memory_mb: i.max_memory_mb ?? 4096,
@@ -609,6 +674,7 @@ async function saveSettings() {
       edit.value.memory_mode === "custom"
         ? Math.min(edit.value.max_memory_mb, sliderMax.value)
         : 0;
+    skipNextEditSync = true;
     await instances.patch({
       id: instanceId,
       icon: edit.value.icon,
@@ -623,11 +689,25 @@ async function saveSettings() {
           ? [Number(edit.value.resolution_w), Number(edit.value.resolution_h)]
           : null,
     });
-    message.success("设置已保存");
   } catch (e) {
     message.error(String(e));
   }
 }
+
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let skipFirstSave = true;
+watch(
+  edit,
+  () => {
+    if (skipFirstSave) {
+      skipFirstSave = false;
+      return;
+    }
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveSettings, 500);
+  },
+  { deep: true }
+);
 
 watch(
   () => tab.value,
@@ -637,11 +717,16 @@ watch(
     } else if (t === "settings") {
       detectJava();
       loadMemoryInfo();
+      memTimer = setInterval(loadMemoryInfo, 10000);
     } else if (t === "screenshots" || t === "saves") {
       loadFiles();
     } else {
       loadContent();
-      updates.value = [];
+      updates.value = {};
+    }
+    if (t !== "settings" && memTimer) {
+      clearInterval(memTimer);
+      memTimer = null;
     }
   },
   { immediate: true }
@@ -706,7 +791,7 @@ watch(
         <template v-if="CONTENT_TABS.includes(tab)">
           <button class="mini-btn" :disabled="checkingUpdates" @click="checkUpdates">
             <IconRefresh /> 检查更新
-            <span v-if="updates.length" class="upd-n">{{ updates.length }}</span>
+            <span v-if="Object.keys(updates).length" class="upd-n">{{ Object.keys(updates).length }}</span>
           </button>
           <button class="mini-btn" @click="importLocal"><IconPlus /> 导入本地</button>
         </template>
@@ -721,18 +806,6 @@ watch(
     <div class="tab-body">
       <!-- mods / resourcepacks / shaders -->
       <template v-if="tab === 'mods' || tab === 'resourcepacks' || tab === 'shaders'">
-        <div v-if="updates.length" class="updates glass">
-          <div v-for="u in updates" :key="u.filename" class="upd-row">
-            <div class="upd-info">
-              <b>{{ u.projectTitle ?? u.filename }}</b>
-              <span class="ver-change">
-                {{ u.currentVersion ?? "未知" }} <IconChevronRight /> {{ u.latestVersion }}
-              </span>
-            </div>
-            <button class="mini-btn accent" @click="applyUpdate(u)">更新</button>
-          </div>
-        </div>
-
         <div v-if="loadingContent" class="center">加载中…</div>
         <div v-else-if="!contentItems.length" class="empty glass">
           <p>这里还是空的</p>
@@ -756,7 +829,11 @@ watch(
               <IconImage v-else />
             </div>
             <div class="c-info">
-              <div class="c-name text-ellipsis">{{ item.record.name ?? item.record.filename }}</div>
+              <div class="c-name text-ellipsis">
+                {{ item.record.cn_name ?? item.record.name ?? item.record.filename }}
+                <span v-if="item.record.cn_name" class="c-en">{{ item.record.name ?? item.record.filename }}</span>
+              </div>
+              <div v-if="(item.record.name && item.record.name !== item.record.filename) || item.record.cn_name" class="c-file text-ellipsis">{{ item.record.filename }}</div>
               <div class="c-meta">
                 <span class="src" :class="item.record.source">{{ sourceLabel(item.record.source) }}</span>
                 <span v-if="item.record.version" class="ver">{{ item.record.version }}</span>
@@ -764,6 +841,14 @@ watch(
               </div>
             </div>
             <div class="c-actions">
+              <button
+                v-if="updates[item.record.filename]"
+                class="icon-btn ok"
+                :title="`更新到 ${updates[item.record.filename].latestVersion}`"
+                @click="applyUpdate(updates[item.record.filename])"
+              >
+                <IconDownload />
+              </button>
               <button
                 v-if="(item.record.source === 'modrinth' || item.record.source === 'curseforge') && item.record.project_id"
                 class="icon-btn"
@@ -773,10 +858,9 @@ watch(
                 <IconRepeat />
               </button>
               <button
-                v-else
                 class="icon-btn"
                 title="在内容中心搜索"
-                @click="router.push({ path: '/browse', query: { q: modSearchTerm(item) } })"
+                @click="router.push({ name: 'browse', query: buildModSearchQuery(item) })"
               >
                 <IconSearch />
               </button>
@@ -946,8 +1030,9 @@ watch(
 
             <div v-else class="mem-current">
               {{ effectiveMemory }} MB
-              <span v-if="edit.memory_mode === 'global'" class="mem-mode-note">（全局设置）</span>
-              <span v-else-if="edit.memory_mode === 'auto'" class="mem-mode-note">（推荐 {{ autoMemory }} MB）</span>
+              <span v-if="edit.memory_mode === 'global' && globalMemoryMode === 'auto'" class="mem-mode-note">（全局自动配置）</span>
+              <span v-else-if="edit.memory_mode === 'global'" class="mem-mode-note">（全局手动配置）</span>
+              <span v-else-if="edit.memory_mode === 'auto'" class="mem-mode-note">（自动配置）</span>
             </div>
 
             <div class="mem-gauge">
@@ -1009,9 +1094,6 @@ watch(
             </div>
           </div>
 
-          <div class="set-actions">
-            <button class="btn primary" @click="saveSettings"><IconCheck /> 保存设置</button>
-          </div>
         </div>
       </template>
     </div>
@@ -1117,13 +1199,16 @@ watch(
   height: 56px;
   border-radius: 14px;
   overflow: hidden;
-  background: linear-gradient(135deg, rgba(232, 154, 75, 0.3), rgba(232, 154, 75, 0.1));
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: transparent;
+  position: relative;
   font-size: 26px;
   color: var(--accent);
   flex-shrink: 0;
+  box-sizing: border-box;
+}
+.d-icon :deep(.app-icon) {
+  position: absolute;
+  inset: 0;
 }
 .d-info {
   flex: 1;
@@ -1372,6 +1457,17 @@ watch(
 .c-name {
   font-size: 13px;
   font-weight: 600;
+  margin-bottom: 3px;
+}
+.c-en {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-3);
+  margin-left: 6px;
+}
+.c-file {
+  font-size: 11px;
+  color: var(--text-3);
   margin-bottom: 3px;
 }
 .c-meta {
@@ -1786,15 +1882,14 @@ textarea.text-input {
   height: 38px;
   border-radius: 10px;
   overflow: hidden;
-  background: linear-gradient(135deg, rgba(232, 154, 75, 0.28), rgba(232, 154, 75, 0.08));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  color: var(--accent);
+  background: transparent;
+  position: relative;
   flex-shrink: 0;
+  box-sizing: border-box;
 }
 .icon-preview :deep(.app-icon) {
+  position: absolute;
+  inset: 0;
   font-size: 18px;
 }
 .set-actions {

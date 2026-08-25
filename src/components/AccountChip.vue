@@ -16,6 +16,60 @@ const showOfflineDialog = ref(false);
 const offlineName = ref("");
 const addingOffline = ref(false);
 
+const offlineAvatarCache = reactive<Record<string, string>>({});
+
+function skinToAvatar(skinDataUrl: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 8;
+      canvas.height = 8;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return resolve("");
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 8, 8, 8, 8, 0, 0, 8, 8);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => resolve("");
+    img.src = skinDataUrl;
+  });
+}
+
+function getOfflineAvatar(uuid: string): string {
+  return offlineAvatarCache[uuid] ?? "";
+}
+
+watch(
+  () => accounts.accounts.map((a) => `${a.uuid}:${a.type}`).join(","),
+  async () => {
+    for (const acc of accounts.accounts) {
+      if (acc.type === "offline" && !offlineAvatarCache[acc.uuid]) {
+        const skin = localStorage.getItem(`qookix:offline_skin:${acc.uuid}`);
+        if (skin) {
+          const avatar = await skinToAvatar(skin);
+          if (avatar) offlineAvatarCache[acc.uuid] = avatar;
+        }
+      }
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  () => accounts.avatarVersion,
+  async () => {
+    const cur = accounts.current;
+    if (cur && cur.type === "offline") {
+      const skin = localStorage.getItem(`qookix:offline_skin:${cur.uuid}`);
+      if (skin) {
+        const avatar = await skinToAvatar(skin);
+        if (avatar) offlineAvatarCache[cur.uuid] = avatar;
+      }
+    }
+  },
+);
+
 watch(
   () => accounts.msSuccess,
   (msg) => {
@@ -61,8 +115,14 @@ const AVATAR_SOURCES: Array<(uuid: string) => string> = [
 const avatarAttempt = reactive<Record<string, number>>({});
 
 function avatar(uuid: string): string {
+  const offline = getOfflineAvatar(uuid);
+  if (offline) return offline;
   const i = avatarAttempt[uuid] ?? 0;
-  if (i < AVATAR_SOURCES.length) return AVATAR_SOURCES[i](uuid);
+  if (i < AVATAR_SOURCES.length) {
+    const base = AVATAR_SOURCES[i](uuid);
+    const sep = base.includes("?") ? "&" : "?";
+    return `${base}${sep}v=${accounts.avatarVersion}`;
+  }
   return "";
 }
 

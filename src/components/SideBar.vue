@@ -15,6 +15,7 @@ import {
   IconList,
   IconSettings,
   IconStop,
+  IconUser,
 } from "./icons";
 
 const route = useRoute();
@@ -28,6 +29,7 @@ const nav = [
   { name: "home", label: "首页", icon: IconHome, to: "/" },
   { name: "browse", label: "内容", icon: IconCompass, to: "/browse" },
   { name: "instances", label: "实例", icon: IconGrid, to: "/instances" },
+  { name: "skins", label: "皮肤", icon: IconUser, to: "/skins" },
   { name: "settings", label: "设置", icon: IconSettings, to: "/settings" },
   { name: "downloads", label: "下载", icon: IconDownload, to: "/downloads" },
 ];

@@ -306,6 +306,94 @@ pub async fn files(state: &AppState, mod_id: &str, mc_version: &str) -> Result<V
         .collect())
 }
 
+/// Check installed CurseForge content for available updates.
+///
+/// Returns the same shape as `modrinth::check_updates`:
+/// `{filename, projectId, currentVersion, latestVersion, latestVersionId, projectTitle, kind}`.
+///
+/// CurseForge's file list is filtered by game version only; we additionally
+/// prefer files whose declared game versions include the instance's loader
+/// (case-insensitive) to avoid suggesting cross-loader updates.
+pub async fn check_updates(
+    state: &AppState,
+    instance: &Instance,
+    kind: &str,
+) -> Result<Vec<Value>, String> {
+    let list = crate::instances::list_content(state, &instance.id, kind);
+    let loader = instance.loader.as_str().to_lowercase();
+    let mut updates = Vec::new();
+    for item in list {
+        if item.source != "curseforge" {
+            continue;
+        }
+        let (Some(project_id), Some(current_id)) =
+            (item.project_id.as_deref(), item.version_id.as_deref())
+        else {
+            continue;
+        };
+        let flist = files(state, project_id, &instance.mc_version).await?;
+        if flist.is_empty() {
+            continue;
+        }
+        // Prefer files matching the instance loader, otherwise fall back to all.
+        let mut candidates: Vec<&Value> = flist.iter().collect();
+        if !loader.is_empty() {
+            candidates = candidates
+                .iter()
+                .cloned()
+                .filter(|f| {
+                    f.get("game_versions")
+                        .and_then(|g| g.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .any(|v| v.as_str().map(|s| s.to_lowercase() == loader).unwrap_or(false))
+                        })
+                        .unwrap_or(false)
+                })
+                .collect();
+        }
+        if candidates.is_empty() {
+            candidates = flist.iter().collect();
+        }
+        // Pick the newest file by its publish date.
+        let mut newest: Option<&Value> = None;
+        for f in &candidates {
+            match newest {
+                None => newest = Some(f),
+                Some(n) => {
+                    let nd = n.get("date_published").and_then(|v| v.as_str()).unwrap_or("");
+                    let fd = f.get("date_published").and_then(|v| v.as_str()).unwrap_or("");
+                    if fd > nd {
+                        newest = Some(f);
+                    }
+                }
+            }
+        }
+        if let Some(latest) = newest {
+            let latest_id = latest.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if !latest_id.is_empty() && latest_id != current_id {
+                let current_version = flist
+                    .iter()
+                    .find(|f| f.get("id").and_then(|v| v.as_str()).unwrap_or("") == current_id)
+                    .and_then(|f| f.get("version_number").and_then(|v| v.as_str()))
+                    .unwrap_or(item.version.as_deref().unwrap_or(""))
+                    .to_string();
+                updates.push(json!({
+                    "filename": item.filename,
+                    "projectId": project_id,
+                    "currentVersion": current_version,
+                    "latestVersion": latest.get("version_number").and_then(|v| v.as_str()).unwrap_or(""),
+                    "latestVersionId": latest_id,
+                    "projectTitle": item.name,
+                    "kind": kind,
+                    "provider": "curseforge",
+                }));
+            }
+        }
+    }
+    Ok(updates)
+}
+
 /// Download URL for a CurseForge file (edge CDN fallback when downloadUrl is absent).
 fn file_download_url(file: &Value) -> String {
     if let Some(u) = file.get("downloadUrl").and_then(|v| v.as_str()) {
@@ -391,10 +479,22 @@ pub async fn install_file(
         return Err(e);
     }
 
+    let slug = get(state, &format!("/mods/{mod_id}"), &[])
+        .await
+        .ok()
+        .and_then(|b| {
+            b.get("data")
+                .and_then(|d| d.get("slug"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .filter(|s| !s.is_empty());
+
     let record = InstalledContent {
         filename: filename.clone(),
         source: "curseforge".into(),
         project_id: Some(mod_id.to_string()),
+        slug: slug.clone(),
         version_id: Some(file_id.to_string()),
         name: Some(project_name.clone()),
         version: Some(file_id.to_string()),
@@ -590,6 +690,7 @@ async fn install_modpack_inner(
             filename: fname.clone(),
             source: "curseforge".into(),
             project_id: Some(pid.to_string()),
+            slug: None,
             version_id: Some(fid.to_string()),
             name: Some(fname),
             version: Some(fid.to_string()),

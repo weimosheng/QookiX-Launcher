@@ -12,6 +12,11 @@ pub struct ResolvedAccount {
     pub uuid: String,
     pub access_token: String,
     pub user_type: String,
+    /// JSON string passed to the game via `${user_properties}`.
+    /// For Microsoft accounts this is filled with the `textures` property so
+    /// legacy versions (e.g. 1.12.2) render the online skin without relying on
+    /// a runtime sessionserver fetch. Defaults to `"{}"` for offline accounts.
+    pub user_properties: String,
 }
 
 #[derive(Clone)]
@@ -58,7 +63,7 @@ pub async fn launch_game(
     crate::install::normalize_natives_args(&mut version_json);
 
     let _ = app.emit("launch://progress", serde_json::json!({ "step": "正在检查 Java 运行时…", "progress": 40 }));
-    let java = match pick_java(state, instance, &version_json).await {
+    let java = match pick_java(&app, state, instance, &version_json).await {
         Ok(j) => j,
         Err(e) if e.starts_with("NEED_DOWNLOAD:") => {
             let major = e
@@ -74,7 +79,9 @@ pub async fn launch_game(
                 }),
             );
             crate::java::download_java_runtime(app.clone(), state, major).await?;
-            pick_java(state, instance, &version_json)
+            // 下载后清除检测缓存，确保下一次 pick_java 能发现新装的 Java
+            *state.java_cache.lock().unwrap() = None;
+            pick_java(&app, state, instance, &version_json)
                 .await
                 .map_err(|e2| format!("Java 下载完成但仍无法选择: {e2}"))?
         }
@@ -90,6 +97,32 @@ pub async fn launch_game(
 
     // Ensure the game launches in Chinese
     set_chinese_lang(&instance_dir, &instance.mc_version);
+
+    let account = account;
+
+    // Clean up any leftover skin resource pack from the previous approach.
+    let skin_pack = instance_dir.join("resourcepacks").join("QookiX_Skin.zip");
+    if skin_pack.exists() {
+        let _ = std::fs::remove_file(&skin_pack);
+    }
+
+    // Offline skin: inject PNG into the version jar at launch time.
+    if account.user_type == "legacy" {
+        let skin_file = state.root.join("skins").join("offline").join(format!("{}.png", account.uuid));
+        if skin_file.exists() {
+            let jar = state.versions_dir().join(&instance.id).join(format!("{}.jar", instance.id));
+            if jar.exists() {
+                if let Ok(skin_bytes) = std::fs::read(&skin_file) {
+                    let _ = app.emit("launch//log", serde_json::json!({
+                        "instanceId": instance.id,
+                        "stream": "out",
+                        "line": "正在应用离线皮肤…",
+                    }));
+                    inject_skin_into_jar(&jar, &skin_bytes)?;
+                }
+            }
+        }
+    }
 
     let _ = app.emit("launch://progress", serde_json::json!({ "step": "正在准备启动参数…", "progress": 60 }));
 
@@ -137,6 +170,18 @@ pub async fn launch_game(
     };
 
     let args = build_args(&ctx);
+
+    // Diagnostic: Java path + authlib version, to compare with PCL.
+    let authlib = ctx
+        .classpath
+        .split(if cfg!(windows) { ';' } else { ':' })
+        .find(|p| p.contains("authlib"))
+        .unwrap_or("<no authlib>");
+    let _ = app.emit("launch://log", serde_json::json!({
+        "instanceId": &instance.id, "stream": "out",
+        "line": format!("[环境诊断] Java={} (major={}), authlib={}", java.path, java.major, authlib)
+    }));
+
     let mut cmd = Command::new(&java.path);
     cmd.args(&args)
         .current_dir(&ctx.instance_dir)
@@ -195,10 +240,12 @@ pub async fn launch_game(
             serde_json::json!({ "instanceId": inst_id, "code": outcome }),
         );
         // 崩溃检查：进程异常退出时分析日志与崩溃文件并弹窗提示
-        if let Some(diag) = diagnose_crash(&inst_dir, &logs_dir, &inst_id, outcome) {
-            let mut v = serde_json::to_value(&diag).unwrap_or_default();
-            v["instanceId"] = serde_json::json!(inst_id);
-            let _ = app2.emit("launch://crash", v);
+        if outcome != Some(0) {
+            if let Some(diag) = diagnose_crash(&inst_dir, &logs_dir, &inst_id, outcome) {
+                let mut v = serde_json::to_value(&diag).unwrap_or_default();
+                v["instanceId"] = serde_json::json!(inst_id);
+                let _ = app2.emit("launch//crash", v);
+            }
         }
     });
 
@@ -358,17 +405,42 @@ async fn get_detected_java(state: &AppState) -> Vec<JavaInfo> {
     detected
 }
 
-/// Best available Java for the required major: exact match preferred, else highest.
+/// Parse the update number from a Java version string for ranking.
+/// `1.8.0_51` -> 51, `1.8.0_302` -> 302, `17.0.2` -> 2, `21.0.2` -> 2.
+/// Used to prefer newer patch releases within the same major version — this
+/// avoids picking the ancient Mojang `jre-legacy` (8u51) whose cacerts are too
+/// old to validate Mojang's current TLS certificates, causing skin loading to
+/// fail with `PKIX path building failed`.
+fn java_update_number(version: &str) -> u32 {
+    if let Some(idx) = version.find('_') {
+        version[idx + 1..]
+            .split(|c: char| !c.is_ascii_digit())
+            .next()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0)
+    } else {
+        version
+            .split('.')
+            .filter_map(|p| p.parse().ok())
+            .last()
+            .unwrap_or(0)
+    }
+}
+
+/// Best available Java for the required major: exact match preferred (newest
+/// patch release), else highest major.
 pub async fn find_best_java(state: &AppState, required: u32) -> Option<JavaInfo> {
     let detected = get_detected_java(state).await;
     detected
         .iter()
-        .find(|j| j.major == required)
+        .filter(|j| j.major == required)
+        .max_by_key(|j| java_update_number(&j.version))
         .or_else(|| detected.iter().max_by_key(|j| j.major))
         .cloned()
 }
 
 async fn pick_java(
+    app: &tauri::AppHandle,
     state: &AppState,
     instance: &Instance,
     version_json: &VersionJson,
@@ -401,11 +473,31 @@ async fn pick_java(
     }
 
     let detected = get_detected_java(state).await;
+    let _ = app.emit("launch//log", serde_json::json!({
+        "instanceId": instance.id,
+        "stream": "out",
+        "line": format!("[诊断] 检测到 {} 个 Java: {:?}", detected.len(),
+            detected.iter().map(|j| format!("{}(major={},update={})", j.version, j.major, java_update_number(&j.version))).collect::<Vec<_>>()),
+    }));
     if detected.is_empty() {
         return Err(format!("NEED_DOWNLOAD:{required}"));
     }
-    let exact = detected.iter().find(|j| j.major == required);
+    // Prefer the newest patch release of the required major (e.g. 8u422 over
+    // 8u51) — older JREs like Mojang's jre-legacy (8u51) have an outdated
+    // cacerts trust store that breaks Mojang TLS (skin/cape lookups).
+    let exact = detected
+        .iter()
+        .filter(|j| j.major == required)
+        .max_by_key(|j| java_update_number(&j.version));
     if let Some(j) = exact {
+        // Mojang's ancient `jre-legacy` (8u51) has an outdated cacerts trust
+        // store that breaks Mojang TLS — skin/cape lookups fail with
+        // `PKIX path building failed`. Force a download of a modern Java 8
+        // (Adoptium Temurin, current update) instead of using a JRE older
+        // than 8u200.
+        if j.major == 8 && java_update_number(&j.version) < 200 {
+            return Err(format!("NEED_DOWNLOAD:{required}"));
+        }
         return Ok(j.clone());
     }
     let best = detected.iter().max_by_key(|j| j.major).unwrap();
@@ -448,6 +540,63 @@ fn set_chinese_lang(instance_dir: &std::path::Path, mc_version: &str) {
     }
 }
 
+/// Inject the skin PNG directly into the version jar by replacing
+/// `assets/minecraft/textures/entity/steve.png` and `alex.png` (and the
+/// 1.19.3+ `player/wide` / `player/slim` variants).  This is the same
+/// approach PCL uses: no resource pack, so nothing shows up in the
+/// in-game resource-pack list.
+pub fn inject_skin_into_jar(jar_path: &std::path::Path, skin: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+    use zip::ZipArchive;
+
+    let original = std::fs::read(jar_path).map_err(|e| format!("read jar: {e}"))?;
+    let mut archive = ZipArchive::new(std::io::Cursor::new(original.as_slice()))
+        .map_err(|e| format!("open jar: {e}"))?;
+
+    let skin_paths: &[&str] = &[
+        "assets/minecraft/textures/entity/steve.png",
+        "assets/minecraft/textures/entity/alex.png",
+        "assets/minecraft/textures/entity/player/wide/steve.png",
+        "assets/minecraft/textures/entity/player/wide/alex.png",
+        "assets/minecraft/textures/entity/player/slim/steve.png",
+        "assets/minecraft/textures/entity/player/slim/alex.png",
+    ];
+
+    let buf = std::io::Cursor::new(Vec::new());
+    let mut zip = zip::write::ZipWriter::new(buf);
+    let mut replaced = 0;
+    for i in 0..archive.len() {
+        let file = archive.by_index(i).map_err(|e| format!("read entry: {e}"))?;
+        let name = file.name().to_string();
+        // Drop jar signature files so Java doesn't verify SHA-256 digests
+        // against the (now-modified) skin PNGs and throw SecurityException.
+        let is_sig = name.starts_with("META-INF/")
+            && (name.ends_with(".SF")
+                || name.ends_with(".RSA")
+                || name.ends_with(".DSA")
+                || name == "META-INF/MANIFEST.MF");
+        if is_sig {
+            continue;
+        }
+        if skin_paths.contains(&name.as_str()) {
+            let method = file.compression();
+            drop(file);
+            zip.start_file(&name, SimpleFileOptions::default().compression_method(method))
+                .map_err(|e| format!("write entry: {e}"))?;
+            zip.write_all(skin).map_err(|e| format!("write skin: {e}"))?;
+            replaced += 1;
+        } else {
+            zip.raw_copy_file(file).map_err(|e| format!("copy entry: {e}"))?;
+        }
+    }
+    let buf = zip.finish().map_err(|e| format!("finish jar: {e}"))?;
+    let new_bytes = buf.into_inner();
+    std::fs::write(jar_path, &new_bytes).map_err(|e| format!("save jar: {e}"))?;
+    eprintln!("[skin] replaced {replaced} skin files in jar");
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Argument building
 // ---------------------------------------------------------------------------
@@ -464,14 +613,22 @@ fn build_args(ctx: &LaunchContext) -> Vec<String> {
     let settings = &ctx.settings;
     let instance = &ctx.instance;
 
-    // memory
-    let max_mem = match instance.memory_mode.as_deref() {
-        Some("auto") => {
-            crate::settings::total_memory_mb()
-                .map(|t| crate::settings::recommended_memory(t).0 as u32)
-                .unwrap_or(0)
-        }
-        _ => 0,
+    // memory — count mods for auto calculation
+    let mods_dir = ctx.instance_dir.join("mods");
+    let mod_count = std::fs::read_dir(&mods_dir)
+        .map(|d| d.filter(|e| e.as_ref().map(|e| e.path().extension().is_some_and(|x| x == "jar")).unwrap_or(false)).count())
+        .unwrap_or(0);
+    let auto_mode = match instance.memory_mode.as_deref() {
+        Some("auto") => true,
+        Some("global") | None => settings.memory_mode == "auto",
+        _ => false,
+    };
+    let max_mem = if auto_mode {
+        crate::settings::available_memory_mb()
+            .map(|a| crate::settings::recommended_memory(a, mod_count).0)
+            .unwrap_or(0)
+    } else {
+        0
     };
     let max_mem = if max_mem > 0 {
         max_mem
@@ -479,9 +636,9 @@ fn build_args(ctx: &LaunchContext) -> Vec<String> {
         instance.max_memory_mb.or(Some(settings.max_memory_mb)).unwrap_or(2048).max(256)
     };
     let min_mem = settings.min_memory_mb.max(64);
-    let (min_mem, _) = if instance.memory_mode.as_deref() == Some("auto") {
-        crate::settings::total_memory_mb()
-            .map(|t| crate::settings::recommended_memory(t))
+    let (min_mem, _) = if auto_mode {
+        crate::settings::available_memory_mb()
+            .map(|a| crate::settings::recommended_memory(a, mod_count))
             .map(|(_, m)| (m, 0))
             .unwrap_or((min_mem, 0))
     } else {
@@ -642,7 +799,7 @@ fn substitute(input: &str, ctx: &LaunchContext, features: &mut HashMap<String, b
     vars.insert("auth_uuid".into(), ctx.account.uuid.replace('-', ""));
     vars.insert("auth_access_token".into(), ctx.account.access_token.clone());
     vars.insert("user_type".into(), ctx.account.user_type.clone());
-    vars.insert("user_properties".into(), "{}".into());
+    vars.insert("user_properties".into(), ctx.account.user_properties.clone());
     vars.insert("clientid".into(), ctx.settings.ms_client_id.clone());
     vars.insert("auth_xuid".into(), "0".into());
     if let Some((w, h)) = ctx.resolution {

@@ -286,6 +286,21 @@ watch([sort, pageSize], () => {
   search();
 });
 
+function syncProviderFromRoute() {
+  const p = route.query.provider;
+  if (p === "modrinth" || p === "curseforge" || p === "all") {
+    provider.value = p;
+  }
+}
+
+// 支持从实例模组列表的"在内容中心搜索"跳转：带上 q 与 provider，直接定位平台
+watch(route, () => {
+  if (route.name !== "browse") return;
+  query.value = typeof route.query.q === "string" ? route.query.q : "";
+  syncProviderFromRoute();
+  search();
+});
+
 function openInstall(p: ProjectHit) {
   installTarget.value = p;
   showInstall.value = true;
@@ -353,6 +368,7 @@ onMounted(async () => {
   }
   rebuildOptions();
   loadVersions();
+  syncProviderFromRoute();
   await search();
 });
 </script>

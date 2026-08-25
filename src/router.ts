@@ -10,6 +10,7 @@ const router = createRouter({
     { path: "/instance/:id", name: "instance", component: () => import("./views/InstanceDetailView.vue") },
     { path: "/create", name: "create", component: () => import("./views/CreateInstanceView.vue") },
     { path: "/settings", name: "settings", component: () => import("./views/SettingsView.vue") },
+    { path: "/skins", name: "skins", component: () => import("./views/SkinView.vue") },
   ],
 });
 

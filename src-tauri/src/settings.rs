@@ -46,19 +46,17 @@ pub fn available_memory_mb() -> Option<u64> {
     memory_mb().map(|(_, _, a)| a)
 }
 
-/// Recommend (max, min) memory in MB based on total system memory.
-/// - <=4 GB: total - 1 GB (min 1 GB)
-/// - 4-8 GB: half
-/// - >8 GB: two-thirds, capped at 8 GB
-pub fn recommended_memory(total_mb: u64) -> (u32, u32) {
-    let max = if total_mb <= 4096 {
-        (total_mb.saturating_sub(1024)).max(1024)
-    } else if total_mb <= 8192 {
-        total_mb / 2
-    } else {
-        (total_mb * 2 / 3).min(8192)
-    };
-    let min = (max / 4).max(512);
+/// Recommend (max, min) memory in MB based on available system memory and mod count.
+/// - Base: 40% of available (min 2048 MB), so vanilla scales with free RAM
+/// - Mods: +512 MB per 100 mods, capped at +4 GB
+/// - Total capped at 75% of available (leave room for OS) and 8 GB absolute
+pub fn recommended_memory(available_mb: u64, mod_count: usize) -> (u32, u32) {
+    let base = (available_mb * 40 / 100).max(2048);
+    let extra = (mod_count as u64 * 512 / 100).min(4096);
+    let mut max = base + extra;
+    let cap = (available_mb * 3 / 4).max(512);
+    max = max.min(cap).min(8192).max(512);
+    let min = (max / 4).max(256);
     (max as u32, min as u32)
 }
 
@@ -75,7 +73,8 @@ pub fn load_settings(root: &std::path::Path) -> Settings {
     // First launch: auto-detect memory
     if !exists {
         if let Some(total) = total_memory_mb() {
-            let (max, min) = recommended_memory(total);
+            let avail = crate::settings::available_memory_mb().unwrap_or(total);
+            let (max, min) = recommended_memory(avail, 0);
             settings.max_memory_mb = max;
             settings.min_memory_mb = min;
         }
@@ -111,6 +110,9 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
     }
     if let Some(v) = patch.get("min_memory_mb").and_then(|v| v.as_u64()) {
         settings.min_memory_mb = v as u32;
+    }
+    if let Some(v) = patch.get("memory_mode").and_then(|v| v.as_str()) {
+        settings.memory_mode = v.to_string();
     }
     if let Some(v) = patch.get("jvm_args").and_then(|v| v.as_str()) {
         settings.jvm_args = v.to_string();
@@ -168,6 +170,7 @@ pub fn ensure_layout(root: &std::path::Path) -> std::io::Result<()> {
         "versions",
         "logs",
         "runtimes",
+        "skins",
     ] {
         std::fs::create_dir_all(root.join(sub))?;
     }

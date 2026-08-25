@@ -557,33 +557,6 @@ pub fn scan_minecraft_import(source: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Walk every user-data directory and call `on_file` for each file (with its
-/// size) so the UI can render a live, ever-growing file count/size.
-pub fn walk_import_files(source: &std::path::Path, mut on_file: impl FnMut(u64, u64)) {
-    let mut files = 0u64;
-    let mut bytes = 0u64;
-    for d in IMPORT_DIRS {
-        let path = source.join(d);
-        if path.is_dir() {
-            walk_dir(&path, &mut |len| {
-                files += 1;
-                bytes += len;
-                on_file(files, bytes);
-            });
-        }
-    }
-    for f in IMPORT_FILES {
-        let path = source.join(f);
-        if path.is_file() {
-            if let Ok(m) = std::fs::metadata(&path) {
-                files += 1;
-                bytes += m.len();
-                on_file(files, bytes);
-            }
-        }
-    }
-}
-
 /// Estimate the download size (client + libraries + assets index) for a single
 /// MC version. Only hits the network; does not touch the disk.
 pub async fn estimate_download(

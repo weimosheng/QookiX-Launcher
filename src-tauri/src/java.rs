@@ -61,10 +61,11 @@ pub fn detect_java(custom: Option<&str>, runtime_root: Option<&Path>) -> Vec<Jav
     out
 }
 
-/// Find `bin/javaw.exe` (or `java`) under `<root>/runtimes/java/**`.
+/// Find `bin/javaw.exe` (or `java`) under `<root>/java/**` (root is already
+/// the `runtimes` directory).
 fn runtime_java_paths(root: Option<&Path>) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    let Some(base) = root.map(|r| r.join("runtimes").join("java")) else {
+    let Some(base) = root.map(|r| r.join("java")) else {
         return out;
     };
     if !base.is_dir() {
@@ -109,8 +110,19 @@ pub async fn download_java_runtime(
         .get("binary")
         .and_then(|b| b.get("package"))
         .ok_or("缺少包信息")?;
-    let url = pkg.get("link").and_then(|l| l.as_str()).ok_or("缺少下载链接")?;
+    let raw_url = pkg.get("link").and_then(|l| l.as_str()).ok_or("缺少下载链接")?;
     let name = pkg.get("name").and_then(|n| n.as_str()).unwrap_or("runtime.zip");
+    // GitHub releases are unreachable from mainland China; rewrite to the
+    // Tsinghua Adoptium mirror whose path layout is:
+    //   Adoptium/{major}/{jre|jdk}/x64/windows/{filename}
+    let url = if raw_url.starts_with("https://github.com/adoptium/temurin") {
+        let image_type = if name.contains("-jre_") { "jre" } else { "jdk" };
+        format!(
+            "https://mirrors.tuna.tsinghua.edu.cn/Adoptium/{major}/{image_type}/x64/windows/{name}"
+        )
+    } else {
+        raw_url.to_string()
+    };
     let size = pkg.get("size").and_then(|s| s.as_u64()).unwrap_or(0);
 
     let dl_dir = state.root.join("runtimes").join("downloads");

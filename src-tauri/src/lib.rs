@@ -97,6 +97,17 @@ pub fn run() {
             commands::toggle_content_enabled,
             commands::save_text_file,
             commands::extract_game_icons,
+            // skins
+            commands::list_skins,
+            commands::read_skin_data_url,
+            commands::save_skin_from_data,
+            commands::download_skin_from_url,
+            commands::delete_skin,
+            commands::fetch_player_skin,
+            commands::fetch_player_capes,
+            commands::apply_skin_to_account,
+            commands::apply_cape_to_account,
+            commands::apply_skin_offline,
         ])
         .on_window_event(|window, event| {
             use tauri::WindowEvent;
