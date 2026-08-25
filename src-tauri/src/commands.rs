@@ -941,14 +941,17 @@ pub fn list_content(
             continue;
         }
         let size = std::fs::metadata(dir.join(fname)).map(|m| m.len()).unwrap_or(0);
-        new_records.push(InstalledContent {
+        let mut rec = InstalledContent {
             filename: fname.clone(),
-            source: "modpack".into(),
+            source: "manual".into(),
             project_id: None,
             slug: None,
             version_id: None,
-            name: Some(fname.clone()),
+            name: None,
             version: None,
+            mod_id: None,
+            authors: None,
+            description: None,
             installed_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
@@ -956,7 +959,9 @@ pub fn list_content(
             size,
             icon: None,
             enabled: true,
-        });
+        };
+        crate::util::fill_content_from_jar(&mut rec, &dir.join(fname));
+        new_records.push(rec);
     }
     if !new_records.is_empty() {
         let _ = crate::instances::add_content_batch(&state, &instance_id, &kind, new_records.clone());
@@ -964,8 +969,8 @@ pub fn list_content(
     }
     for rec in &mut records {
         let abs = dir.join(&rec.filename);
-        if rec.icon.is_none() && abs.is_file() {
-            rec.icon = crate::util::extract_archive_icon(&abs, &kind);
+        if abs.is_file() {
+            crate::util::fill_content_from_jar(rec, &abs);
         }
     }
     let items: Vec<Value> = records
@@ -1008,7 +1013,7 @@ pub fn import_local_file(
     std::fs::copy(source, &dest).map_err(|e| format!("复制文件失败: {e}"))?;
     let size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
     let icon = crate::util::extract_archive_icon(&dest, &kind);
-    let record = InstalledContent {
+    let mut record = InstalledContent {
         filename,
         source: "manual".into(),
         project_id: None,
@@ -1016,6 +1021,9 @@ pub fn import_local_file(
         version_id: None,
         name: None,
         version: None,
+        mod_id: None,
+        authors: None,
+        description: None,
         installed_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -1024,6 +1032,7 @@ pub fn import_local_file(
         icon,
         enabled: true,
     };
+    crate::util::fill_content_from_jar(&mut record, &dest);
     crate::instances::add_content(&state, &instance_id, &kind, record)?;
     Ok(json!({ "ok": true }))
 }

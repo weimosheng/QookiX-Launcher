@@ -490,14 +490,17 @@ pub async fn install_file(
         })
         .filter(|s| !s.is_empty());
 
-    let record = InstalledContent {
+    let mut record = InstalledContent {
         filename: filename.clone(),
         source: "curseforge".into(),
         project_id: Some(mod_id.to_string()),
         slug: slug.clone(),
         version_id: Some(file_id.to_string()),
         name: Some(project_name.clone()),
-        version: Some(file_id.to_string()),
+        version: None,
+        mod_id: None,
+        authors: None,
+        description: None,
         installed_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -506,6 +509,12 @@ pub async fn install_file(
         icon: cf_mod_logo(state, mod_id).await,
         enabled: true,
     };
+    let jar_path = state
+        .instances_dir()
+        .join(&instance.id)
+        .join(crate::modrinth::kind_folder(&kind))
+        .join(&filename);
+    crate::util::fill_content_from_jar(&mut record, &jar_path);
     crate::instances::add_content(state, &instance.id, kind, record)?;
     crate::install::emit_progress(&app, task_id, "done", "安装完成", 1, 1, instance, &format!("CurseForge：{project_name}"));
     Ok(json!({ "ok": true, "filename": filename }))
@@ -686,14 +695,17 @@ async fn install_modpack_inner(
             size: if fsize > 0 { Some(fsize) } else { None },
             label: fname.clone(),
         });
-        mod_records.push(InstalledContent {
+        let mut rec = InstalledContent {
             filename: fname.clone(),
             source: "curseforge".into(),
             project_id: Some(pid.to_string()),
             slug: None,
             version_id: Some(fid.to_string()),
             name: Some(fname),
-            version: Some(fid.to_string()),
+            version: None,
+            mod_id: None,
+            authors: None,
+            description: None,
             installed_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
@@ -701,7 +713,14 @@ async fn install_modpack_inner(
             size: fsize,
             icon: None,
             enabled: true,
-        });
+        };
+        let jar_path = state
+            .instances_dir()
+            .join(&instance.id)
+            .join("mods")
+            .join(&rec.filename);
+        crate::util::fill_content_from_jar(&mut rec, &jar_path);
+        mod_records.push(rec);
     }
 
     // Phase 2: download all mods in one batch (progress bar won't reset)

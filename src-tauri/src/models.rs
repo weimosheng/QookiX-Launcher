@@ -128,6 +128,15 @@ pub struct InstalledContent {
     pub version_id: Option<String>,
     pub name: Option<String>,
     pub version: Option<String>,
+    /// Mod 内部 id（fabric 的 "sodium" / forge 的 modId），用于中文名映射与精确识别
+    #[serde(default)]
+    pub mod_id: Option<String>,
+    /// 作者列表（从 fabric.mod.json / mods.toml 提取）
+    #[serde(default)]
+    pub authors: Option<Vec<String>>,
+    /// Mod 描述（可选，从 jar 内元数据提取）
+    #[serde(default)]
+    pub description: Option<String>,
     pub installed_at: u64,
     pub size: u64,
     /// Project icon URL (shown in content lists)

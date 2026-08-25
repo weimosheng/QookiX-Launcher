@@ -169,7 +169,7 @@ pub async fn apply(
                     .get(h)
                     .map(|(p, v)| (Some(p.clone()), Some(v.clone())))
                     .unwrap_or((None, None));
-                records.push(InstalledContent {
+                let mut rec = InstalledContent {
                     filename: fname.clone(),
                     source: "modrinth".into(),
                     project_id: pid,
@@ -177,11 +177,16 @@ pub async fn apply(
                     version_id: vid,
                     name: Some(fname.clone()),
                     version: None,
+                    mod_id: None,
+                    authors: None,
+                    description: None,
                     installed_at: now,
                     size,
                     icon: None,
                     enabled: true,
-                });
+                };
+                crate::util::fill_content_from_jar(&mut rec, &mods_dir.join(fname));
+                records.push(rec);
             }
         }
     }
@@ -211,19 +216,24 @@ pub async fn apply(
                         continue;
                     }
                     let size = std::fs::metadata(mods_dir.join(&fname)).map(|m| m.len()).unwrap_or(0);
-                    records.push(InstalledContent {
+                    let mut rec = InstalledContent {
                         filename: fname.clone(),
                         source: "curseforge".into(),
                         project_id: Some(pid.to_string()),
                         slug: None,
                         version_id: Some(fid.to_string()),
-                        name: Some(fname),
-                        version: Some(fid.to_string()),
+                        name: Some(fname.clone()),
+                        version: None,
+                        mod_id: None,
+                        authors: None,
+                        description: None,
                         installed_at: now,
                         size,
                         icon: None,
                         enabled: true,
-                    });
+                    };
+                    crate::util::fill_content_from_jar(&mut rec, &mods_dir.join(&fname));
+                    records.push(rec);
                 }
             }
             if records.is_empty() {
@@ -241,7 +251,7 @@ pub async fn apply(
                     continue;
                 }
                 let size = e.metadata().map(|m| m.len()).unwrap_or(0);
-                records.push(InstalledContent {
+                let mut rec = InstalledContent {
                     filename: name.clone(),
                     source: "modpack".into(),
                     project_id: None,
@@ -249,11 +259,16 @@ pub async fn apply(
                     version_id: None,
                     name: Some(name),
                     version: None,
+                    mod_id: None,
+                    authors: None,
+                    description: None,
                     installed_at: now,
                     size,
                     icon: None,
                     enabled: true,
-                });
+                };
+                crate::util::fill_content_from_jar(&mut rec, &e.path());
+                records.push(rec);
             }
         }
     }

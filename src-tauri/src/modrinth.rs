@@ -297,6 +297,9 @@ pub async fn install_version(
         version_id: Some(version_id.to_string()),
         name: Some(project_name.clone()),
         version: Some(version_number.clone()),
+        mod_id: None,
+        authors: None,
+        description: None,
         installed_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -606,7 +609,7 @@ async fn install_modpack_inner(
                 }
                 let size = e.metadata().map(|m| m.len()).unwrap_or(0);
                 let meta = meta_by_name.get(&name).cloned().unwrap_or((None, None));
-                let rec = InstalledContent {
+                let mut rec = InstalledContent {
                     filename: name.clone(),
                     source: "modrinth".into(),
                     project_id: meta.0,
@@ -614,6 +617,9 @@ async fn install_modpack_inner(
                     version_id: meta.1,
                     name: Some(name),
                     version: None,
+                    mod_id: None,
+                    authors: None,
+                    description: None,
                     installed_at: std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_secs())
@@ -622,6 +628,7 @@ async fn install_modpack_inner(
                     icon: None,
                     enabled: true,
                 };
+                crate::util::fill_content_from_jar(&mut rec, &e.path());
                 inst.mods.retain(|c| c.filename != rec.filename);
                 inst.mods.push(rec);
                 count += 1;

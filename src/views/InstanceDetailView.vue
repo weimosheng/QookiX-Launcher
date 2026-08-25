@@ -16,7 +16,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ContentItem, ProjectVersion, UpdateInfo } from "../types";
 
 function sourceLabel(s: string) {
-  return s === "modrinth" ? "Modrinth" : s === "curseforge" ? "CurseForge" : "手动";
+  return s === "modrinth" ? "Modrinth" : s === "curseforge" ? "CurseForge" : s === "modpack" ? "整合包" : "手动";
 }
 import {
   IconBox,
@@ -831,12 +831,13 @@ watch(
             <div class="c-info">
               <div class="c-name text-ellipsis">
                 {{ item.record.cn_name ?? item.record.name ?? item.record.filename }}
-                <span v-if="item.record.cn_name" class="c-en">{{ item.record.name ?? item.record.filename }}</span>
+                <span v-if="item.record.cn_name && item.record.name" class="c-en">{{ item.record.name }}</span>
               </div>
               <div v-if="(item.record.name && item.record.name !== item.record.filename) || item.record.cn_name" class="c-file text-ellipsis">{{ item.record.filename }}</div>
               <div class="c-meta">
                 <span class="src" :class="item.record.source">{{ sourceLabel(item.record.source) }}</span>
                 <span v-if="item.record.version" class="ver">{{ item.record.version }}</span>
+                <span v-if="item.record.authors && item.record.authors.length" class="author">作者：{{ item.record.authors.join("、") }}</span>
                 <span v-if="!item.exists" class="missing">文件缺失</span>
               </div>
             </div>
@@ -1493,8 +1494,16 @@ watch(
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-3);
 }
+.src.modpack {
+  background: rgba(150, 181, 225, 0.18);
+  color: #96b5e1;
+}
 .ver {
   color: var(--text-3);
+}
+.author {
+  color: var(--text-3);
+  opacity: 0.85;
 }
 .missing {
   color: #e5534b;

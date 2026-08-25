@@ -125,6 +125,12 @@ export interface InstalledContent {
   version_id: string | null;
   name: string | null;
   version: string | null;
+  /** Mod 内部 id（fabric 的 sodium / forge 的 modId） */
+  mod_id?: string | null;
+  /** 作者列表 */
+  authors?: string[] | null;
+  /** Mod 描述 */
+  description?: string | null;
   installed_at: number;
   size: number;
   icon: string | null;

@@ -361,6 +361,188 @@ pub fn extract_archive_icon(path: &std::path::Path, kind: &str) -> Option<String
     None
 }
 
+/// 从 jar 内部解析出的 mod 元数据。
+#[derive(Default, Clone, Debug)]
+pub struct ModJarMeta {
+    pub mod_id: Option<String>,
+    pub name: Option<String>,
+    pub version: Option<String>,
+    pub authors: Option<Vec<String>>,
+    pub description: Option<String>,
+    /// 已落地的 icon 本地路径或 http(s) URL
+    pub icon: Option<String>,
+    /// fabric / quilt / forge / neoforge
+    pub loader: Option<String>,
+}
+
+fn save_icon_buf(buf: Vec<u8>) -> Option<String> {
+    if buf.len() < 8 {
+        return None;
+    }
+    let f = std::env::temp_dir().join(format!("qookix-icon-{}.png", uuid::Uuid::new_v4().simple()));
+    std::fs::write(&f, &buf).ok()?;
+    Some(f.to_string_lossy().to_string())
+}
+
+fn parse_json_authors(val: &serde_json::Value) -> Option<Vec<String>> {
+    let a = val.get("authors")?;
+    if let Some(arr) = a.as_array() {
+        let v: Vec<String> = arr
+            .iter()
+            .filter_map(|x| {
+                x.as_str()
+                    .map(|s| s.to_string())
+                    .or_else(|| x.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+            })
+            .filter(|s| !s.is_empty())
+            .collect();
+        if v.is_empty() { None } else { Some(v) }
+    } else if let Some(s) = a.as_str() {
+        if s.is_empty() { None } else { Some(vec![s.to_string()]) }
+    } else {
+        None
+    }
+}
+
+/// 极简 mods.toml 值解析：支持 "str" / 'str' / ["a","b"] / bare。
+fn parse_toml_value(s: &str) -> Option<String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if s.starts_with('[') && s.ends_with(']') && s.len() >= 2 {
+        let inner = &s[1..s.len() - 1];
+        let items: Vec<String> = inner.split(',').filter_map(|item| parse_toml_value(item)).collect();
+        return Some(items.join(", "));
+    }
+    if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
+        return Some(s[1..s.len() - 1].to_string());
+    }
+    if s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2 {
+        return Some(s[1..s.len() - 1].to_string());
+    }
+    Some(s.to_string())
+}
+
+fn split_authors(s: &str) -> Vec<String> {
+    s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()
+}
+
+/// 解析 Forge/NeoForge 的 mods.toml，只取第一个 [[mods]] 块。
+fn parse_mods_toml(text: &str) -> Option<ModJarMeta> {
+    let mut in_mods = false;
+    let mut meta = ModJarMeta::default();
+    let mut found_mod_id = false;
+    let mut logo_file: Option<String> = None;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("[[") {
+            if in_mods && found_mod_id {
+                break;
+            }
+            in_mods = trimmed == "[[mods]]";
+            continue;
+        }
+        if trimmed.starts_with('[') {
+            in_mods = false;
+            continue;
+        }
+        if !in_mods {
+            continue;
+        }
+        let Some(eq) = trimmed.find('=') else { continue };
+        let key = trimmed[..eq].trim();
+        let value = trimmed[eq + 1..].trim();
+        let Some(v) = parse_toml_value(value) else { continue };
+        match key {
+            "modId" => { meta.mod_id = Some(v); found_mod_id = true; }
+            "displayName" => { meta.name = Some(v); }
+            "version" => { meta.version = Some(v); }
+            "authors" => { meta.authors = Some(split_authors(&v)); }
+            "description" => { meta.description = Some(v); }
+            "logoFile" | "logo" => { logo_file = Some(v); }
+            _ => {}
+        }
+    }
+    if found_mod_id {
+        meta.icon = logo_file;
+        Some(meta)
+    } else {
+        None
+    }
+}
+
+/// 从 jar 内部解析 mod 元数据（fabric/quilt/forge/neoforge 通用）。
+/// 优先级：fabric.mod.json → quilt.mod.json → META-INF/mods.toml → META-INF/neoforge.mods.toml
+/// 一次 zip 读取同时提取元数据与内嵌 icon。
+pub fn parse_mod_jar(path: &Path) -> Option<ModJarMeta> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut archive = zip::ZipArchive::new(file).ok()?;
+    let mut meta = ModJarMeta::default();
+    let mut icon_ref: Option<String> = None;
+    let mut found = false;
+
+    for name in ["fabric.mod.json", "quilt.mod.json"] {
+        if found { break; }
+        let Ok(mut entry) = archive.by_name(name) else { continue };
+        let mut buf = Vec::new();
+        if Read::read_to_end(&mut entry, &mut buf).is_err() { continue; }
+        let val: serde_json::Value = match serde_json::from_slice(&buf) { Ok(v) => v, Err(_) => continue };
+        meta.mod_id = val.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
+        meta.name = val.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
+        meta.version = val.get("version").and_then(|v| v.as_str()).map(|s| s.to_string());
+        meta.description = val.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
+        meta.authors = parse_json_authors(&val);
+        icon_ref = val.get("icon").and_then(|v| v.as_str()).map(|s| s.to_string());
+        meta.loader = if name == "fabric.mod.json" { Some("fabric".into()) } else { Some("quilt".into()) };
+        found = true;
+    }
+
+    for name in ["META-INF/mods.toml", "META-INF/neoforge.mods.toml"] {
+        if found { break; }
+        let Ok(mut entry) = archive.by_name(name) else { continue };
+        let mut buf = Vec::new();
+        if Read::read_to_end(&mut entry, &mut buf).is_err() { continue; }
+        let text = String::from_utf8_lossy(&buf).to_string();
+        if let Some(m) = parse_mods_toml(&text) {
+            icon_ref = m.icon.clone();
+            meta = m;
+            meta.loader = if name.contains("neoforge") { Some("neoforge".into()) } else { Some("forge".into()) };
+            found = true;
+        }
+    }
+
+    if !found { return None; }
+
+    if let Some(icon) = icon_ref {
+        if icon.starts_with("http://") || icon.starts_with("https://") {
+            meta.icon = Some(icon);
+        } else if let Ok(mut icon_entry) = archive.by_name(&icon) {
+            let mut ibuf = Vec::new();
+            if Read::read_to_end(&mut icon_entry, &mut ibuf).is_ok() {
+                meta.icon = save_icon_buf(ibuf);
+            }
+        }
+    }
+    Some(meta)
+}
+
+/// 用 jar 内部元数据回填 `InstalledContent` 中缺失的字段。
+/// 远程 API 元数据优先，jar 元数据作为回退；name 为文件名占位时也替换为真实名字。
+pub fn fill_content_from_jar(rec: &mut crate::models::InstalledContent, jar_path: &Path) {
+    let Some(meta) = parse_mod_jar(jar_path) else { return };
+    if rec.mod_id.is_none() { rec.mod_id = meta.mod_id; }
+    let name_is_placeholder = rec.name.as_deref() == Some(rec.filename.as_str());
+    if rec.name.is_none() || name_is_placeholder {
+        if let Some(n) = meta.name.filter(|n| !n.is_empty()) { rec.name = Some(n); }
+    }
+    if rec.version.is_none() { rec.version = meta.version; }
+    if rec.authors.is_none() { rec.authors = meta.authors; }
+    if rec.description.is_none() { rec.description = meta.description; }
+    if rec.icon.is_none() { rec.icon = meta.icon; }
+    if rec.slug.is_none() { rec.slug = rec.mod_id.clone(); }
+}
+
 /// Copy a file (creating parent dirs), or create a symlink to it when `link` is
 /// true. On platforms where symlink creation is denied (e.g. Windows without
 /// Developer Mode / admin), this silently falls back to a normal copy and sets
