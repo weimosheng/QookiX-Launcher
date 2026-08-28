@@ -103,39 +103,37 @@ pub async fn launch_game(
 
     let account = account;
 
-    // Clean up any leftover skin resource pack from the previous approach.
-    let skin_pack = instance_dir.join("resourcepacks").join("QookiX_Skin.zip");
-    if skin_pack.exists() {
-        let _ = std::fs::remove_file(&skin_pack);
-    }
-
-    // Offline skin: inject PNG into the version jar at launch time.
-    // The jar is only rewritten when the skin file actually changed (tracked by
-    // a marker file storing the skin's sha1) — rewriting an identical jar on
-    // every launch is wasted I/O and looks like "binary patching" to antivirus
-    // heuristics, a common source of false positives for launchers.
+    // Offline skin: build a resource pack and enable it in options.txt.
+    // (Previously we injected the PNG directly into client.jar, but that
+    // triggered antivirus heuristics — binary patching + META-INF signature
+    // removal.  The resource-pack approach mirrors PCL2 and is AV-safe.)
     if account.user_type == "legacy" {
         let skin_file = state.root.join("skins").join("offline").join(format!("{}.png", account.uuid));
         if skin_file.exists() {
-            let jar = crate::paths::resolve_version_dir(state, &instance.id).join(format!("{}.jar", instance.id));
-            if jar.exists() {
-                if let Some(skin_bytes) = std::fs::read(&skin_file).ok() {
-                    let current_hash = crate::util::file_sha1(&skin_file).unwrap_or_default();
-                    let marker = instance_dir.join(".qookix-skin-injected");
-                    let already_injected = std::fs::read_to_string(&marker)
-                        .map(|h| h.trim() == current_hash)
-                        .unwrap_or(false);
-                    if !already_injected {
-                        let _ = app.emit("launch//log", serde_json::json!({
-                            "instanceId": instance.id,
-                            "stream": "out",
-                            "line": "正在应用离线皮肤…",
-                        }));
-                        inject_skin_into_jar(&jar, &skin_bytes)?;
-                        let _ = std::fs::write(&marker, current_hash);
-                    }
+            if let Some(skin_bytes) = std::fs::read(&skin_file).ok() {
+                let current_hash = crate::util::file_sha1(&skin_file).unwrap_or_default();
+                let marker = instance_dir.join(".qookix-skin-pack");
+                let already_built = std::fs::read_to_string(&marker)
+                    .map(|h| h.trim() == current_hash)
+                    .unwrap_or(false);
+                if !already_built {
+                    let _ = app.emit("launch//log", serde_json::json!({
+                        "instanceId": instance.id,
+                        "stream": "out",
+                        "line": "正在应用离线皮肤…",
+                    }));
+                    build_skin_resourcepack(&instance_dir, &skin_bytes)?;
+                    let _ = std::fs::write(&marker, current_hash);
                 }
             }
+        }
+    } else {
+        // Non-offline account: remove any leftover skin pack so it doesn't
+        // override the server-provided skin.
+        let skin_pack = instance_dir.join("resourcepacks").join("QookiX_Skin.zip");
+        if skin_pack.exists() {
+            let _ = std::fs::remove_file(&skin_pack);
+            disable_resource_pack(&instance_dir, "QookiX_Skin.zip");
         }
     }
 
@@ -581,19 +579,36 @@ fn set_chinese_lang(instance_dir: &std::path::Path, mc_version: &str) {
     }
 }
 
-/// Inject the skin PNG directly into the version jar by replacing
-/// `assets/minecraft/textures/entity/steve.png` and `alex.png` (and the
-/// 1.19.3+ `player/wide` / `player/slim` variants).  This is the same
-/// approach PCL uses: no resource pack, so nothing shows up in the
-/// in-game resource-pack list.
-pub fn inject_skin_into_jar(jar_path: &std::path::Path, skin: &[u8]) -> Result<(), String> {
+/// Build a resource pack zip (`QookiX_Skin.zip`) containing the offline skin
+/// PNG and enable it in the instance's `options.txt`.
+///
+/// This replaces the old jar-injection approach (`inject_skin_into_jar`) which
+/// read `client.jar`, stripped its `META-INF` signatures, rewrote it with
+/// `ZipWriter` and overwrote the original.  That sequence — binary patching +
+/// signature removal + overwrite — matched the heuristic signature of
+/// `Trojan/CoinMiner` jar-backdoor injectors and caused persistent antivirus
+/// false-positives on the packaged `setup.exe`.
+///
+/// The resource-pack strategy mirrors PCL2 (`PCL2 Skin.zip`) and is AV-safe:
+/// we only *create* a new zip in `resourcepacks/` and toggle one line in
+/// `options.txt`; `client.jar` is never touched.
+fn build_skin_resourcepack(instance_dir: &std::path::Path, skin: &[u8]) -> Result<(), String> {
     use std::io::Write;
     use zip::write::SimpleFileOptions;
-    use zip::ZipArchive;
 
-    let original = std::fs::read(jar_path).map_err(|e| format!("read jar: {e}"))?;
-    let mut archive = ZipArchive::new(std::io::Cursor::new(original.as_slice()))
-        .map_err(|e| format!("open jar: {e}"))?;
+    let rp_dir = instance_dir.join("resourcepacks");
+    std::fs::create_dir_all(&rp_dir).map_err(|e| format!("create resourcepacks: {e}"))?;
+    let zip_path = rp_dir.join("QookiX_Skin.zip");
+
+    let buf = std::io::Cursor::new(Vec::new());
+    let mut zip = zip::write::ZipWriter::new(buf);
+    let opts = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+
+    let mcmeta = r#"{"pack":{"pack_format":1,"description":"QookiX Offline Skin"}}"#;
+    zip.start_file("pack.mcmeta", opts)
+        .map_err(|e| format!("write mcmeta: {e}"))?;
+    zip.write_all(mcmeta.as_bytes())
+        .map_err(|e| format!("write mcmeta: {e}"))?;
 
     let skin_paths: &[&str] = &[
         "assets/minecraft/textures/entity/steve.png",
@@ -603,39 +618,82 @@ pub fn inject_skin_into_jar(jar_path: &std::path::Path, skin: &[u8]) -> Result<(
         "assets/minecraft/textures/entity/player/slim/steve.png",
         "assets/minecraft/textures/entity/player/slim/alex.png",
     ];
+    for &p in skin_paths {
+        zip.start_file(p, opts).map_err(|e| format!("write entry: {e}"))?;
+        zip.write_all(skin).map_err(|e| format!("write skin: {e}"))?;
+    }
 
-    let buf = std::io::Cursor::new(Vec::new());
-    let mut zip = zip::write::ZipWriter::new(buf);
-    let mut replaced = 0;
-    for i in 0..archive.len() {
-        let file = archive.by_index(i).map_err(|e| format!("read entry: {e}"))?;
-        let name = file.name().to_string();
-        // Drop jar signature files so Java doesn't verify SHA-256 digests
-        // against the (now-modified) skin PNGs and throw SecurityException.
-        let is_sig = name.starts_with("META-INF/")
-            && (name.ends_with(".SF")
-                || name.ends_with(".RSA")
-                || name.ends_with(".DSA")
-                || name == "META-INF/MANIFEST.MF");
-        if is_sig {
-            continue;
-        }
-        if skin_paths.contains(&name.as_str()) {
-            let method = file.compression();
-            drop(file);
-            zip.start_file(&name, SimpleFileOptions::default().compression_method(method))
-                .map_err(|e| format!("write entry: {e}"))?;
-            zip.write_all(skin).map_err(|e| format!("write skin: {e}"))?;
-            replaced += 1;
-        } else {
-            zip.raw_copy_file(file).map_err(|e| format!("copy entry: {e}"))?;
+    let buf = zip.finish().map_err(|e| format!("finish zip: {e}"))?;
+    std::fs::write(&zip_path, buf.into_inner()).map_err(|e| format!("save zip: {e}"))?;
+
+    enable_resource_pack(instance_dir, "QookiX_Skin.zip");
+    Ok(())
+}
+
+/// Add `"file/<pack>"` to the `resourcePacks` line in `options.txt` so the
+/// game loads the skin pack on next launch.  Our pack is inserted at the front
+/// so it takes priority over vanilla textures.
+fn enable_resource_pack(instance_dir: &std::path::Path, pack_file: &str) {
+    let options_path = instance_dir.join("options.txt");
+    let entry = format!("\"file/{pack_file}\"");
+    let mut lines: Vec<String> = Vec::new();
+    let mut found = false;
+    let mut already_enabled = false;
+    if let Ok(text) = std::fs::read_to_string(&options_path) {
+        for line in text.lines() {
+            if line.starts_with("resourcePacks:") {
+                found = true;
+                let value = &line["resourcePacks:".len()..];
+                if value.contains(&entry) {
+                    already_enabled = true;
+                    lines.push(line.to_string());
+                } else {
+                    let inner = value.trim_start_matches('[').trim_end_matches(']');
+                    let new_value = if inner.is_empty() {
+                        format!("[{entry}]")
+                    } else {
+                        format!("[{entry},{inner}]")
+                    };
+                    lines.push(format!("resourcePacks:{new_value}"));
+                }
+            } else {
+                lines.push(line.to_string());
+            }
         }
     }
-    let buf = zip.finish().map_err(|e| format!("finish jar: {e}"))?;
-    let new_bytes = buf.into_inner();
-    std::fs::write(jar_path, &new_bytes).map_err(|e| format!("save jar: {e}"))?;
-    eprintln!("[skin] replaced {replaced} skin files in jar");
-    Ok(())
+    if !found {
+        lines.push(format!("resourcePacks:[{entry}]"));
+    }
+    if !already_enabled || !found {
+        let _ = std::fs::write(&options_path, lines.join("\n"));
+    }
+}
+
+/// Remove `"file/<pack>"` from the `resourcePacks` line in `options.txt`.
+fn disable_resource_pack(instance_dir: &std::path::Path, pack_file: &str) {
+    let options_path = instance_dir.join("options.txt");
+    let entry = format!("\"file/{pack_file}\"");
+    let Ok(text) = std::fs::read_to_string(&options_path) else { return };
+    let mut lines: Vec<String> = Vec::new();
+    for line in text.lines() {
+        if line.starts_with("resourcePacks:") {
+            let value = &line["resourcePacks:".len()..];
+            let inner = value.trim_start_matches('[').trim_end_matches(']');
+            let kept: Vec<&str> = inner
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty() && *s != entry)
+                .collect();
+            if kept.is_empty() {
+                lines.push("resourcePacks:[]".to_string());
+            } else {
+                lines.push(format!("resourcePacks:[{}]", kept.join(",")));
+            }
+        } else {
+            lines.push(line.to_string());
+        }
+    }
+    let _ = std::fs::write(&options_path, lines.join("\n"));
 }
 
 // ---------------------------------------------------------------------------
