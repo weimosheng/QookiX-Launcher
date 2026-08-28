@@ -31,14 +31,17 @@ function shouldSign() {
 }
 
 // Sign a list of files via scripts/sign-windows.ps1 (no-op unless a cert is set).
+// File paths are passed over stdin (one per line) rather than as command-line
+// arguments: Windows PowerShell 5.1's `-File` mode mangles quoted args that
+// contain spaces (e.g. "QookiX Launcher_0.2.0_x64-setup.exe").
 function signFiles(files) {
   if (!shouldSign()) return
   const real = files.filter((f) => f && existsSync(f))
   if (real.length === 0) return
   const r = spawnSync(
     'powershell',
-    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', signScript, '-Files', ...real],
-    { stdio: 'inherit', env: process.env },
+    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', signScript],
+    { stdio: ['pipe', 'inherit', 'inherit'], input: real.join('\n') + '\n', env: process.env },
   )
   if (r.status !== 0) process.exit(r.status ?? 1)
 }
@@ -69,7 +72,8 @@ const result = spawnSync('tauri', args, {
   shell: process.platform === 'win32',
 })
 
-// After a successful `tauri build`, sign the main binary and the NSIS installer.
+// After a successful `tauri build`, sign the main binary, the NSIS installer(s)
+// and the MSI(s).
 if (result.status === 0 && isBuild && process.platform === 'win32') {
   const releaseDir = path.join(projectRoot, 'src-tauri', 'target', 'release')
   const mainExe = path.join(releaseDir, 'qookix-launcher.exe')
@@ -77,7 +81,11 @@ if (result.status === 0 && isBuild && process.platform === 'win32') {
   const installers = existsSync(nsisDir)
     ? readdirSync(nsisDir).filter((f) => f.toLowerCase().endsWith('.exe')).map((f) => path.join(nsisDir, f))
     : []
-  signFiles([mainExe, ...installers])
+  const msiDir = path.join(releaseDir, 'bundle', 'msi')
+  const msis = existsSync(msiDir)
+    ? readdirSync(msiDir).filter((f) => f.toLowerCase().endsWith('.msi')).map((f) => path.join(msiDir, f))
+    : []
+  signFiles([mainExe, ...installers, ...msis])
 }
 
 process.exit(result.status ?? 1)

@@ -25,12 +25,26 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Also accept the file list from stdin (one path per line). The CI pipeline
+# passes paths this way to avoid Windows PowerShell 5.1's `-File` argument
+# parser, which mangles quoted arguments that contain spaces (e.g.
+# "QookiX Launcher_0.2.0_x64-setup.exe").
+$stdinFiles = @()
+if ([Console]::IsInputRedirected) {
+  $stdinFiles = @(
+    [Console]::In.ReadToEnd() -split "`r?`n" |
+      ForEach-Object { $_.Trim() } |
+      Where-Object { $_ -ne '' }
+  )
+}
+$Files = @($Files) + $stdinFiles
+
 $cert = $env:QOOKIX_CERT_PFX
 if (-not $cert -or -not (Test-Path $cert)) {
   Write-Host "sign-windows: QOOKIX_CERT_PFX not set or file missing, skipping signing"
   exit 0
 }
-if (-not $Files -or $Files.Count -eq 0) {
+if ($Files.Count -eq 0) {
   Write-Host "sign-windows: no files given, skipping"
   exit 0
 }
