@@ -141,9 +141,11 @@ jobs:
             gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/${id}" || true
           done
           # Delete any existing release for this tag, then create a fresh one so
-          # uploads always target a valid release id.
-          existing="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq '.id' 2>/dev/null || true)"
-          if [ -n "$existing" ] && [ "$existing" != "null" ]; then
+          # uploads always target a valid release id. `gh release view` prints
+          # errors to stderr, so a missing release yields an empty id here.
+          existing="$(gh release view "$tag" --json id --jq '.id' 2>/dev/null || true)"
+          case "$existing" in ''|*[!0-9]*) existing="" ;; esac
+          if [ -n "$existing" ]; then
             echo "Deleting stale release ${existing} for ${tag}"
             gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/${existing}"
           fi
