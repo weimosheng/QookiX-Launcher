@@ -35,6 +35,11 @@ export const api = {
   // settings & java
   getSettings: () => invoke<Settings>("get_settings"),
   setSettings: (patch: Record<string, unknown>) => invoke<Settings>("set_settings", { patch }),
+  changeDataDir: (newDir: string, mode: "move" | "copy" | "pointer") =>
+    invoke<{ ok: boolean; new_dir: string; need_restart: boolean }>("change_data_dir", {
+      newDir,
+      mode,
+    }),
   autoDetectMemory: () =>
     invoke<{ total_mb: number; used_mb: number; available_mb: number; max_mb: number; min_mb: number }>("auto_detect_memory"),
   detectJava: (refresh?: boolean) =>

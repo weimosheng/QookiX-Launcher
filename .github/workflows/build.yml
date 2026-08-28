@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: qookix-release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -111,16 +111,16 @@ jobs:
 
   # Assemble the GitHub Release once, after every platform finished. Downloads
   # all build artifacts (installers + updater bundles + `.sig` signatures),
-  # creates/updates the release, generates the Tauri updater `latest.json` from
-  # the signatures, uploads it, then publishes the release as latest.
+  # generates the Tauri updater `latest.json` from local files, then publishes
+  # everything in ONE `softprops/action-gh-release` call — the battle-tested
+  # action that robustly creates/updates the release without the fragile manual
+  # `gh release create/upload` dance that caused stale-release 404s.
   verify-and-publish:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -130,41 +130,17 @@ jobs:
           path: release
           merge-multiple: true
 
-      - name: Create release
-        run: |
-          tag="${GITHUB_REF_NAME}"
-          # Remove orphaned "untagged" draft releases left behind by prior
-          # force-pushed tag runs (they otherwise clutter the Releases page and
-          # can make `gh release upload` target an invalid id).
-          for id in $(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq '.[] | select(.tag_name == "") | select(.draft == true) | .id' 2>/dev/null); do
-            echo "Removing orphaned untagged draft release ${id}"
-            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/${id}" || true
-          done
-          # Delete any existing release for this tag, then create a fresh one so
-          # uploads always target a valid release id. `gh release view` prints
-          # errors to stderr, so a missing release yields an empty id here.
-          existing="$(gh release view "$tag" --json id --jq '.id' 2>/dev/null || true)"
-          case "$existing" in ''|*[!0-9]*) existing="" ;; esac
-          if [ -n "$existing" ]; then
-            echo "Deleting stale release ${existing} for ${tag}"
-            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/${existing}"
-          fi
-          gh release create "$tag" --draft --title "QookiX Launcher ${tag}" --generate-notes
-          mapfile -t files < <(find release -type f)
-          if [ "${#files[@]}" -gt 0 ]; then
-            gh release upload "$tag" "${files[@]}" --clobber
-          fi
-
       - name: Generate update manifest (latest.json)
         run: |
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" > release.json
-          node scripts/create-update-manifest.mjs release.json release "${GITHUB_REF_NAME}" latest.json || true
+          node scripts/create-update-manifest-local.mjs release "${GITHUB_REF_NAME}" latest.json || true
 
-      - name: Upload update manifest
-        if: hashFiles('latest.json') != ''
-        run: gh release upload "${GITHUB_REF_NAME}" latest.json --clobber
-
-      - name: Publish release
-        run: gh release edit "${GITHUB_REF_NAME}" --draft=false --latest
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/**/*
+            latest.json
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
 
 

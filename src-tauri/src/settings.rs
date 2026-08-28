@@ -156,6 +156,138 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
     Ok(cloned)
 }
 
+/// Migrate the launcher data root to `new_dir`.
+///
+/// `mode`:
+/// - `"move"`: move all data into the new dir, update the seed
+/// - `"copy"`: copy all data into the new dir (keep old as backup), update seed
+/// - `"pointer"`: only update the seed — the user is responsible for the data
+///
+/// Symlink-imported instances (junctions) are recreated at the destination
+/// pointing at their original external `.minecraft` instead of being
+/// dereferenced, so they keep working after the move.
+///
+/// On success the in-memory `settings.data_dir` is updated and a seed
+/// `settings.json` is written into the default root so the next launch picks
+/// up the new location. The caller must restart for the change to fully take
+/// effect (the running process still holds the old root).
+pub fn change_data_dir(state: &AppState, new_dir: &str, mode: &str) -> Result<String, String> {
+    let new_root = std::path::PathBuf::from(new_dir);
+    if new_root.as_os_str().is_empty() {
+        return Err("新数据目录不能为空".into());
+    }
+    let _ = std::fs::create_dir_all(&new_root);
+    let new_clean = new_root
+        .canonicalize()
+        .map_err(|e| format!("无法解析新目录路径: {e}"))?;
+    let cur_clean = state
+        .root
+        .canonicalize()
+        .map_err(|e| format!("无法解析当前目录路径: {e}"))?;
+    if new_clean == cur_clean {
+        return Err("新目录与当前数据目录相同".into());
+    }
+    if new_clean.starts_with(&cur_clean) {
+        return Err("新目录不能位于当前数据目录内".into());
+    }
+    if cur_clean.starts_with(&new_clean) {
+        return Err("新目录不能包含当前数据目录".into());
+    }
+
+    ensure_layout(&new_root).map_err(|e| format!("创建目录布局失败: {e}"))?;
+
+    let instances_name = std::ffi::OsStr::new("instances");
+    let skip = |name: &std::ffi::OsStr| name == "settings.json";
+
+    let migrate_instance = |src: &std::path::Path, dst: &std::path::Path| -> Result<(), String> {
+        let json_path = src.join("instance.json");
+        if let Ok(text) = std::fs::read_to_string(&json_path) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
+                if val.get("is_symlink").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    if let Some(source) = val.get("source_path").and_then(|v| v.as_str()) {
+                        let target = std::path::PathBuf::from(source);
+                        let mut fb = false;
+                        crate::util::link_dir(&target, dst, &mut fb)?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        match mode {
+            "move" => crate::util::move_entry(src, dst),
+            _ => crate::util::copy_tree(src, dst),
+        }
+    };
+
+    for e in std::fs::read_dir(&state.root).map_err(|e| e.to_string())?.flatten() {
+        let name = e.file_name();
+        if skip(&name) {
+            continue;
+        }
+        let src = e.path();
+        let dst = new_root.join(&name);
+        if name == instances_name && src.is_dir() {
+            std::fs::create_dir_all(&dst).map_err(|e| e.to_string())?;
+            for inst in std::fs::read_dir(&src).map_err(|e| e.to_string())?.flatten() {
+                let iname = inst.file_name();
+                let isrc = inst.path();
+                let idst = dst.join(&iname);
+                migrate_instance(&isrc, &idst)?;
+            }
+            if mode == "move" {
+                let _ = std::fs::remove_dir_all(&src);
+            }
+            continue;
+        }
+        match mode {
+            "move" => {
+                if src.is_dir() {
+                    crate::util::move_entry(&src, &dst)?;
+                } else if src.is_file() {
+                    std::fs::rename(&src, &dst)
+                        .or_else(|_| {
+                            std::fs::copy(&src, &dst).and_then(|_| std::fs::remove_file(&src))
+                        })
+                        .map_err(|e| format!("移动 {} 失败: {e}", name.to_string_lossy()))?;
+                }
+            }
+            "copy" => {
+                if src.is_dir() {
+                    crate::util::copy_tree(&src, &dst)?;
+                } else if src.is_file() {
+                    std::fs::copy(&src, &dst).map_err(|e| e.to_string())?;
+                }
+            }
+            "pointer" => {}
+            other => return Err(format!("未知迁移模式: {other}")),
+        }
+    }
+
+    // Write the full settings.json into the new root with data_dir updated.
+    {
+        let mut s = state.settings.read().unwrap().clone();
+        s.data_dir = new_dir.to_string();
+        save_settings(&new_root, &s)?;
+    }
+    // Seed the default root so the next launch honors the new location.
+    let default_root = std::path::PathBuf::from(default_root());
+    let _ = std::fs::create_dir_all(&default_root);
+    let seed = serde_json::json!({ "data_dir": new_dir.replace('\\', "/") });
+    let _ = std::fs::write(
+        default_root.join("settings.json"),
+        serde_json::to_string_pretty(&seed).unwrap_or_default(),
+    );
+
+    // Reflect the new path in memory immediately (UI); the actual file I/O
+    // still uses the old root until restart.
+    {
+        let mut s = state.settings.write().unwrap();
+        s.data_dir = new_dir.to_string();
+    }
+
+    Ok(new_dir.to_string())
+}
+
 /// Ensure the directory layout exists under the given root.
 pub fn ensure_layout(root: &std::path::Path) -> std::io::Result<()> {
     for sub in [

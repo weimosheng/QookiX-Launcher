@@ -709,7 +709,7 @@ pub fn link_dir(src: &Path, dst: &Path, _fallback: &mut bool) -> Result<(), Stri
     }
 }
 
-fn copy_tree(src: &Path, dst: &Path) -> Result<(), String> {
+pub fn copy_tree(src: &Path, dst: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dst).map_err(|e| e.to_string())?;
     for e in std::fs::read_dir(src).map_err(|e| e.to_string())?.flatten() {
         let p = e.path();
@@ -723,6 +723,44 @@ fn copy_tree(src: &Path, dst: &Path) -> Result<(), String> {
         } else if p.is_file() {
             std::fs::copy(&p, &target).map_err(|e| e.to_string())?;
         }
+    }
+    Ok(())
+}
+
+/// Move a directory entry (file or dir) from `src` to `dst`.
+/// Tries a cheap rename first (same volume); on cross-volume failure falls
+/// back to copy + remove. Symlinks are recreated at the destination pointing
+/// to the same target rather than being dereferenced, so linked instances
+/// keep pointing at their external `.minecraft` after a data-dir move.
+pub fn move_entry(src: &Path, dst: &Path) -> Result<(), String> {
+    if let Some(p) = dst.parent() {
+        std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
+    }
+    if std::fs::rename(src, dst).is_ok() {
+        return Ok(());
+    }
+    let meta = std::fs::symlink_metadata(src).map_err(|e| e.to_string())?;
+    if meta.is_symlink() {
+        let target = std::fs::read_link(src).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, dst).map_err(|e| e.to_string())?;
+        #[cfg(windows)]
+        {
+            if target.is_dir() {
+                junction::create(&target, dst).map_err(|e| e.to_string())?;
+            } else {
+                std::fs::copy(&target, dst).map_err(|e| e.to_string())?;
+            }
+        }
+        std::fs::remove_file(src).map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    if meta.is_dir() {
+        copy_tree(src, dst)?;
+        std::fs::remove_dir_all(src).map_err(|e| e.to_string())?;
+    } else {
+        std::fs::copy(src, dst).map_err(|e| e.to_string())?;
+        std::fs::remove_file(src).map_err(|e| e.to_string())?;
     }
     Ok(())
 }

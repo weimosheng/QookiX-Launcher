@@ -63,6 +63,7 @@ pub fn run() {
             // settings & java
             commands::get_settings,
             commands::set_settings,
+            commands::change_data_dir,
             commands::auto_detect_memory,
             commands::detect_java,
             commands::download_java,

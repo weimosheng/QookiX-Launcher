@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { NTabs, NTabPane, useMessage } from "naive-ui";
+import { NTabs, NTabPane, NModal, useMessage } from "naive-ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { open } from "@tauri-apps/plugin-dialog";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { useSettingsStore } from "../stores/settings";
 import { api } from "../api";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
@@ -122,6 +124,49 @@ async function openPath(path: string) {
   }
 }
 
+// 数据目录迁移
+const migrating = ref(false);
+const migrateModal = ref(false);
+const migratePhase = ref<"select" | "done">("select");
+const pendingNewDir = ref("");
+const migrateMode = ref<"move" | "copy" | "pointer">("move");
+
+async function pickDataDir() {
+  try {
+    const dir = await open({ directory: true, title: "选择新的数据目录" });
+    if (!dir || typeof dir !== "string") return;
+    pendingNewDir.value = dir;
+    migrateMode.value = "move";
+    migratePhase.value = "select";
+    migrateModal.value = true;
+  } catch {
+    /* ignore */
+  }
+}
+
+async function confirmMigrate() {
+  if (!pendingNewDir.value) return;
+  migrating.value = true;
+  try {
+    const res = await api.changeDataDir(pendingNewDir.value, migrateMode.value);
+    if (settings.settings) settings.settings.data_dir = res.new_dir;
+    migratePhase.value = "done";
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    migrating.value = false;
+  }
+}
+
+async function relaunchNow() {
+  migrateModal.value = false;
+  try {
+    await relaunch();
+  } catch (e) {
+    message.error("重启失败：" + String(e));
+  }
+}
+
 onMounted(() => {
   settings.load();
   // cached scan: no full rescan if another view already fetched recently
@@ -193,8 +238,9 @@ onUnmounted(() => {
             <div class="dir-row">
               <code class="mono dir">{{ settings.settings.data_dir }}</code>
               <button class="mini-btn" @click="openPath(settings.settings.data_dir)">打开</button>
+              <button class="mini-btn" @click="pickDataDir">更改</button>
             </div>
-            <p class="hint">实例、游戏文件与下载缓存均存储在此目录。</p>
+            <p class="hint">实例、游戏文件与下载缓存均存储在此目录。点击「更改」可迁移到其他位置。</p>
           </div>
         </div>
       </n-tab-pane>
@@ -337,7 +383,7 @@ onUnmounted(() => {
         <div class="grid">
           <div class="card glass">
             <h3>QookiX Launcher</h3>
-            <p class="hint">版本 v0.2.1</p>
+            <p class="hint">版本 v0.2.2</p>
             <p class="hint">现代化、简洁、无广告的 Minecraft 启动器。</p>
             <p class="hint">
               支持 Modrinth / CurseForge 内容中心、多线程下载、Java 自动检测。
@@ -346,6 +392,47 @@ onUnmounted(() => {
         </div>
       </n-tab-pane>
     </n-tabs>
+
+    <n-modal v-model:show="migrateModal" preset="card" title="更改数据目录" class="migrate-modal">
+      <div v-if="migratePhase === 'select'" class="migrate-body">
+        <p class="migrate-label">新数据目录：</p>
+        <code class="mono dir">{{ pendingNewDir }}</code>
+        <p class="migrate-label">迁移方式：</p>
+        <div class="migrate-modes">
+          <label :class="{ active: migrateMode === 'move' }">
+            <input type="radio" value="move" v-model="migrateMode" />
+            <span class="mm-title">移动数据</span>
+            <span class="mm-desc">把所有数据移动到新目录（推荐，同盘瞬间完成）</span>
+          </label>
+          <label :class="{ active: migrateMode === 'copy' }">
+            <input type="radio" value="copy" v-model="migrateMode" />
+            <span class="mm-title">复制数据</span>
+            <span class="mm-desc">复制到新目录，保留旧目录作为备份</span>
+          </label>
+          <label :class="{ active: migrateMode === 'pointer' }">
+            <input type="radio" value="pointer" v-model="migrateMode" />
+            <span class="mm-title">仅切换目录</span>
+            <span class="mm-desc">不迁移数据，仅指向新目录（需自行处理数据）</span>
+          </label>
+        </div>
+        <p class="migrate-warn">更改后需要重启应用才能完全生效。</p>
+        <div class="migrate-actions">
+          <button class="mini-btn" @click="migrateModal = false">取消</button>
+          <button class="mini-btn primary" :disabled="migrating" @click="confirmMigrate">
+            {{ migrating ? "迁移中…" : "开始迁移" }}
+          </button>
+        </div>
+      </div>
+      <div v-else class="migrate-body">
+        <p class="migrate-ok">数据目录已更改：</p>
+        <code class="mono dir">{{ pendingNewDir }}</code>
+        <p class="migrate-warn">需要重启应用以完全生效。</p>
+        <div class="migrate-actions">
+          <button class="mini-btn" @click="migrateModal = false">稍后重启</button>
+          <button class="mini-btn primary" @click="relaunchNow">立即重启</button>
+        </div>
+      </div>
+    </n-modal>
   </div>
 </template>
 
@@ -660,5 +747,76 @@ textarea.text-input {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.migrate-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.migrate-label {
+  font-size: 13px;
+  color: var(--text-2);
+  margin: 10px 0 2px;
+}
+.migrate-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.migrate-modes label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.03);
+}
+.migrate-modes label.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.migrate-modes input[type="radio"] {
+  accent-color: var(--accent);
+  margin: 0;
+}
+.mm-title {
+  font-weight: 600;
+  color: var(--text-1);
+  flex: 1;
+}
+.mm-desc {
+  width: 100%;
+  font-size: 11px;
+  color: var(--text-3);
+  margin-left: 22px;
+}
+.migrate-warn {
+  font-size: 12px;
+  color: #e89a4b;
+  margin-top: 10px;
+}
+.migrate-ok {
+  font-size: 13px;
+  color: var(--text-2);
+  margin-bottom: 4px;
+}
+.migrate-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+.mini-btn.primary {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.mini-btn.primary:hover {
+  background: var(--accent-soft);
 }
 </style>

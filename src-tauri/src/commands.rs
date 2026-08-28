@@ -27,6 +27,19 @@ pub fn set_settings(state: State<AppState>, patch: Value) -> Result<Settings, St
     settings::update_settings(&state, patch)
 }
 
+/// Move/copy the launcher data root to a new directory.
+/// `mode`: "move" | "copy" | "pointer". Returns the new data dir; the caller
+/// should restart for the change to fully take effect.
+#[tauri::command]
+pub fn change_data_dir(
+    state: State<AppState>,
+    new_dir: String,
+    mode: String,
+) -> Result<Value, String> {
+    let new_dir = settings::change_data_dir(&state, &new_dir, &mode)?;
+    Ok(json!({ "ok": true, "new_dir": new_dir, "need_restart": true }))
+}
+
 /// Auto-detect system memory and return (total, used, available) + recommended (max, min) in MB.
 #[tauri::command]
 pub fn auto_detect_memory() -> Result<Value, String> {
