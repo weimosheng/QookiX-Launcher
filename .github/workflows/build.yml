@@ -103,11 +103,29 @@ jobs:
           Compress-Archive -Path (Join-Path $stage "QookiX Launcher") -DestinationPath $zip -Force
           Write-Host "Created $zip"
 
+      - name: Collect release artifacts
+        shell: bash
+        run: |
+          # Copy ONLY the real release artifacts (installers, updater bundles,
+          # signatures, portable zip) into dist-artifacts/. The raw
+          # `bundle/**/*` glob also contains AppImage/AppDir staging files
+          # (lib*.so, im-*.so, .desktop, copyright, data.tar.gz, the bare
+          # binary, icon.icns, ...) which must NOT be published.
+          mkdir -p dist-artifacts
+          find src-tauri/target/release/bundle -maxdepth 5 -type f \( \
+            -name '*.AppImage' -o -name '*.AppImage.tar.gz' \
+            -o -name '*.app.tar.gz' -o -name '*.deb' \
+            -o -name '*.rpm' -o -name '*.dmg' -o -name '*.msi' \
+            -o -name '*.exe' -o -name '*.zip' -o -name '*.sig' \) \
+            -exec cp -n {} dist-artifacts/ \;
+          echo "--- collected artifacts ---"
+          ls -la dist-artifacts
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: QookiX-${{ matrix.artifact }}
-          path: src-tauri/target/release/bundle/**/*
+          path: dist-artifacts
 
   # Assemble the GitHub Release once, after every platform finished. Downloads
   # all build artifacts (installers + updater bundles + `.sig` signatures),
