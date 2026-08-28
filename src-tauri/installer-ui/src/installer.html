@@ -1,0 +1,1146 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>QookiX Launcher</title>
+		<style>
+			:root {
+				color-scheme: dark;
+				font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+				--bg: #0b0d12;
+				--surface-1: #10131a;
+				--surface-2: #151924;
+				--surface-3: #1b2030;
+				--control: #212635;
+				--border: rgba(255, 255, 255, 0.09);
+				--text: #f2f3f7;
+				--text-secondary: #c6c8d2;
+				--text-muted: #8b8e9c;
+				--brand: #e89a4b;
+				--brand-strong: #f0ab63;
+				--brand-glow: rgba(232, 154, 75, 0.35);
+				--brand-dim: rgba(232, 154, 75, 0.14);
+				--success: #4ec9a0;
+				--error: #e5534b;
+			}
+
+			* {
+				box-sizing: border-box;
+				margin: 0;
+				padding: 0;
+			}
+
+			html,
+			body {
+				height: 100%;
+				overflow: hidden;
+			}
+
+			body {
+				display: flex;
+				flex-direction: column;
+				background: var(--bg);
+				color: var(--text);
+				user-select: none;
+				font-size: 14px;
+			}
+
+			.ambient-glow {
+				position: fixed;
+				top: -220px;
+				right: -180px;
+				width: 520px;
+				height: 520px;
+				border-radius: 50%;
+				background: radial-gradient(
+					circle,
+					rgba(232, 154, 75, 0.16),
+					rgba(232, 154, 75, 0.04) 55%,
+					transparent 70%
+				);
+				pointer-events: none;
+				filter: blur(10px);
+				z-index: 0;
+			}
+
+			/* ============ Titlebar ============ */
+			.titlebar {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				height: 54px;
+				flex-shrink: 0;
+				border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+				z-index: 2;
+			}
+
+			.titlebar-left {
+				display: flex;
+				flex: 1;
+				align-items: center;
+				height: 100%;
+				padding: 0 18px;
+				-webkit-app-region: drag;
+				app-region: drag;
+			}
+
+			.titlebar-brand {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+			}
+
+			.titlebar-logo {
+				width: 22px;
+				height: 22px;
+				object-fit: contain;
+			}
+
+			.titlebar-name {
+				font-size: 13px;
+				font-weight: 600;
+				letter-spacing: 0.2px;
+			}
+
+			.titlebar-name .accent {
+				color: var(--brand);
+			}
+
+			.window-actions {
+				display: flex;
+				height: 100%;
+			}
+
+			.window-button {
+				width: 46px;
+				height: 100%;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				background: transparent;
+				border: none;
+				color: var(--text-secondary);
+				cursor: pointer;
+				-webkit-app-region: no-drag;
+				app-region: no-drag;
+				transition: background 0.15s ease, color 0.15s ease;
+			}
+
+			.window-button:hover {
+				background: rgba(255, 255, 255, 0.07);
+				color: var(--text);
+			}
+
+			.window-button.close:hover {
+				background: #e81123;
+				color: #fff;
+			}
+
+			.window-button svg {
+				width: 16px;
+				height: 16px;
+			}
+
+			/* ============ Shell ============ */
+			.shell {
+				display: flex;
+				flex-direction: column;
+				flex: 1;
+				min-height: 0;
+				position: relative;
+				z-index: 1;
+			}
+
+			/* ============ Stepper ============ */
+			.stepper {
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				gap: 10px;
+				padding: 18px 24px 14px;
+				flex-shrink: 0;
+			}
+
+			.step {
+				display: flex;
+				align-items: center;
+				gap: 7px;
+				opacity: 0.45;
+				transition: opacity 0.3s ease;
+			}
+
+			.step.active {
+				opacity: 1;
+			}
+
+			.step-dot {
+				width: 7px;
+				height: 7px;
+				border-radius: 50%;
+				background: var(--control);
+				transition: background 0.3s ease, box-shadow 0.3s ease;
+			}
+
+			.step.active .step-dot {
+				background: var(--brand);
+				box-shadow: 0 0 0 3px var(--brand-dim);
+			}
+
+			.step.done .step-dot {
+				background: var(--brand);
+			}
+
+			.step-label {
+				font-size: 12px;
+				color: var(--text-secondary);
+			}
+
+			.step.active .step-label {
+				color: var(--text);
+			}
+
+			.step-connector {
+				width: 26px;
+				height: 1px;
+				background: var(--border);
+			}
+
+			/* ============ Content ============ */
+			.content-panel {
+				display: flex;
+				flex-direction: column;
+				flex: 1;
+				min-height: 0;
+			}
+
+			.screen-stack {
+				position: relative;
+				flex: 1;
+				overflow: hidden;
+			}
+
+			.screen {
+				position: absolute;
+				inset: 0;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: center;
+				padding: 0 48px 8px;
+				opacity: 0;
+				transform: translateY(16px) scale(0.985);
+				pointer-events: none;
+				transition: all 380ms cubic-bezier(0.2, 0.8, 0.2, 1);
+			}
+
+			.screen.active {
+				opacity: 1;
+				transform: translateY(0) scale(1);
+				pointer-events: auto;
+			}
+
+			.screen-content-wrapper {
+				width: 100%;
+				max-width: 540px;
+			}
+
+			.eyebrow {
+				font-size: 11px;
+				font-weight: 700;
+				letter-spacing: 1.4px;
+				text-transform: uppercase;
+				color: var(--brand);
+				margin-bottom: 12px;
+			}
+
+			h1,
+			h2 {
+				font-weight: 700;
+				line-height: 1.2;
+			}
+
+			h1 {
+				font-size: 30px;
+				letter-spacing: -0.4px;
+			}
+
+			h2 {
+				font-size: 22px;
+			}
+
+			.lead {
+				margin-top: 12px;
+				font-size: 14px;
+				line-height: 1.6;
+				color: var(--text-secondary);
+			}
+
+			/* Welcome */
+			.welcome-logo {
+				width: 96px;
+				height: 96px;
+				margin-bottom: 20px;
+				object-fit: contain;
+				filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.4));
+			}
+
+			.welcome-title {
+				font-size: 34px;
+				font-weight: 800;
+				letter-spacing: -0.5px;
+			}
+
+			.accent-text {
+				color: var(--brand);
+			}
+
+			.complete-version {
+				margin-top: 18px;
+				font-size: 12px;
+				color: var(--text-muted);
+				font-variant-numeric: tabular-nums;
+			}
+
+			/* Configure */
+			.field {
+				margin-bottom: 14px;
+			}
+
+			.field-label {
+				display: block;
+				font-size: 13px;
+				font-weight: 600;
+				margin-bottom: 7px;
+			}
+
+			.field-hint {
+				font-size: 12px;
+				color: var(--text-muted);
+				margin-top: 5px;
+			}
+
+			.input-row {
+				display: flex;
+				gap: 8px;
+			}
+
+			.text-input {
+				flex: 1;
+				height: 38px;
+				padding: 0 12px;
+				border-radius: 8px;
+				border: 1px solid var(--border);
+				background: var(--surface-2);
+				color: var(--text);
+				font-size: 13px;
+				font-family: inherit;
+				outline: none;
+				transition: border-color 0.15s ease, box-shadow 0.15s ease;
+				user-select: text;
+			}
+
+			.text-input:focus {
+				border-color: var(--brand);
+				box-shadow: 0 0 0 3px var(--brand-dim);
+			}
+
+			.browse-button {
+				height: 38px;
+				padding: 0 14px;
+				border-radius: 8px;
+				border: 1px solid var(--border);
+				background: var(--control);
+				color: var(--text);
+				font-size: 13px;
+				font-weight: 600;
+				cursor: pointer;
+				transition: background 0.15s ease, border-color 0.15s ease;
+			}
+
+			.browse-button:hover {
+				background: var(--surface-3);
+				border-color: var(--brand);
+			}
+
+			.checkbox-list {
+				margin-top: 6px;
+			}
+
+			.checkbox-item {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				padding: 9px 0;
+				cursor: pointer;
+			}
+
+			.checkbox-item input {
+				display: none;
+			}
+
+			.checkbox-box {
+				width: 18px;
+				height: 18px;
+				border-radius: 5px;
+				border: 1px solid var(--border);
+				background: var(--surface-2);
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				transition: background 0.15s ease, border-color 0.15s ease;
+				flex-shrink: 0;
+			}
+
+			.checkbox-box .check-icon {
+				width: 12px;
+				height: 12px;
+				color: #0b2a26;
+				opacity: 0;
+				transform: scale(0.5);
+				transition: opacity 0.15s ease, transform 0.15s ease;
+			}
+
+			.checkbox-item input:checked + .checkbox-box {
+				background: var(--brand);
+				border-color: var(--brand);
+			}
+
+			.checkbox-item input:checked + .checkbox-box .check-icon {
+				opacity: 1;
+				transform: scale(1);
+			}
+
+			.checkbox-label {
+				font-size: 13px;
+				color: var(--text-secondary);
+			}
+
+			.field-error {
+				min-height: 18px;
+				font-size: 12px;
+				color: var(--error);
+				margin-top: 4px;
+			}
+
+			.existing-notice {
+				font-size: 13px;
+				color: var(--text-secondary);
+				margin: 2px 0 16px;
+				padding: 10px 12px;
+				border-radius: 8px;
+				border: 1px solid var(--border);
+				background: var(--surface-1);
+			}
+
+			/* Installing */
+			.progress-heading {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				margin-bottom: 18px;
+			}
+
+			.progress-value {
+				font-size: 22px;
+				font-weight: 700;
+				color: var(--brand);
+				font-variant-numeric: tabular-nums;
+			}
+
+			.progress-track {
+				height: 8px;
+				border-radius: 999px;
+				background: var(--surface-3);
+				overflow: hidden;
+			}
+
+			.progress-fill {
+				height: 100%;
+				border-radius: 999px;
+				background: linear-gradient(90deg, var(--brand), var(--brand-strong));
+				box-shadow: 0 0 12px var(--brand-glow);
+				transition: width 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+				width: 4%;
+			}
+
+			.progress-detail {
+				display: flex;
+				align-items: center;
+				gap: 9px;
+				margin-top: 14px;
+				font-size: 13px;
+				color: var(--text-muted);
+			}
+
+			.spinner {
+				width: 13px;
+				height: 13px;
+				border-radius: 50%;
+				border: 2px solid var(--surface-3);
+				border-top-color: var(--brand);
+				animation: spin 0.9s linear infinite;
+				flex-shrink: 0;
+			}
+
+			.install-facts {
+				margin-top: 26px;
+				display: flex;
+				flex-direction: column;
+				gap: 10px;
+				padding-top: 18px;
+				border-top: 1px solid var(--border);
+			}
+
+			.install-fact {
+				display: flex;
+				justify-content: space-between;
+				gap: 16px;
+				font-size: 12px;
+			}
+
+			.fact-label {
+				color: var(--text-muted);
+				flex-shrink: 0;
+			}
+
+			.fact-value {
+				color: var(--text-secondary);
+				text-align: right;
+				word-break: break-all;
+				user-select: text;
+			}
+
+			.error-panel {
+				margin-top: 16px;
+				padding: 12px 14px;
+				border-radius: 8px;
+				border: 1px solid rgba(255, 73, 110, 0.35);
+				background: rgba(255, 73, 110, 0.08);
+				color: #ff8aa3;
+				font-size: 13px;
+				line-height: 1.5;
+				display: none;
+				user-select: text;
+			}
+
+			.error-panel.visible {
+				display: block;
+			}
+
+			/* Complete */
+			.complete-brand {
+				position: relative;
+				display: inline-flex;
+				margin-bottom: 24px;
+			}
+
+			.complete-logo {
+				width: 84px;
+				height: 84px;
+				object-fit: contain;
+				filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.4));
+			}
+
+			.complete-badge {
+				position: absolute;
+				bottom: -4px;
+				right: -4px;
+				width: 28px;
+				height: 28px;
+				border-radius: 50%;
+				background: var(--success);
+				color: #04240f;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				box-shadow: 0 4px 14px rgba(27, 217, 106, 0.45);
+			}
+
+			.complete-badge svg {
+				width: 15px;
+				height: 15px;
+			}
+
+			/* ============ Footer ============ */
+			.footer {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				gap: 16px;
+				padding: 16px 28px 18px;
+				border-top: 1px solid rgba(255, 255, 255, 0.06);
+				flex-shrink: 0;
+				z-index: 2;
+			}
+
+			.footer-note {
+				font-size: 12px;
+				color: var(--text-muted);
+				flex: 1;
+			}
+
+			.footer-note.launch-failed {
+				color: var(--error);
+			}
+
+			.footer-actions {
+				display: flex;
+				gap: 10px;
+			}
+
+			.action-button {
+				display: inline-flex;
+				align-items: center;
+				justify-content: center;
+				gap: 8px;
+				height: 38px;
+				padding: 0 22px;
+				border-radius: 9px;
+				border: 1px solid var(--border);
+				background: var(--control);
+				color: var(--text);
+				font-size: 13px;
+				font-weight: 600;
+				font-family: inherit;
+				cursor: pointer;
+				transition: background 0.15s ease, border-color 0.15s ease,
+					transform 0.1s ease, box-shadow 0.2s ease;
+			}
+
+			.action-button:hover {
+				background: var(--surface-3);
+			}
+
+			.action-button:active {
+				transform: scale(0.98);
+			}
+
+			.action-button.primary {
+				background: var(--brand);
+				border-color: var(--brand);
+				color: #08201c;
+			}
+
+			.action-button.primary:hover {
+				background: var(--brand-strong);
+				box-shadow: 0 6px 20px var(--brand-glow);
+			}
+
+			.action-button:disabled {
+				opacity: 0.5;
+				cursor: not-allowed;
+				box-shadow: none;
+			}
+
+			.action-button svg {
+				width: 16px;
+				height: 16px;
+			}
+
+			.hidden {
+				display: none !important;
+			}
+
+			@keyframes spin {
+				to {
+					transform: rotate(360deg);
+				}
+			}
+
+			@media (prefers-reduced-motion: reduce) {
+				*,
+				*::before,
+				*::after {
+					transition-duration: 0.01ms !important;
+					animation-duration: 0.01ms !important;
+					animation-iteration-count: 1 !important;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<div class="ambient-glow"></div>
+
+		<header class="titlebar">
+			<div class="titlebar-left" data-drag-region>
+				<div class="titlebar-brand">
+					<img class="titlebar-logo" id="product-logo" alt="QookiX Launcher" />
+					<div class="titlebar-name"
+						><span class="accent">QookiX</span> <span data-i18n="launcherName">Launcher</span></div
+					>
+				</div>
+			</div>
+			<div class="window-actions">
+				<button class="window-button" id="minimize" type="button" title="Minimize" aria-label="Minimize" data-i18n-label="minimize">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14" /></svg>
+				</button>
+				<button class="window-button close" id="close" type="button" title="Close" aria-label="Close" data-i18n-label="close">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 6 12 12M18 6 6 18" /></svg>
+				</button>
+			</div>
+		</header>
+
+		<main class="shell">
+			<div class="stepper">
+				<div class="step active" data-step="0"><span class="step-dot"></span><span class="step-label" data-i18n="stepWelcome">Welcome</span></div>
+				<div class="step-connector"></div>
+				<div class="step" data-step="1"><span class="step-dot"></span><span class="step-label" data-i18n="stepOptions">Options</span></div>
+				<div class="step-connector"></div>
+				<div class="step" data-step="2"><span class="step-dot"></span><span class="step-label" data-i18n="stepInstall">Install</span></div>
+				<div class="step-connector"></div>
+				<div class="step" data-step="3"><span class="step-dot"></span><span class="step-label" data-i18n="stepComplete">Done</span></div>
+			</div>
+
+			<section class="content-panel">
+				<div class="screen-stack">
+					<!-- Welcome Screen -->
+					<section class="screen active" data-screen="welcome">
+						<div class="screen-content-wrapper" style="align-items: center; text-align: center; display: flex; flex-direction: column">
+							<img class="welcome-logo" id="welcome-logo" alt="QookiX Launcher" />
+							<h1 class="welcome-title">QookiX <span class="accent-text">Launcher</span></h1>
+							<p class="lead" data-i18n="welcomeCopy">
+								A modern, clean and ad-free Minecraft launcher for your instances, mods and Java
+								runtimes.
+							</p>
+						</div>
+					</section>
+
+					<!-- Configure Screen -->
+					<section class="screen" data-screen="configure">
+						<div class="screen-content-wrapper">
+							<div class="eyebrow" data-i18n="configureEyebrow">Installation settings</div>
+							<h2 id="configure-title" data-i18n="configureTitle">Choose install location</h2>
+							<p class="lead" data-i18n="configureCopy" style="margin-bottom: 22px">
+								Keep the default or pick another folder for the launcher files.
+							</p>
+
+							<div class="field">
+								<label class="field-label" for="install-dir" data-i18n="programLocation">Program location</label>
+								<div class="input-row">
+									<input class="text-input" id="install-dir" type="text" spellcheck="false" />
+									<button class="browse-button" id="browse-install" type="button" data-i18n="browse">Browse…</button>
+								</div>
+								<div class="field-hint" data-i18n="programHint">Launcher files</div>
+							</div>
+
+							<div class="field" id="resource-field">
+								<label class="field-label" for="resource-dir" data-i18n="dataLocation">Application data</label>
+								<div class="input-row">
+									<input class="text-input" id="resource-dir" type="text" spellcheck="false" />
+									<button class="browse-button" id="browse-resource" type="button" data-i18n="browse">Browse…</button>
+								</div>
+								<div class="field-hint" data-i18n="dataHint">Instances, Java, assets and caches</div>
+							</div>
+							<div class="existing-notice hidden" id="existing-notice" data-i18n="existingNotice">
+								Your existing data folder will be preserved.
+							</div>
+
+							<div class="checkbox-list">
+								<label class="checkbox-item">
+									<input type="checkbox" id="desktop-shortcut" checked />
+									<span class="checkbox-box">
+										<svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+											<path d="M5 12l4 4L19 7" stroke-linecap="round" stroke-linejoin="round" />
+										</svg>
+									</span>
+									<span class="checkbox-label" data-i18n="desktopShortcut">Create a desktop shortcut</span>
+								</label>
+								<label class="checkbox-item">
+									<input type="checkbox" id="launch-after" checked />
+									<span class="checkbox-box">
+										<svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+											<path d="M5 12l4 4L19 7" stroke-linecap="round" stroke-linejoin="round" />
+										</svg>
+									</span>
+									<span class="checkbox-label" data-i18n="launchAfter">Launch when complete</span>
+								</label>
+							</div>
+
+							<div class="field-error" id="field-error" role="alert"></div>
+						</div>
+					</section>
+
+					<!-- Installing Screen -->
+					<section class="screen" data-screen="installing">
+						<div class="screen-content-wrapper">
+							<div class="eyebrow" data-i18n="installingEyebrow">Installation in progress</div>
+							<div class="progress-heading">
+								<div>
+									<h2 id="progress-title" data-i18n="progressPreparing">Preparing QookiX Launcher</h2>
+								</div>
+								<div class="progress-value"><span id="progress-value">4</span>%</div>
+							</div>
+							<div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="4">
+								<div class="progress-fill" id="progress-fill"></div>
+							</div>
+							<div class="progress-detail">
+								<span class="spinner"></span>
+								<span id="progress-detail" data-i18n="progressWait">This usually takes less than a minute.</span>
+							</div>
+							<div class="install-facts">
+								<div class="install-fact">
+									<span class="fact-label" data-i18n="programLocation">Program location</span>
+									<span class="fact-value" id="install-summary"></span>
+								</div>
+								<div class="install-fact" id="resource-summary-row">
+									<span class="fact-label" data-i18n="dataLocation">Application data</span>
+									<span class="fact-value" id="resource-summary"></span>
+								</div>
+							</div>
+							<div class="error-panel" id="install-error" role="alert"></div>
+						</div>
+					</section>
+
+					<!-- Complete Screen -->
+					<section class="screen" data-screen="complete">
+						<div class="screen-content-wrapper" style="align-items: center; text-align: center; display: flex; flex-direction: column">
+							<div class="complete-brand">
+								<img id="complete-logo" alt="QookiX Launcher" class="complete-logo" />
+								<div class="complete-badge">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5">
+										<path d="M5 12l4 4L19 7" stroke-linecap="round" stroke-linejoin="round" />
+									</svg>
+								</div>
+							</div>
+							<h2 data-i18n="completeTitle">QookiX Launcher is ready</h2>
+							<p class="lead" style="margin-top: 14px" data-i18n="completeCopy">
+								Installation completed successfully. Your new launcher is ready to use.
+							</p>
+							<div class="complete-version"><span data-i18n="version">Version</span> <span id="complete-version"></span></div>
+							<div class="error-panel" id="launch-error" role="alert"></div>
+						</div>
+					</section>
+				</div>
+			</section>
+
+			<footer class="footer">
+				<div class="footer-note" id="footer-note" data-i18n="footerWelcome">
+					No account or game files are changed during setup.
+				</div>
+				<div class="footer-actions">
+					<button class="action-button hidden" id="secondary-action" type="button"></button>
+					<button class="action-button primary" id="primary-action" type="button">
+						<span id="primary-label">Continue</span>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+							<path d="m9 18 6-6-6-6" stroke-linecap="round" stroke-linejoin="round" />
+						</svg>
+					</button>
+				</div>
+			</footer>
+		</main>
+
+		<script>
+			// Boot configuration injected by the Rust host. The fallback object
+			// lets the file be previewed directly in a browser (mock IPC).
+			const boot = window.__QOOKIX_INSTALLER__ || {
+				language: 'zhCn',
+				version: 'v0.1.0 (Preview)',
+				logoDataUrl: '',
+				installDir: 'C:\\Users\\Admin\\AppData\\Local\\QookiX Launcher',
+				resourceDir: 'C:\\Users\\Admin\\AppData\\Roaming\\QookiX-Launcher',
+				freshInstall: true,
+			}
+			window.ipc = window.ipc || { postMessage: (msg) => console.log('IPC Mock:', msg) }
+
+			const copy = {
+				en: {
+					launcherName: 'Launcher',
+					minimize: 'Minimize',
+					close: 'Close',
+					stepWelcome: 'Welcome',
+					stepOptions: 'Options',
+					stepInstall: 'Install',
+					stepComplete: 'Done',
+					welcomeCopy:
+						'A modern, clean and ad-free Minecraft launcher for your instances, mods and Java runtimes.',
+					version: 'Version',
+					configureEyebrow: 'Installation settings',
+					configureTitle: 'Choose install location',
+					configureCopy: 'Keep the default or pick another folder for the launcher files.',
+					updateTitle: 'Update QookiX Launcher',
+					updateCopy: 'The launcher will be updated in place and your files will be preserved.',
+					programLocation: 'Program location',
+					programHint: 'Launcher files',
+					browse: 'Browse…',
+					dataLocation: 'Application data',
+					dataHint: 'Instances, Java, assets and caches',
+					existingNotice: 'Your existing data folder will be preserved.',
+					desktopShortcut: 'Create a desktop shortcut',
+					launchAfter: 'Launch when complete',
+					installingEyebrow: 'Installation in progress',
+					progressPreparing: 'Preparing QookiX Launcher',
+					progressRuntime: 'Checking WebView2 runtime',
+					progressFiles: 'Installing launcher files',
+					progressIntegrations: 'Creating Windows integrations',
+					progressFinalizing: 'Finishing setup',
+					progressWait: 'This usually takes less than a minute.',
+					completeTitle: 'QookiX Launcher is ready',
+					completeCopy: 'Installation completed successfully. Your new launcher is ready to use.',
+					footerWelcome: 'No account or game files are changed during setup.',
+					footerConfigure: 'You can change the location later in the launcher settings.',
+					footerInstalling: 'Keep this window open while setup completes.',
+					footerComplete: 'You can now close this installer.',
+					footerLaunchFailed: 'Installation is complete. Retry launching or close this installer.',
+					continue: 'Continue',
+					back: 'Back',
+					install: 'Install',
+					update: 'Update',
+					retry: 'Retry',
+					finish: 'Finish',
+					launch: 'Launch QookiX Launcher',
+					absolutePath: 'Choose an absolute Windows path.',
+					installFailed: 'Installation failed',
+					installFailedDetail:
+						'The installation core returned an error. Check that QookiX Launcher is closed, then retry.',
+					launchFailed:
+						'Installation completed, but QookiX Launcher could not be started. Try again or close this installer.',
+				},
+				zhCn: {
+					launcherName: '启动器',
+					minimize: '最小化',
+					close: '关闭',
+					stepWelcome: '欢迎',
+					stepOptions: '选项',
+					stepInstall: '安装',
+					stepComplete: '完成',
+					welcomeCopy:
+						'为你的实例、模组和 Java 运行时准备的现代化、干净且无广告的 Minecraft 启动器。',
+					version: '版本',
+					configureEyebrow: '安装设置',
+					configureTitle: '选择安装位置',
+					configureCopy: '保持默认即可，也可以为启动器文件选择其他文件夹。',
+					updateTitle: '更新 QookiX Launcher',
+					updateCopy: '启动器将原位更新，并完整保留现有文件。',
+					programLocation: '程序安装位置',
+					programHint: '启动器程序文件',
+					browse: '浏览…',
+					dataLocation: '数据保存位置',
+					dataHint: '存放实例、Java、资源与缓存，可能占用较大空间',
+					existingNotice: '将保留现有数据目录。',
+					desktopShortcut: '创建桌面快捷方式',
+					launchAfter: '完成后启动',
+					installingEyebrow: '正在安装',
+					progressPreparing: '正在准备 QookiX Launcher',
+					progressRuntime: '正在检查 WebView2 运行时',
+					progressFiles: '正在安装启动器文件',
+					progressIntegrations: '正在创建 Windows 集成',
+					progressFinalizing: '正在完成安装',
+					progressWait: '通常不到一分钟即可完成。',
+					completeTitle: 'QookiX Launcher 已就绪',
+					completeCopy: '安装已成功完成，现在可以开始使用你的新启动器。',
+					footerWelcome: '安装过程不会修改账号或现有游戏文件。',
+					footerConfigure: '之后仍可在启动器设置中修改安装位置。',
+					footerInstalling: '安装完成前请保持此窗口打开。',
+					footerComplete: '现在可以关闭此安装程序。',
+					footerLaunchFailed: '安装已完成。请重试启动，或关闭安装程序。',
+					continue: '继续',
+					back: '上一步',
+					install: '安装',
+					update: '更新',
+					retry: '重试',
+					finish: '完成',
+					launch: '启动 QookiX Launcher',
+					absolutePath: '请选择有效的 Windows 绝对路径。',
+					installFailed: '安装失败',
+					installFailedDetail:
+						'安装核心返回了错误。请确认 QookiX Launcher 已关闭，然后重试。',
+					launchFailed: '安装已完成，但无法启动 QookiX Launcher。请重试或关闭安装程序。',
+				},
+			}
+
+			const language = boot.language === 'zhCn' ? 'zhCn' : 'en'
+			const t = copy[language]
+			const state = { screen: 'welcome', progress: 4, failed: false, launchFailed: false }
+			const screens = ['welcome', 'configure', 'installing', 'complete']
+			const $ = (selector) => document.querySelector(selector)
+			const post = (payload) => window.ipc.postMessage(JSON.stringify(payload))
+
+			document.documentElement.lang = language === 'zhCn' ? 'zh-CN' : 'en'
+			document.querySelectorAll('[data-i18n]').forEach((element) => {
+				const value = t[element.dataset.i18n]
+				if (value) element.textContent = value
+			})
+			document.querySelectorAll('[data-i18n-label]').forEach((element) => {
+				const value = t[element.dataset.i18nLabel]
+				if (!value) return
+				element.setAttribute('aria-label', value)
+				element.title = value
+			})
+			document.querySelectorAll('#product-logo, #welcome-logo').forEach((el) => (el.src = boot.logoDataUrl))
+			$('#complete-logo').src = boot.logoDataUrl
+			$('#complete-version').textContent = boot.version
+			$('#install-dir').value = boot.installDir
+			$('#resource-dir').value = boot.resourceDir
+
+			if (!boot.freshInstall) {
+				$('#configure-title').textContent = t.updateTitle
+				$('#configure-title').parentElement.querySelector('.lead').textContent = t.updateCopy
+				$('#resource-field').classList.add('hidden')
+				$('#existing-notice').classList.remove('hidden')
+			}
+
+			function setScreen(screen) {
+				state.screen = screen
+				document.querySelectorAll('[data-screen]').forEach((element) => {
+					element.classList.toggle('active', element.dataset.screen === screen)
+				})
+				const current = screens.indexOf(screen)
+				document.querySelectorAll('[data-step]').forEach((element) => {
+					const step = Number(element.dataset.step)
+					element.classList.toggle('active', step === current)
+					element.classList.toggle('done', step < current)
+				})
+				renderFooter()
+			}
+
+			function renderFooter() {
+				const primary = $('#primary-action')
+				const secondary = $('#secondary-action')
+				const note = $('#footer-note')
+				const secondaryLabel = document.createElement('span')
+
+				if (state.screen === 'welcome') {
+					primary.classList.remove('hidden')
+					secondary.classList.add('hidden')
+					$('#primary-label').textContent = t.continue
+					note.textContent = t.footerWelcome
+					note.classList.remove('launch-failed')
+				} else if (state.screen === 'configure') {
+					primary.classList.remove('hidden')
+					secondary.classList.remove('hidden')
+					secondary.textContent = t.back
+					$('#primary-label').textContent = boot.freshInstall ? t.install : t.update
+					note.textContent = t.footerConfigure
+					note.classList.remove('launch-failed')
+				} else if (state.screen === 'installing') {
+					if (state.failed) {
+						primary.classList.remove('hidden')
+						secondary.classList.remove('hidden')
+						secondary.textContent = t.back
+						$('#primary-label').textContent = t.retry
+						note.textContent = t.footerConfigure
+					} else {
+						primary.classList.add('hidden')
+						secondary.classList.add('hidden')
+						note.textContent = t.footerInstalling
+					}
+					note.classList.remove('launch-failed')
+				} else if (state.screen === 'complete') {
+					primary.classList.remove('hidden')
+					secondary.classList.add('hidden')
+					$('#primary-label').textContent = state.launchFailed ? t.finish : $('#launch-after').checked ? t.launch : t.finish
+					note.textContent = state.launchFailed ? t.footerLaunchFailed : t.footerComplete
+					note.classList.toggle('launch-failed', state.launchFailed)
+				}
+			}
+
+			function install() {
+				$('#field-error').textContent = ''
+				$('#install-error').classList.remove('visible')
+				$('#launch-error').classList.remove('visible')
+				state.failed = false
+				state.launchFailed = false
+				post({
+					command: 'install',
+					installDir: $('#install-dir').value.trim(),
+					resourceDir: $('#resource-dir').value.trim(),
+					desktopShortcut: $('#desktop-shortcut').checked,
+					launchAfter: $('#launch-after').checked,
+				})
+
+				// Developer preview mock when opened directly in a browser.
+				if (!window.__QOOKIX_INSTALLER__) {
+					window.qookixInstaller.receive({ type: 'installStarted' })
+					let p = 4
+					const timer = setInterval(() => {
+						p += Math.floor(Math.random() * 15) + 5
+						if (p >= 100) {
+							clearInterval(timer)
+							window.qookixInstaller.receive({ type: 'installFinished' })
+						} else {
+							window.qookixInstaller.receive({ type: 'progress', value: p })
+						}
+					}, 600)
+				}
+			}
+
+			function setProgress(value) {
+				state.progress = Math.max(state.progress, value)
+				$('#progress-value').textContent = state.progress
+				$('#progress-fill').style.width = `${state.progress}%`
+				$('.progress-track').setAttribute('aria-valuenow', String(state.progress))
+				let key = 'progressPreparing'
+				if (state.progress >= 82) key = 'progressFinalizing'
+				else if (state.progress >= 66) key = 'progressIntegrations'
+				else if (state.progress >= 26) key = 'progressFiles'
+				else if (state.progress >= 10) key = 'progressRuntime'
+				$('#progress-title').textContent = t[key]
+			}
+
+			$('#minimize').addEventListener('click', () => post({ command: 'minimize' }))
+			$('#close').addEventListener('click', () => post({ command: 'close' }))
+			document.querySelector('[data-drag-region]').addEventListener('mousedown', (event) => {
+				if (event.button === 0) post({ command: 'dragWindow' })
+			})
+			$('#browse-install').addEventListener('click', () =>
+				post({ command: 'browse', target: 'install', current: $('#install-dir').value }),
+			)
+			$('#browse-resource').addEventListener('click', () =>
+				post({ command: 'browse', target: 'resource', current: $('#resource-dir').value }),
+			)
+			$('#launch-after').addEventListener('change', renderFooter)
+
+			$('#primary-action').addEventListener('click', () => {
+				if (state.screen === 'welcome') setScreen('configure')
+				else if (state.screen === 'configure' || (state.screen === 'installing' && state.failed))
+					install()
+				else if (state.screen === 'complete')
+					post({ command: 'finish', launch: $('#launch-after').checked })
+			})
+			$('#secondary-action').addEventListener('click', () => {
+				if (state.screen === 'configure') setScreen('welcome')
+				else if (state.screen === 'installing' && state.failed) setScreen('configure')
+			})
+
+			window.qookixInstaller = {
+				receive(message) {
+					if (message.type === 'pathSelected') {
+						$(`#${message.target}-dir`).value = message.path
+					} else if (message.type === 'validationError') {
+						setScreen('configure')
+						$('#field-error').textContent = t[message.code] || t.absolutePath
+						$(`#${message.field}-dir`).focus()
+					} else if (message.type === 'installStarted') {
+						$('#install-summary').textContent = $('#install-dir').value
+						$('#resource-summary').textContent = $('#resource-dir').value
+						$('#resource-summary-row').classList.toggle('hidden', !boot.freshInstall)
+						state.progress = 0
+						setProgress(4)
+						setScreen('installing')
+					} else if (message.type === 'progress') {
+						setProgress(message.value)
+					} else if (message.type === 'installFinished') {
+						setProgress(100)
+						setScreen('complete')
+					} else if (message.type === 'launchFailed') {
+						state.launchFailed = true
+						setProgress(100)
+						$('#launch-error').textContent = t.launchFailed
+						$('#launch-error').classList.add('visible')
+						setScreen('complete')
+					} else if (message.type === 'installFailed') {
+						state.failed = true
+						const suffix = message.exitCode == null ? '' : ` (${message.exitCode})`
+						$('#install-error').textContent =
+							`${t.installFailed}${suffix}. ${t.installFailedDetail}`
+						$('#install-error').classList.add('visible')
+						setScreen('installing')
+					}
+				},
+			}
+
+			renderFooter()
+		</script>
+	</body>
+</html>
