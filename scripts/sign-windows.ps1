@@ -1,16 +1,21 @@
 # ============================================================================
-#  sign-windows.ps1 — 为 Windows 构建产物做代码签名
+#  sign-windows.ps1 - Code-sign Windows build artifacts.
 #
-#  代码签名是解决"杀毒软件误报 / SmartScreen 未知发布者"最有效的办法。
-#  本脚本在未配置证书时是安全的 no-op（直接退出 0），不影响日常构建。
+#  Code signing is the most effective way to avoid antivirus false positives
+#  and the "unknown publisher" SmartScreen warning. This script is a safe
+#  no-op (exits 0) when no certificate is configured.
 #
-#  环境变量（均可选，未配置则跳过签名）：
-#    QOOKIX_CERT_PFX        代码签名证书 (.pfx) 的绝对路径
-#    QOOKIX_CERT_PASSWORD   证书密码（可选；无密码则证书必须装在个人存储中）
-#    QOOKIX_SIGNTOOL        signtool.exe 路径（可选；默认自动查找 Windows SDK）
-#    QOOKIX_TIMESTAMP_URL   RFC3161 时间戳服务器（可选；默认 DigiCert）
+#  NOTE: keep this file ASCII-only. It is executed by Windows PowerShell 5.1,
+#  which reads .ps1 files without a BOM using the system ANSI code page, so
+#  non-ASCII characters corrupt the parser and break the build.
 #
-#  用法：
+#  Environment variables (all optional; signing is skipped if unset):
+#    QOOKIX_CERT_PFX        absolute path to the code-signing cert (.pfx)
+#    QOOKIX_CERT_PASSWORD   cert password (optional)
+#    QOOKIX_SIGNTOOL        signtool.exe path (optional; auto-discovered)
+#    QOOKIX_TIMESTAMP_URL   RFC3161 timestamp server (optional; default DigiCert)
+#
+#  Usage:
 #    powershell -File scripts/sign-windows.ps1 -Files "a.exe" "b.dll"
 # ============================================================================
 param(
@@ -22,15 +27,15 @@ $ErrorActionPreference = 'Stop'
 
 $cert = $env:QOOKIX_CERT_PFX
 if (-not $cert -or -not (Test-Path $cert)) {
-  Write-Host "sign-windows: QOOKIX_CERT_PFX 未设置或文件不存在，跳过签名"
+  Write-Host "sign-windows: QOOKIX_CERT_PFX not set or file missing, skipping signing"
   exit 0
 }
 if (-not $Files -or $Files.Count -eq 0) {
-  Write-Host "sign-windows: 没有需要签名的文件，跳过"
+  Write-Host "sign-windows: no files given, skipping"
   exit 0
 }
 
-# 定位 signtool.exe
+# Locate signtool.exe
 $signtool = $env:QOOKIX_SIGNTOOL
 if (-not $signtool) {
   $kitsRoot = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
@@ -43,7 +48,7 @@ if (-not $signtool) {
   }
 }
 if (-not $signtool -or -not (Test-Path $signtool)) {
-  throw "sign-windows: 找不到 signtool.exe。请安装 Windows SDK 或设置 QOOKIX_SIGNTOOL。"
+  throw "sign-windows: signtool.exe not found. Install the Windows SDK or set QOOKIX_SIGNTOOL."
 }
 
 $ts = $env:QOOKIX_TIMESTAMP_URL
@@ -60,13 +65,13 @@ $argsList += @('/tr', $ts, '/td', 'SHA256')
 $failed = $false
 foreach ($f in $Files) {
   if (-not (Test-Path $f)) { continue }
-  Write-Host "sign-windows: 签名 $f"
+  Write-Host "sign-windows: signing $f"
   & $signtool @argsList $f
   if ($LASTEXITCODE -ne 0) {
-    Write-Host "sign-windows: 签名失败 $f (exit $LASTEXITCODE)"
+    Write-Host "sign-windows: signing failed $f (exit $LASTEXITCODE)"
     $failed = $true
   }
 }
 if ($failed) { exit 1 }
-Write-Host "sign-windows: 签名完成"
+Write-Host "sign-windows: done"
 exit 0
