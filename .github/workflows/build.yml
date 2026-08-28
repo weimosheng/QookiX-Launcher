@@ -130,14 +130,24 @@ jobs:
           path: release
           merge-multiple: true
 
-      - name: Create or update release
+      - name: Create release
         run: |
           tag="${GITHUB_REF_NAME}"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release edit "$tag" --draft
-          else
-            gh release create "$tag" --draft --title "QookiX Launcher ${tag}" --generate-notes
+          # Remove orphaned "untagged" draft releases left behind by prior
+          # force-pushed tag runs (they otherwise clutter the Releases page and
+          # can make `gh release upload` target an invalid id).
+          for id in $(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq '.[] | select(.tag_name == "") | select(.draft == true) | .id' 2>/dev/null); do
+            echo "Removing orphaned untagged draft release ${id}"
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/${id}" || true
+          done
+          # Delete any existing release for this tag, then create a fresh one so
+          # uploads always target a valid release id.
+          existing="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq '.id' 2>/dev/null || true)"
+          if [ -n "$existing" ] && [ "$existing" != "null" ]; then
+            echo "Deleting stale release ${existing} for ${tag}"
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/${existing}"
           fi
+          gh release create "$tag" --draft --title "QookiX Launcher ${tag}" --generate-notes
           mapfile -t files < <(find release -type f)
           if [ "${#files[@]}" -gt 0 ]; then
             gh release upload "$tag" "${files[@]}" --clobber
