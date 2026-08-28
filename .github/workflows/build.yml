@@ -1,0 +1,104 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            artifact: linux
+          - platform: windows-latest
+            artifact: windows
+          - platform: macos-latest
+            artifact: macos
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+            src-tauri/installer-ui -> target
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libssl-dev
+
+      - name: Install NSIS (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      # Decode the code-signing certificate (base64 -> .pfx) into the temp dir.
+      # When the secret is empty this step is skipped and signing is a no-op,
+      # so building still works without a certificate.
+      - name: Decode code signing certificate
+        if: runner.os == 'Windows' && env.QOOKIX_CERT_PFX_B64 != ''
+        shell: bash
+        env:
+          QOOKIX_CERT_PFX_B64: ${{ secrets.QOOKIX_CERT_PFX_B64 }}
+        run: |
+          echo "$QOOKIX_CERT_PFX_B64" | base64 -d > "$RUNNER_TEMP/qookix.pfx"
+          test -s "$RUNNER_TEMP/qookix.pfx"
+
+      # Use `npm run tauri build` (the run-tauri.mjs wrapper) so the WebView2
+      # installer UI is built + embedded, and so `scripts/sign-windows.ps1`
+      # signs the main exe, the installer UI and the NSIS installer on Windows.
+      - name: Build Tauri app
+        env:
+          MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+          CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+          QOOKIX_CERT_PFX: ${{ runner.temp }}/qookix.pfx
+          QOOKIX_CERT_PASSWORD: ${{ secrets.QOOKIX_CERT_PASSWORD }}
+        run: npm run tauri build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: QookiX-${{ matrix.artifact }}
+          path: |
+            src-tauri/target/release/bundle/**/*.msi
+            src-tauri/target/release/bundle/**/*.exe
+            src-tauri/target/release/bundle/**/*.dmg
+            src-tauri/target/release/bundle/**/*.deb
+            src-tauri/target/release/bundle/**/*.rpm
+            src-tauri/target/release/bundle/**/*.AppImage
+
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            src-tauri/target/release/bundle/**/*.msi
+            src-tauri/target/release/bundle/**/*.exe
+            src-tauri/target/release/bundle/**/*.dmg
+            src-tauri/target/release/bundle/**/*.deb
+            src-tauri/target/release/bundle/**/*.rpm
+            src-tauri/target/release/bundle/**/*.AppImage
+
