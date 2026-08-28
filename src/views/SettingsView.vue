@@ -337,7 +337,7 @@ onUnmounted(() => {
         <div class="grid">
           <div class="card glass">
             <h3>QookiX Launcher</h3>
-            <p class="hint">版本 v0.1.0</p>
+            <p class="hint">版本 v0.2.0</p>
             <p class="hint">现代化、简洁、无广告的 Minecraft 启动器。</p>
             <p class="hint">
               支持 Modrinth / CurseForge 内容中心、多线程下载、Java 自动检测。
