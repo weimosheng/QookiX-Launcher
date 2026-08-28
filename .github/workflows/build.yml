@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: qookix-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     strategy:
@@ -55,9 +59,8 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      # Decode the code-signing certificate (base64 -> .pfx) into the temp dir.
-      # When the secret is empty this step is skipped and signing is a no-op,
-      # so building still works without a certificate.
+      # Decode the Authenticode certificate (base64 -> .pfx). Skipped when the
+      # secret is empty; code signing is then a no-op.
       - name: Decode code signing certificate
         if: runner.os == 'Windows' && env.QOOKIX_CERT_PFX_B64 != ''
         shell: bash
@@ -67,38 +70,57 @@ jobs:
           echo "$QOOKIX_CERT_PFX_B64" | base64 -d > "$RUNNER_TEMP/qookix.pfx"
           test -s "$RUNNER_TEMP/qookix.pfx"
 
-      # Use `npm run tauri build` (the run-tauri.mjs wrapper) so the WebView2
-      # installer UI is built + embedded, and so `scripts/sign-windows.ps1`
-      # signs the main exe, the installer UI and the NSIS installer on Windows.
+      # `npm run tauri build` runs the run-tauri.mjs wrapper: it builds the
+      # WebView2 installer UI, embeds it, and (on Windows) signs the main exe /
+      # installer / MSI. When TAURI_SIGNING_PRIVATE_KEY is set, the bundler
+      # ALSO emits minisign `.sig` files for the updater artifacts, which the
+      # publish job turns into latest.json.
       - name: Build Tauri app
         env:
           MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
           CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
           QOOKIX_CERT_PFX: ${{ runner.temp }}/qookix.pfx
           QOOKIX_CERT_PASSWORD: ${{ secrets.QOOKIX_CERT_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build
+
+      # Extra Windows asset: a portable zip (the standalone exe) for users who
+      # prefer not to run an installer.
+      - name: Create portable zip (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exe = "src-tauri/target/release/qookix-launcher.exe"
+          if (-not (Test-Path $exe)) { throw "Binary not found: $exe" }
+          $ver = "${{ github.ref_name }}" -replace '^v', ''
+          $stage = Join-Path $env:RUNNER_TEMP "portable"
+          New-Item -ItemType Directory -Force -Path (Join-Path $stage "QookiX Launcher") | Out-Null
+          Copy-Item $exe (Join-Path $stage "QookiX Launcher\") -Force
+          $outDir = "src-tauri/target/release/bundle/portable"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          $zip = Join-Path $outDir "QookiX_${ver}_x64_portable.zip"
+          Compress-Archive -Path (Join-Path $stage "QookiX Launcher") -DestinationPath $zip -Force
+          Write-Host "Created $zip"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: QookiX-${{ matrix.artifact }}
-          path: |
-            src-tauri/target/release/bundle/**/*.msi
-            src-tauri/target/release/bundle/**/*.exe
-            src-tauri/target/release/bundle/**/*.dmg
-            src-tauri/target/release/bundle/**/*.deb
-            src-tauri/target/release/bundle/**/*.rpm
-            src-tauri/target/release/bundle/**/*.AppImage
+          path: src-tauri/target/release/bundle/**/*
 
-  # Publish once, after every platform finished building. Publishing from a
-  # single dedicated job avoids the three parallel build jobs racing to create
-  # the same GitHub Release, and lets us auto-generate the release notes.
-  publish:
+  # Assemble the GitHub Release once, after every platform finished. Downloads
+  # all build artifacts (installers + updater bundles + `.sig` signatures),
+  # creates/updates the release, generates the Tauri updater `latest.json` from
+  # the signatures, uploads it, then publishes the release as latest.
+  verify-and-publish:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -108,9 +130,29 @@ jobs:
           path: release
           merge-multiple: true
 
-      - name: Publish to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release/**/*
-          generate_release_notes: true
+      - name: Create or update release
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --draft
+          else
+            gh release create "$tag" --draft --title "QookiX Launcher ${tag}" --generate-notes
+          fi
+          mapfile -t files < <(find release -type f)
+          if [ "${#files[@]}" -gt 0 ]; then
+            gh release upload "$tag" "${files[@]}" --clobber
+          fi
+
+      - name: Generate update manifest (latest.json)
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" > release.json
+          node scripts/create-update-manifest.mjs release.json release "${GITHUB_REF_NAME}" latest.json || true
+
+      - name: Upload update manifest
+        if: hashFiles('latest.json') != ''
+        run: gh release upload "${GITHUB_REF_NAME}" latest.json --clobber
+
+      - name: Publish release
+        run: gh release edit "${GITHUB_REF_NAME}" --draft=false --latest
+
 
