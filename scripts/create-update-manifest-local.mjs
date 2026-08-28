@@ -25,10 +25,10 @@ const repo = process.env.GITHUB_REPOSITORY
 if (!repo) throw new Error('GITHUB_REPOSITORY is not set')
 
 const targets = [
-  { platforms: ['windows-x86_64'], suffix: '.nsis.zip' },
-  { platforms: ['darwin-aarch64', 'darwin-x86_64'], suffix: '.app.tar.gz' },
-  { platforms: ['linux-x86_64'], suffix: '_amd64.AppImage.tar.gz' },
-  { platforms: ['linux-aarch64'], suffix: '_aarch64.AppImage.tar.gz' },
+  { platforms: ['windows-x86_64'], suffixes: ['_x64-setup.exe', '.nsis.zip'] },
+  { platforms: ['darwin-aarch64', 'darwin-x86_64'], suffixes: ['.app.tar.gz'] },
+  { platforms: ['linux-x86_64'], suffixes: ['_amd64.AppImage.tar.gz'] },
+  { platforms: ['linux-aarch64'], suffixes: ['_aarch64.AppImage.tar.gz'] },
 ]
 
 function filesEndingWith(dir, suffix) {
@@ -41,7 +41,11 @@ function filesEndingWith(dir, suffix) {
 
 const platforms = {}
 for (const t of targets) {
-  const matches = filesEndingWith(dir, t.suffix)
+  let matches = []
+  for (const suffix of t.suffixes) {
+    matches = filesEndingWith(dir, suffix)
+    if (matches.length >= 1) break
+  }
   if (matches.length !== 1) continue // platform not built (or named differently)
   const name = matches[0]
   const sigPath = path.join(dir, `${name}.sig`)

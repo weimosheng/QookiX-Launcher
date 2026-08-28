@@ -425,14 +425,20 @@ onUnmounted(() => {
 
       <!-- 关于 -->
       <n-tab-pane name="about" tab="关于">
-        <div class="grid">
-          <div class="card glass">
-            <h3>QookiX Launcher</h3>
-            <p class="hint">版本 v0.2.4</p>
-            <p class="hint">现代化、简洁、无广告的 Minecraft 启动器。</p>
-            <p class="hint">
-              支持 Modrinth / CurseForge 内容中心、多线程下载、Java 自动检测。
-            </p>
+        <div class="grid about-grid">
+          <div class="card glass about-card">
+            <div class="about-logo">
+              <span class="about-name">QookiX Launcher</span>
+              <span class="about-ver">v0.2.4</span>
+            </div>
+            <p class="about-desc">现代化、简洁、无广告的 Minecraft 启动器</p>
+            <div class="about-features">
+              <div class="feature-item"><span class="feature-dot"></span>Modrinth / CurseForge 内容中心</div>
+              <div class="feature-item"><span class="feature-dot"></span>多线程高速下载</div>
+              <div class="feature-item"><span class="feature-dot"></span>Java 自动检测与下载</div>
+              <div class="feature-item"><span class="feature-dot"></span>微软正版与离线登录</div>
+              <div class="feature-item"><span class="feature-dot"></span>离线皮肤支持</div>
+            </div>
             <div class="about-update">
               <button class="mini-btn primary" :disabled="checking" @click="checkUpdate">
                 {{ checking ? "检查中…" : "检查更新" }}
@@ -441,6 +447,22 @@ onUnmounted(() => {
                 发现新版本 v{{ updateVersion }}
               </span>
             </div>
+          </div>
+          <div class="card glass about-links">
+            <h3>链接</h3>
+            <button class="about-link" @click="openUrl('https://github.com/weimosheng/QookiX-Launcher')">
+              <span>GitHub 仓库</span>
+              <span class="link-arrow">→</span>
+            </button>
+            <button class="about-link" @click="openUrl('https://github.com/weimosheng/QookiX-Launcher/issues')">
+              <span>问题反馈</span>
+              <span class="link-arrow">→</span>
+            </button>
+            <button class="about-link" @click="openUrl('https://github.com/weimosheng/QookiX-Launcher/releases')">
+              <span>更新日志</span>
+              <span class="link-arrow">→</span>
+            </button>
+
           </div>
         </div>
       </n-tab-pane>
@@ -877,5 +899,90 @@ textarea.text-input {
   align-items: center;
   gap: 12px;
   margin-top: 14px;
+}
+.about-grid {
+  grid-template-columns: 1fr 1fr;
+}
+.about-card {
+  display: flex;
+  flex-direction: column;
+}
+.about-logo {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.about-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.about-ver {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+.about-desc {
+  font-size: 13px;
+  color: var(--text-3);
+  margin: 0 0 16px;
+}
+.about-features {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.feature-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.feature-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+.about-links {
+  display: flex;
+  flex-direction: column;
+}
+.about-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  margin-bottom: 8px;
+  transition: all 0.15s;
+}
+.about-link:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text-1);
+}
+.link-arrow {
+  color: var(--text-3);
+  font-size: 14px;
+  transition: transform 0.15s;
+}
+.about-link:hover .link-arrow {
+  transform: translateX(3px);
+  color: var(--accent);
 }
 </style>
