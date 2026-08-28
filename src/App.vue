@@ -6,6 +6,7 @@ import SideBar from "./components/SideBar.vue";
 import LoadingBarBridge from "./components/LoadingBarBridge.vue";
 import LaunchProgress from "./components/LaunchProgress.vue";
 import CrashDialog from "./components/CrashDialog.vue";
+import UpdaterCheck from "./components/UpdaterCheck.vue";
 import { useSettingsStore } from "./stores/settings";
 import { useAccountsStore } from "./stores/accounts";
 import { useInstancesStore } from "./stores/instances";
@@ -53,6 +54,7 @@ onMounted(() => {
                 </div>
                 <LaunchProgress />
                 <CrashDialog />
+                <UpdaterCheck />
               </n-notification-provider>
           </n-message-provider>
         </n-dialog-provider>

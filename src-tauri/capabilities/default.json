@@ -17,6 +17,8 @@
     "core:window:allow-is-minimized",
     "core:window:allow-set-size",
     "opener:default",
-    "dialog:default"
+    "dialog:default",
+    "process:default",
+    "updater:default"
   ]
 }

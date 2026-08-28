@@ -30,6 +30,17 @@
       }
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE4NDIxOUExQzI4MTU0NDEKUldSQlZJSENvUmxDcUYyUmwwV1E1RWJPS3Q0WmxzWHBsU3pRalQyQUxQOGxLeGo3TkxJdDlmc1AK",
+      "endpoints": [
+        "https://github.com/weimosheng/QookiX-Launcher/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "quiet"
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
