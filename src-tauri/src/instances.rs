@@ -14,6 +14,25 @@ pub fn instance_path(state: &AppState, id: &str) -> std::path::PathBuf {
     state.instances_dir().join(id).join("qookix.json")
 }
 
+/// Instance ids are internally generated (8-char hex). Reject anything that
+/// could escape the instances directory via path traversal before it is joined
+/// onto a filesystem path or passed to `remove_dir_all`.
+pub fn validate_instance_id(id: &str) -> Result<(), String> {
+    if id.is_empty()
+        || id == "."
+        || id == ".."
+        || id.contains('/')
+        || id.contains('\\')
+        || id.contains("..")
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
+        return Err("非法实例 ID".into());
+    }
+    Ok(())
+}
+
 pub fn load_instances(state: &AppState) -> Vec<Instance> {
     let dir = state.instances_dir();
     let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -37,6 +56,7 @@ pub fn load_instances(state: &AppState) -> Vec<Instance> {
 }
 
 pub fn get_instance(state: &AppState, id: &str) -> Result<Instance, String> {
+    validate_instance_id(id)?;
     let text = std::fs::read_to_string(instance_path(state, id))
         .map_err(|_| format!("实例 {id} 不存在"))?;
     serde_json::from_str(&text).map_err(|e| format!("实例数据损坏: {e}"))
@@ -90,6 +110,8 @@ pub fn create_instance(
         mods: Vec::new(),
         resource_packs: Vec::new(),
         shaders: Vec::new(),
+        is_symlink: false,
+        source_path: None,
     };
     // game dir
     std::fs::create_dir_all(state.instances_dir().join(&instance.id)).map_err(|e| e.to_string())?;
@@ -98,6 +120,7 @@ pub fn create_instance(
 }
 
 pub fn delete_instance(state: &AppState, id: &str) -> Result<(), String> {
+    validate_instance_id(id)?;
     let dir = state.instances_dir().join(id);
     if dir.exists() {
         std::fs::remove_dir_all(&dir).map_err(|e| format!("删除实例目录失败: {e}"))?;
@@ -219,6 +242,9 @@ pub fn remove_content(state: &AppState, id: &str, kind: &str, filename: &str) ->
 }
 
 pub fn set_content_enabled(state: &AppState, id: &str, kind: &str, filename: &str, enabled: bool) -> Result<(), String> {
+    if !crate::util::is_safe_filename(filename) {
+        return Err("非法文件名".into());
+    }
     let mut inst = get_instance(state, id)?;
     let list = match kind {
         "resourcepack" => &mut inst.resource_packs,
@@ -507,7 +533,7 @@ fn one_version(dir_path: &std::path::Path, name: &str) -> MinecraftVersionInfo {
                 // strip the loader suffix to get the vanilla base Mojang knows.
                 let base: String = raw_id
                     .chars()
-                    .take_while(|c| *c != '-' && *c != ' ')
+                    .take_while(|c| *c != '-')
                     .collect();
                 if !base.is_empty() {
                     id = base;
@@ -650,7 +676,7 @@ pub async fn import_minecraft_folder(
     app: tauri::AppHandle,
     state: &AppState,
     source: std::path::PathBuf,
-    name: String,
+    _name: String,
     raw_ids: Vec<String>,
     mc_versions: Vec<String>,
     loaders: Vec<String>,
@@ -686,6 +712,21 @@ pub async fn import_minecraft_folder(
                 .collect::<Vec<_>>()
         };
 
+    // `raw_ver` is joined onto `source/versions/` during migration; reject any
+    // value that could escape that folder via path traversal.
+    for (raw, ..) in &versions {
+        if raw.is_empty()
+            || raw == "."
+            || raw == ".."
+            || raw.contains("..")
+            || raw.contains('/')
+            || raw.contains('\\')
+            || raw.contains(':')
+        {
+            return Err("非法的版本文件夹名".into());
+        }
+    }
+
     let link = mode == ImportMode::Symlink;
     let total = versions.len() as u64;
     let mut plans = Vec::new();
@@ -697,12 +738,7 @@ pub async fn import_minecraft_folder(
             "neoforge" => crate::models::LoaderType::NeoForge,
             _ => crate::models::LoaderType::Vanilla,
         };
-        // give each instance a distinct name when importing several
-        let inst_name = if versions.len() > 1 {
-            format!("{name} · {ver}")
-        } else {
-            name.clone()
-        };
+        let inst_name = raw_ver.clone();
         let _ = app.emit(
             "import://progress",
             serde_json::json!({
@@ -757,7 +793,17 @@ async fn import_one(
     loader_version: Option<String>,
     link: bool,
 ) -> Result<crate::models::InstallPlan, String> {
-    let instance = create_instance(state, name, mc_version, loader, loader_version)?;
+    let mut instance = create_instance(state, name, mc_version, loader, loader_version)?;
+    instance.is_symlink = link;
+    instance.source_path = if link {
+        Some(source.to_string_lossy().to_string())
+    } else {
+        None
+    };
+    let bgs = ["amber", "blue", "green", "purple", "red", "slate", "dark"];
+    let pick = bgs[uuid::Uuid::new_v4().as_u128() as usize % bgs.len()];
+    instance.icon = Some(format!("bg:{pick}"));
+    save_instance(state, &instance)?;
     let dest = state.instances_dir().join(&instance.id);
     // becomes true if a requested symlink had to fall back to a copy
     let mut symlink_fallback = false;
@@ -774,10 +820,14 @@ async fn import_one(
                 continue;
             }
             let dst = dest.join(d);
-            if let Some(p) = dst.parent() {
-                std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
+            if link {
+                crate::util::link_dir(&src, &dst, &mut symlink_fallback)?;
+            } else {
+                if let Some(p) = dst.parent() {
+                    std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
+                }
+                migrate_tree(&src, &dst, link, &mut symlink_fallback)?;
             }
-            migrate_tree(&src, &dst, link, &mut symlink_fallback)?;
             migrated += 1;
         }
         for f in IMPORT_FILES {
@@ -791,15 +841,11 @@ async fn import_one(
     }
 
     // ---- migrate ONLY the selected version's folder, never the whole versions/ ----
-    // The launcher resolves a version via `versions/<instance.id>/<instance.id>.json`,
-    // so we rename the imported source folder to `<instance.id>` and rewrite the
-    // json `id` (and client jar name) to match. install_game() afterwards only
-    // fills in any missing libraries/assets for that same dir.
+    // Version files (<id>.json / <id>.jar) are placed directly in instances/<id>/
+    // (flattened layout) so resolve_version_dir finds them without nesting.
     let src_ver = source.join("versions").join(&raw_ver);
     if src_ver.is_dir() {
-        let dst_ver = dest.join("versions").join(&instance.id);
-        std::fs::create_dir_all(&dst_ver).map_err(|e| e.to_string())?;
-        migrate_version_dir(&src_ver, &dst_ver, &instance.id, &raw_ver, link, &mut symlink_fallback)?;
+        migrate_version_dir(&src_ver, &dest, &instance.id, &raw_ver, link, &mut symlink_fallback)?;
     }
 
     // make sure standard folders exist
@@ -807,10 +853,39 @@ async fn import_one(
         let _ = std::fs::create_dir_all(dest.join(sub));
     }
 
+    // ---- reuse libraries & assets from source to avoid re-downloading ----
+    reuse_runtime_files(&source.join("libraries"), &state.libraries_dir());
+    reuse_runtime_files(&source.join("assets"), &state.assets_dir());
+
     // ---- install the game (client / libraries / assets / loader) ----
     let mut plan = crate::install::install_game(app, state, &instance).await?;
     plan.symlink_fallback = symlink_fallback;
     Ok(plan)
+}
+
+/// Copy files from src to dst, skipping files that already exist with the same size.
+/// Used to reuse libraries/assets from the source .minecraft so install_game doesn't re-download them.
+fn reuse_runtime_files(src: &std::path::Path, dst: &std::path::Path) {
+    if !src.is_dir() { return; }
+    let _ = std::fs::create_dir_all(dst);
+    let entries = match std::fs::read_dir(src) { Ok(e) => e, Err(_) => return };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        let target = dst.join(entry.file_name());
+        if p.is_dir() {
+            reuse_runtime_files(&p, &target);
+        } else if p.is_file() {
+            let src_size = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+            let need_copy = match std::fs::metadata(&target) {
+                Ok(m) => m.len() != src_size,
+                Err(_) => true,
+            };
+            if need_copy {
+                let _ = std::fs::create_dir_all(target.parent().unwrap_or(dst));
+                let _ = std::fs::copy(&p, &target);
+            }
+        }
+    }
 }
 
 /// Recursively copy or symlink a directory tree. `fallback` is set to true if
@@ -880,6 +955,43 @@ fn migrate_version_dir(
             migrate_tree(&p, &target, link, fallback)?;
         } else if p.is_file() {
             crate::util::copy_or_link(&p, &target, link, fallback)?;
+        }
+    }
+    // 确保版本 json 文件名为 <instance_id>.json（源文件名可能不匹配 raw_ver）
+    let target_json = dst.join(format!("{instance_id}.json"));
+    if !target_json.exists() {
+        if let Ok(entries) = std::fs::read_dir(dst) {
+            for e in entries.flatten() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.ends_with(".json") && name != format!("{instance_id}.json") {
+                    let src_path = e.path();
+                    if let Ok(content) = std::fs::read_to_string(&src_path) {
+                        if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&content) {
+                            if let Some(obj) = v.as_object_mut() {
+                                obj.insert("id".into(), serde_json::Value::String(instance_id.to_string()));
+                                let _ = std::fs::write(&target_json, serde_json::to_string_pretty(&v).unwrap_or(content));
+                                let _ = std::fs::remove_file(&src_path);
+                                break;
+                            }
+                        }
+                    }
+                    let _ = std::fs::rename(&src_path, &target_json);
+                    break;
+                }
+            }
+        }
+    }
+    // 确保版本 jar 文件名为 <instance_id>.jar
+    let target_jar = dst.join(format!("{instance_id}.jar"));
+    if !target_jar.exists() {
+        if let Ok(entries) = std::fs::read_dir(dst) {
+            for e in entries.flatten() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.ends_with(".jar") && name != format!("{instance_id}.jar") {
+                    let _ = std::fs::rename(e.path(), &target_jar);
+                    break;
+                }
+            }
         }
     }
     Ok(())

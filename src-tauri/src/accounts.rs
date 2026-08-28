@@ -152,7 +152,9 @@ pub async fn ms_poll(state: &AppState) -> Result<Account, String> {
             "authorization_pending" => Err(ERR_AUTH_PENDING.into()),
             "authorization_declined" => Err("用户拒绝了授权".into()),
             "expired_token" => Err("设备码已过期，请重新开始登录".into()),
-            "slow_down" => Err("请稍后再试".into()),
+            // The server asks us to back off; keep polling (the frontend retries
+            // on ERR_AUTH_PENDING) instead of surfacing a spurious error.
+            "slow_down" => Err(ERR_AUTH_PENDING.into()),
             other => Err(format!("登录失败: {other}")),
         };
     }

@@ -56,8 +56,6 @@ pub struct Settings {
     pub ms_client_id: String,
     /// Currently selected account (uuid) used when an instance has no override
     pub selected_account: Option<String>,
-    /// Version isolation: keep libraries/assets inside each instance folder
-    pub isolation: bool,
     /// HTTP/SOCKS proxy URL for downloads (e.g. "http://127.0.0.1:7890")
     pub proxy: Option<String>,
 }
@@ -80,7 +78,6 @@ impl Default for Settings {
             keep_open: true,
             ms_client_id: "00000000-0000-0000-0000-000000000000".into(),
             selected_account: None,
-            isolation: false,
             proxy: None,
         }
     }
@@ -174,6 +171,12 @@ pub struct Instance {
     pub mods: Vec<InstalledContent>,
     pub resource_packs: Vec<InstalledContent>,
     pub shaders: Vec<InstalledContent>,
+    /// 实例是否通过符号链接方式从外部 .minecraft 导入
+    #[serde(default)]
+    pub is_symlink: bool,
+    /// 导入来源的 .minecraft 路径（符号链接模式下用于提醒与溯源）
+    #[serde(default)]
+    pub source_path: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -474,7 +477,7 @@ pub struct MetaLibrary {
 // Frontend-facing DTOs
 // ---------------------------------------------------------------------------
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct JavaInfo {
     pub path: String,
     pub version: String,

@@ -23,10 +23,10 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data: blob: https: http:; font-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'",
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/**", "$LOCALAPPDATA/**", "$HOME/**", "$TEMP/**"]
+        "scope": ["$APPDATA/**", "$LOCALAPPDATA/**", "$TEMP/**"]
       }
     }
   },
@@ -39,6 +39,17 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "template": "nsis/installer.nsi",
+        "installerHooks": "nsis/hooks.nsi",
+        "languages": ["English", "SimpChinese"],
+        "displayLanguageSelector": false,
+        "sidebarImage": "nsis/sidebar.bmp",
+        "headerImage": "nsis/header.bmp"
+      }
+    }
   }
 }

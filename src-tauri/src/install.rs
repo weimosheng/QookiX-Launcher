@@ -21,14 +21,24 @@ pub async fn install_game(
     );
     emit_progress(&app, task_id, "manifest", "获取 Minecraft 版本信息…", 0, 0, instance, &source);
 
-    let vanilla = mcmeta::fetch_version_json(state, &instance.mc_version).await?;
-    let patched = patch_version(&app, state, &vanilla, instance).await?;
-    let patched_path = mcmeta::cache_version_json(state, &patched).await?;
+    let existing_json = crate::paths::resolve_version_dir(state, &instance.id).join(format!("{}.json", instance.id));
+    let (patched, patched_path) = match std::fs::read_to_string(&existing_json)
+        .ok()
+        .and_then(|t| serde_json::from_str::<VersionJson>(&t).ok())
+    {
+        Some(json) => (json, existing_json),
+        None => {
+            let vanilla = mcmeta::fetch_version_json(state, &instance.mc_version).await?;
+            let patched = patch_version(&app, state, &vanilla, instance).await?;
+            let patched_path = mcmeta::cache_version_json(state, &patched).await?;
+            (patched, patched_path)
+        }
+    };
 
     // ---- client jar ----
     emit_progress(&app, task_id, "client", "下载游戏客户端…", 0, 0, instance, &source);
     let mut items: Vec<DownloadItem> = Vec::new();
-    let client_jar_path = state.versions_dir().join(&instance.id).join(format!("{}.jar", instance.id));
+    let client_jar_path = crate::paths::resolve_version_dir(state, &instance.id).join(format!("{}.jar", instance.id));
     if let Some(client) = &patched.downloads.client {
         items.push(DownloadItem {
             url: client.url.clone(),
@@ -66,9 +76,9 @@ pub async fn install_game(
                     .or_else(|| dl.and_then(|d| d.artifact.clone()));
                 if let Some(file) = file {
                     let dest = if name_has_classifier {
-                        libraries_path(state, &instance.id, &lib.name, None)
+                        libraries_path(state, &lib.name, None)
                     } else {
-                        libraries_path(state, &instance.id, &lib.name, Some(&classifier))
+                        libraries_path(state, &lib.name, Some(&classifier))
                     };
                     lib_items.push(DownloadItem {
                         url: file.url.clone(),
@@ -85,7 +95,7 @@ pub async fn install_game(
             // old-style native library: the main artifact still goes on the classpath
             if !name_has_classifier {
                 if let Some(dl) = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()) {
-                    let dest = libraries_path(state, &instance.id, &lib.name, None);
+                    let dest = libraries_path(state, &lib.name, None);
                     lib_items.push(DownloadItem {
                         url: dl.url.clone(),
                         dest,
@@ -99,7 +109,7 @@ pub async fn install_game(
             continue;
         }
         if let Some(dl) = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()) {
-            let dest = libraries_path(state, &instance.id, &lib.name, None);
+            let dest = libraries_path(state, &lib.name, None);
             lib_items.push(DownloadItem {
                 url: dl.url.clone(),
                 dest,
@@ -110,7 +120,7 @@ pub async fn install_game(
             });
         } else if let Some(url) = &lib.url {
             if let Some(rel) = crate::models::maven_to_path(&lib.name) {
-                let dest = crate::paths::libraries_dir(state, &instance.id).join(&rel);
+                let dest = crate::paths::libraries_dir(state).join(&rel);
                 let file_url = format!("{}/{}", url.trim_end_matches('/'), rel.to_string_lossy().replace('\\', "/"));
                 lib_items.push(DownloadItem {
                     url: file_url,
@@ -155,7 +165,7 @@ pub async fn install_game(
     // ---- assets ----
     if let Some(index) = &patched.asset_index {
         emit_progress(&app, task_id, "assets", "下载资源文件…", 0, 0, instance, &source);
-        let index_path = crate::paths::assets_indexes_dir(state, &instance.id).join(format!("{}.json", index.id));
+        let index_path = crate::paths::assets_indexes_dir(state).join(format!("{}.json", index.id));
         if !index_path.exists() {
             let item = DownloadItem {
                 url: index.url.clone(),
@@ -171,7 +181,7 @@ pub async fn install_game(
         let asset_index: AssetIndexFile = serde_json::from_str(&index_text).map_err(|e| e.to_string())?;
         let mut asset_items: Vec<DownloadItem> = Vec::new();
         for (name, obj) in &asset_index.objects {
-            let dest = crate::paths::assets_objects_dir(state, &instance.id)
+            let dest = crate::paths::assets_objects_dir(state)
                 .join(&obj.hash[0..2])
                 .join(&obj.hash);
             if dest.exists() && std::fs::metadata(&dest).map(|m| m.len() == obj.size).unwrap_or(false) {
@@ -199,7 +209,7 @@ pub async fn install_game(
     if let Some(logging) = &patched.logging {
         if let Some(client) = &logging.client {
             emit_progress(&app, task_id, "logging", "下载日志配置…", 0, 0, instance, &source);
-            let dest = state.versions_dir().join(&instance.id).join("log4j2.xml");
+            let dest = crate::paths::resolve_version_dir(state, &instance.id).join("log4j2.xml");
             if !dest.exists() {
                 let item = DownloadItem {
                     url: client.file.url.clone(),
@@ -291,7 +301,7 @@ pub fn is_native_entry(lib: &Library) -> bool {
 }
 
 /// Local library path under `libraries/` with optional classifier suffix.
-fn libraries_path(state: &AppState, instance_id: &str, name: &str, classifier: Option<&str>) -> PathBuf {
+fn libraries_path(state: &AppState, name: &str, classifier: Option<&str>) -> PathBuf {
     if let Some(rel) = crate::models::maven_to_path(name) {
         let mut p = rel;
         if let Some(c) = classifier {
@@ -303,9 +313,9 @@ fn libraries_path(state: &AppState, instance_id: &str, name: &str, classifier: O
                 p.set_file_name(format!("{base}-{c}.{ext}"));
             }
         }
-        crate::paths::libraries_dir(state, instance_id).join(p)
+        crate::paths::libraries_dir(state).join(p)
     } else {
-        crate::paths::libraries_dir(state, instance_id).join(name.replace(':', "-"))
+        crate::paths::libraries_dir(state).join(name.replace(':', "-"))
     }
 }
 

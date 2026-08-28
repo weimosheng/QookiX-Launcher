@@ -97,11 +97,10 @@ pub fn persist(state: &AppState) -> Result<(), String> {
 /// Update settings with a partial patch (values from frontend).
 pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Settings, String> {
     let mut settings = state.settings.write().unwrap();
-    if let Some(v) = patch.get("data_dir") {
-        if let Some(s) = v.as_str() {
-            settings.data_dir = s.to_string();
-        }
-    }
+    // NOTE: `data_dir` is intentionally ignored here. The data root is fixed at
+    // startup (honoring the value the installer seeds into settings.json) and
+    // existing data is not migrated; applying a runtime change would silently
+    // make the app "lose" everything on the next launch.
     if let Some(v) = patch.get("java_path") {
         settings.java_path = v.as_str().map(|s| s.to_string()).filter(|s| !s.is_empty());
     }
@@ -146,9 +145,6 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
     }
     if let Some(v) = patch.get("selected_account") {
         settings.selected_account = v.as_str().map(|s| s.to_string()).filter(|s| !s.is_empty());
-    }
-    if let Some(v) = patch.get("isolation").and_then(|v| v.as_bool()) {
-        settings.isolation = v;
     }
     if let Some(v) = patch.get("proxy") {
         let p = v.as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());

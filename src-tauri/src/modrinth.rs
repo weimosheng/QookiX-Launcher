@@ -195,6 +195,22 @@ pub fn primary_file(version: &Value) -> Option<(String, String, u64, Option<Stri
     Some((url, filename, size, sha1))
 }
 
+/// A path taken from a modpack index is only acceptable if it is a normal,
+/// forward-slash relative path with no `.` / `..` segments, no absolute prefix
+/// and no drive-letter prefix. Used to block zip-slip-style escapes before any
+/// file is written from pack metadata.
+pub fn safe_pack_rel_path(p: &str) -> bool {
+    if p.starts_with('/') || p.starts_with('\\') {
+        return false;
+    }
+    // drive letter prefix, e.g. `C:\...` or `C:/...`
+    let bytes = p.as_bytes();
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        return false;
+    }
+    p.split(['/', '\\']).all(|seg| !seg.is_empty() && seg != "." && seg != "..")
+}
+
 /// Folder name inside an instance for a content kind.
 pub fn kind_folder(kind: &str) -> &'static str {
     match kind {
@@ -235,6 +251,11 @@ pub async fn install_version(
     }
 
     let (url, filename, size, sha1) = primary_file(&ver).ok_or("该版本没有可下载的文件")?;
+    // `filename` comes from the Modrinth API (untrusted); ensure it is a plain
+    // file name so it can never escape the content folder via traversal.
+    if !crate::util::is_safe_filename(&filename) {
+        return Err(format!("文件名为非法路径: {filename}"));
+    }
     let dest = state
         .instances_dir()
         .join(&instance.id)
@@ -346,6 +367,28 @@ pub async fn project_info(state: &AppState, project_id: &str) -> Result<Value, S
     }))
 }
 
+/// Fetch project members (authors). Returns a list of usernames.
+pub async fn project_authors(state: &AppState, project_id: &str) -> Vec<String> {
+    let url = format!("{API}/project/{project_id}/members");
+    let resp = match state.client.get(&url).send().await {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+    let body: Value = match resp.json().await {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    if let Some(arr) = body.as_array() {
+        for m in arr {
+            if let Some(name) = m.get("user").and_then(|u| u.get("username")).and_then(|n| n.as_str()) {
+                out.push(name.to_string());
+            }
+        }
+    }
+    out
+}
+
 /// Batch-resolve project_id/version_id from sha1 hashes via the version_files API.
 /// Returns a map: sha1 -> (project_id, version_id). Best-effort, empty on failure.
 pub async fn resolve_by_hashes(
@@ -446,6 +489,8 @@ async fn install_modpack_inner(
         mods: Vec::new(),
         resource_packs: Vec::new(),
         shaders: Vec::new(),
+        is_symlink: false,
+        source_path: None,
     };
     crate::install::emit_progress(
         &app,
@@ -503,6 +548,12 @@ async fn install_modpack_inner(
         let path = f.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
         if path.is_empty() || path.ends_with('/') {
             continue;
+        }
+        // Path traversal guard: `path` comes from the (untrusted) pack index and
+        // is joined onto the instance dir for downloads. Reject anything that is
+        // absolute, drive-qualified, or contains `.` / `..` segments.
+        if !safe_pack_rel_path(&path) {
+            return Err(format!("整合包包含非法文件路径: {path}"));
         }
         let downloads = f.get("downloads").and_then(|d| d.as_array()).cloned().unwrap_or_default();
         let Some(first) = downloads.first().and_then(|d| d.as_str()) else { continue };
@@ -698,6 +749,11 @@ pub fn urlencode(s: &str) -> String {
 
 /// Remove an installed content file and its record.
 pub fn uninstall(state: &AppState, instance: &Instance, kind: &str, filename: &str) -> Result<(), String> {
+    // `filename` originates from the Modrinth API / pack metadata (untrusted);
+    // block path traversal before it is joined onto the instance folder.
+    if !crate::util::is_safe_filename(filename) {
+        return Err("非法文件名".into());
+    }
     let dir: PathBuf = state
         .instances_dir()
         .join(&instance.id)

@@ -7,6 +7,7 @@ mod instances;
 mod java;
 mod launch;
 mod mcmeta;
+mod mcping;
 mod mcmod;
 mod models;
 mod modpack;
@@ -23,7 +24,19 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let root = std::path::PathBuf::from(settings::default_root());
+    let default_root = std::path::PathBuf::from(settings::default_root());
+    let _ = settings::ensure_layout(&default_root);
+
+    // The installer seeds a custom data directory for fresh installs by writing
+    // `settings.json` (with `data_dir`) into the default root. Honor it: all
+    // launcher data (instances, libraries, assets, settings) then lives under
+    // the chosen folder. Existing installs keep their current data root.
+    let seeded = settings::load_settings(&default_root);
+    let root = if seeded.data_dir.is_empty() {
+        default_root
+    } else {
+        std::path::PathBuf::from(&seeded.data_dir)
+    };
     let _ = settings::ensure_layout(&root);
     let loaded = settings::load_settings(&root);
 
@@ -93,6 +106,7 @@ pub fn run() {
             commands::apply_update,
             commands::uninstall_content,
             commands::list_content,
+            commands::identify_content,
             commands::import_local_file,
             commands::toggle_content_enabled,
             commands::save_text_file,
@@ -108,6 +122,9 @@ pub fn run() {
             commands::apply_skin_to_account,
             commands::apply_cape_to_account,
             commands::apply_skin_offline,
+            // multiplayer servers
+            commands::list_servers,
+            commands::ping_mc_server,
         ])
         .on_window_event(|window, event| {
             use tauri::WindowEvent;
@@ -127,19 +144,23 @@ pub fn run() {
         })
         .setup(|app| {
             let handle = app.handle().clone();
-            let runtimes = app.state::<AppState>().root.join("runtimes");
+            let root = app.state::<AppState>().root.clone();
+            let runtimes = root.join("runtimes");
             tauri::async_runtime::spawn(async move {
-                let detected = tokio::task::spawn_blocking(move || {
-                    crate::java::detect_java(None, Some(&runtimes))
-                })
-                .await
-                .unwrap_or_default();
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
+                // Reuse the persisted cache instead of rescanning on every start.
+                let cache_root = root.clone();
+                let cache_runtimes = runtimes.clone();
+                let (ts, detected) = tokio::task::spawn_blocking(move || {
+                    crate::java::cached_detect(&cache_root, &cache_runtimes, now, false)
+                })
+                .await
+                .unwrap_or_else(|_| (now, Vec::new()));
                 let state = handle.state::<AppState>();
-                *state.java_cache.lock().unwrap() = Some((now, detected));
+                *state.java_cache.lock().unwrap() = Some((ts, detected));
             });
             Ok(())
         })
@@ -150,6 +171,7 @@ pub fn run() {
 #[cfg(test)]
 mod smoke {
     use crate::models::{maven_to_path, LoaderMetaEntry, VersionManifest, VersionJson};
+    use std::collections::HashMap;
 
     #[tokio::test]
     async fn mojang_manifest_and_version_json_parse() {
@@ -245,7 +267,7 @@ mod smoke {
 
     #[test]
     fn natives_args_normalized_like_pcl() {
-        use crate::models::{ArgumentValue, Arguments, ArgumentValueInner, ArgumentRule, Rule, VersionJson};
+        use crate::models::{ArgumentValue, Arguments, ArgumentValueInner, ArgumentRule, VersionJson};
         let mut vj = VersionJson {
             id: "t".into(),
             kind: "release".into(),
@@ -328,6 +350,8 @@ mod smoke {
             mods: vec![],
             resource_packs: vec![],
             shaders: vec![],
+            is_symlink: false,
+            source_path: None,
         };
         let vanilla = crate::mcmeta::fetch_version_json(&state, "1.20.1").await.unwrap();
         let patched = crate::install::fabric_patch(&state, &vanilla, &instance).await.unwrap();

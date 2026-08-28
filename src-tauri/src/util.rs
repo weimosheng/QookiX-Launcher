@@ -33,6 +33,45 @@ pub fn file_sha512(path: &Path) -> Option<String> {
     Some(format!("{:x}", hasher.finalize()))
 }
 
+/// sha256 of a file (hex lowercase)
+pub fn file_sha256(path: &Path) -> Option<String> {
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut hasher = sha2::Sha256::new();
+    let mut buf = [0u8; 65536];
+    loop {
+        let n = f.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Some(format!("{:x}", hasher.finalize()))
+}
+
+/// True when `name` is a plain, single file name (no path separators, no `.` /
+/// `..`, no drive-letter prefix). Used before joining API/user-supplied names
+/// onto a filesystem path to block path traversal.
+pub fn is_safe_filename(name: &str) -> bool {
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains(':')
+    {
+        return false;
+    }
+    // Windows reserved device names (case-insensitive, incl. "CON.txt" etc.)
+    let stem = name.split('.').next().unwrap_or("");
+    let lower = stem.to_ascii_lowercase();
+    let reserved = [
+        "con", "prn", "aux", "nul",
+        "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
+        "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+    ];
+    !reserved.contains(&lower.as_str())
+}
+
 /// Read a text file fully.
 #[allow(dead_code)]
 pub fn read_text(path: &Path) -> Option<String> {
@@ -527,56 +566,165 @@ pub fn parse_mod_jar(path: &Path) -> Option<ModJarMeta> {
     Some(meta)
 }
 
-/// 用 jar 内部元数据回填 `InstalledContent` 中缺失的字段。
-/// 远程 API 元数据优先，jar 元数据作为回退；name 为文件名占位时也替换为真实名字。
+/// 从 zip 内 `pack.mcmeta` 解析材质包/光影包的描述与 pack_format。
+fn parse_pack_mcmeta(path: &Path) -> Option<(String, Option<i64>)> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut archive = zip::ZipArchive::new(file).ok()?;
+    let Ok(mut entry) = archive.by_name("pack.mcmeta") else { return None };
+    let mut buf = Vec::new();
+    if Read::read_to_end(&mut entry, &mut buf).is_err() { return None }
+    let val: serde_json::Value = serde_json::from_slice(&buf).ok()?;
+    let pack = val.get("pack")?;
+    let desc_str = pack.get("description").and_then(|d| json_text(d));
+    let pack_format = pack.get("pack_format").and_then(|v| v.as_i64());
+    desc_str.map(|d| (d, pack_format))
+}
+
+/// 从 zip 根目录提取 `pack.png` 作为图标，保存到临时文件并返回路径。
+fn extract_zip_icon(path: &Path) -> Option<String> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut archive = zip::ZipArchive::new(file).ok()?;
+    let Ok(mut entry) = archive.by_name("pack.png") else { return None };
+    let mut buf = Vec::new();
+    if Read::read_to_end(&mut entry, &mut buf).is_err() { return None }
+    save_icon_buf(buf)
+}
+
+/// 从 JSON 文本组件提取纯文本（支持 string / object / array 三种形式）。
+fn json_text(val: &serde_json::Value) -> Option<String> {
+    match val {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Object(o) => {
+            o.get("text").and_then(|v| v.as_str())
+                .or_else(|| o.get("fallback").and_then(|v| v.as_str()))
+                .map(|s| s.to_string())
+        }
+        serde_json::Value::Array(arr) => {
+            let mut out = String::new();
+            for item in arr {
+                if let Some(t) = json_text(item) { out.push_str(&t); }
+            }
+            if out.is_empty() { None } else { Some(out) }
+        }
+        _ => None,
+    }
+}
+
+/// 用 jar/zip 内部元数据回填 `InstalledContent` 中缺失的字段。
+/// 先尝试 mod jar 元数据（fabric/forge…），再回退到 pack.mcmeta（材质包/光影包）。
 pub fn fill_content_from_jar(rec: &mut crate::models::InstalledContent, jar_path: &Path) {
-    let Some(meta) = parse_mod_jar(jar_path) else { return };
-    if rec.mod_id.is_none() { rec.mod_id = meta.mod_id; }
+    if let Some(meta) = parse_mod_jar(jar_path) {
+        if rec.mod_id.is_none() { rec.mod_id = meta.mod_id; }
+        let name_is_placeholder = rec.name.as_deref() == Some(rec.filename.as_str());
+        if rec.name.is_none() || name_is_placeholder {
+            if let Some(n) = meta.name.filter(|n| !n.is_empty()) { rec.name = Some(n); }
+        }
+        if rec.version.is_none() { rec.version = meta.version; }
+        if rec.authors.is_none() { rec.authors = meta.authors; }
+        if rec.description.is_none() { rec.description = meta.description; }
+        if rec.icon.is_none() { rec.icon = meta.icon; }
+        if rec.slug.is_none() { rec.slug = rec.mod_id.clone(); }
+        return;
+    }
+    if let Some((desc, _)) = parse_pack_mcmeta(jar_path) {
+        let name_is_placeholder = rec.name.as_deref() == Some(rec.filename.as_str());
+        if rec.name.is_none() || name_is_placeholder {
+            let clean = strip_mc_formatting(&desc);
+            if !clean.is_empty() { rec.name = Some(clean); }
+        }
+        if rec.description.is_none() { rec.description = Some(desc); }
+    }
+    if rec.icon.is_none() {
+        if let Some(icon) = extract_zip_icon(jar_path) {
+            rec.icon = Some(icon);
+        }
+    }
     let name_is_placeholder = rec.name.as_deref() == Some(rec.filename.as_str());
     if rec.name.is_none() || name_is_placeholder {
-        if let Some(n) = meta.name.filter(|n| !n.is_empty()) { rec.name = Some(n); }
+        let stem = rec.filename.trim_end_matches(".zip").trim_end_matches(".jar");
+        let pretty: String = stem.replace('_', " ");
+        if !pretty.is_empty() { rec.name = Some(pretty); }
     }
-    if rec.version.is_none() { rec.version = meta.version; }
-    if rec.authors.is_none() { rec.authors = meta.authors; }
-    if rec.description.is_none() { rec.description = meta.description; }
-    if rec.icon.is_none() { rec.icon = meta.icon; }
-    if rec.slug.is_none() { rec.slug = rec.mod_id.clone(); }
+}
+
+/// 去除 Minecraft §x 格式码（§ 及紧跟的一个字符）。
+fn strip_mc_formatting(s: &str) -> String {
+    let mut out = String::new();
+    let mut skip_next = false;
+    for c in s.chars() {
+        if skip_next { skip_next = false; continue; }
+        if c == '\u{00a7}' { skip_next = true; continue; }
+        out.push(c);
+    }
+    out.trim().to_string()
 }
 
 /// Copy a file (creating parent dirs), or create a symlink to it when `link` is
 /// true. On platforms where symlink creation is denied (e.g. Windows without
 /// Developer Mode / admin), this silently falls back to a normal copy and sets
 /// `*fallback = true` so the caller can warn the user.
-pub fn copy_or_link(source: &Path, dest: &Path, link: bool, fallback: &mut bool) -> Result<u64, String> {
+pub fn copy_or_link(source: &Path, dest: &Path, link: bool, _fallback: &mut bool) -> Result<u64, String> {
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     if link {
-        // On Windows, File::create_symlink_file requires the target not to exist.
         if dest.exists() {
             let _ = std::fs::remove_file(dest);
         }
         let link_result = {
             #[cfg(windows)]
-            {
-                std::os::windows::fs::symlink_file(source, dest)
-            }
+            { std::os::windows::fs::symlink_file(source, dest) }
             #[cfg(unix)]
-            {
-                std::os::unix::fs::symlink(source, dest)
-            }
+            { std::os::unix::fs::symlink(source, dest) }
         };
         match link_result {
             Ok(()) => Ok(0),
-            Err(_) => {
-                // privilege missing -> copy instead
-                *fallback = true;
-                std::fs::copy(source, dest).map_err(|e| e.to_string())
-            }
+            Err(_) => std::fs::copy(source, dest).map_err(|e| e.to_string()),
         }
     } else {
         std::fs::copy(source, dest).map_err(|e| e.to_string())
     }
+}
+
+/// Create a directory-level symlink `dst -> src`. Writes into `dst` (e.g. new
+/// mods downloaded by the launcher) will transparently follow the link and land
+/// in the original source directory. Falls back to a recursive copy when the OS
+/// denies symlink creation, setting `*fallback = true`.
+pub fn link_dir(src: &Path, dst: &Path, _fallback: &mut bool) -> Result<(), String> {
+    if dst.exists() || dst.is_symlink() {
+        std::fs::remove_dir_all(dst).map_err(|e| e.to_string())?;
+    }
+    if let Some(p) = dst.parent() {
+        std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
+    }
+    #[cfg(windows)]
+    {
+        junction::create(src, dst).map_err(|e| format!("创建目录联接失败：{e}"))?;
+        return Ok(());
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(src, dst).map_err(|e| format!("符号链接创建失败：{e}"))?;
+        return Ok(());
+    }
+}
+
+fn copy_tree(src: &Path, dst: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dst).map_err(|e| e.to_string())?;
+    for e in std::fs::read_dir(src).map_err(|e| e.to_string())?.flatten() {
+        let p = e.path();
+        let name = match p.file_name() {
+            Some(n) => n.to_string_lossy().to_string(),
+            None => continue,
+        };
+        let target = dst.join(&name);
+        if p.is_dir() {
+            copy_tree(&p, &target)?;
+        } else if p.is_file() {
+            std::fs::copy(&p, &target).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 /// Parse a maven-metadata.xml `<versions>` block without an XML dependency.

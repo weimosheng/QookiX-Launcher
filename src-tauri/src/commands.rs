@@ -6,6 +6,7 @@ use crate::mcmeta;
 use crate::models::*;
 use crate::modrinth;
 use crate::settings;
+use crate::mcping;
 use crate::state::AppState;
 use serde_json::{json, Value};
 use tauri::Emitter;
@@ -61,10 +62,12 @@ pub fn detect_java(
             });
         }
     }
-    let runtimes = state.root.join("runtimes");
-    let candidates = crate::java::detect_java(None, Some(&runtimes));
+    let root = state.root.clone();
+    let runtimes = root.join("runtimes");
+    // Reuse the persisted cache when possible; `force` re-scans and updates it.
+    let (ts, candidates) = crate::java::cached_detect(&root, &runtimes, now, force);
     let selected = candidates.first().cloned();
-    *state.java_cache.lock().unwrap() = Some((now, candidates.clone()));
+    *state.java_cache.lock().unwrap() = Some((ts, candidates.clone()));
     Ok(JavaDetection { candidates, selected })
 }
 
@@ -200,10 +203,8 @@ pub async fn launch_instance(
     state: State<'_, AppState>,
     instance_id: String,
     world: Option<String>,
+    server: Option<String>,
 ) -> Result<LaunchResult, String> {
-    if launch::is_running(&state) {
-        // allow multi-instance; just log
-    }
     let instance = crate::instances::get_instance(&state, &instance_id)?;
     // resolve account: instance override -> global selected -> first
     let accounts = accounts::load_accounts(&state);
@@ -232,7 +233,7 @@ pub async fn launch_instance(
         user_type: if account.is_microsoft() { "msa".into() } else { "legacy".into() },
         user_properties: "{}".into(),
     };
-    let result = launch::launch_game(app.clone(), &state, &instance, resolved, world).await?;
+    let result = launch::launch_game(app.clone(), &state, &instance, resolved, world, server).await?;
     crate::instances::touch_last_played(&state, &instance_id);
     Ok(result)
 }
@@ -370,14 +371,18 @@ pub fn import_instance_image(
     state: State<AppState>,
     source_path: String,
 ) -> Result<String, String> {
+    const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico"];
     let source = std::path::Path::new(&source_path);
     let ext = source
         .extension()
-        .map(|e| e.to_string_lossy().to_string())
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_else(|| "png".into());
+    if !IMAGE_EXTS.contains(&ext.as_str()) {
+        return Err("不支持的图片格式".into());
+    }
     let dir = state.root.join("icons");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let dest = dir.join(format!("{}.{}", uuid::Uuid::new_v4().simple(), ext.to_lowercase()));
+    let dest = dir.join(format!("{}.{}", uuid::Uuid::new_v4().simple(), ext));
     std::fs::copy(source, &dest).map_err(|e| format!("复制图片失败: {e}"))?;
     Ok(dest.to_string_lossy().to_string())
 }
@@ -931,7 +936,7 @@ pub fn list_content(
         }
     }
     // auto-register mods that exist on disk but have no record
-    let ext = if kind == "shader" { ".zip" } else { ".jar" };
+    let ext = if kind == "mod" { ".jar" } else { ".zip" };
     let mut new_records: Vec<InstalledContent> = Vec::new();
     for fname in &on_disk {
         if !fname.ends_with(ext) {
@@ -967,11 +972,20 @@ pub fn list_content(
         let _ = crate::instances::add_content_batch(&state, &instance_id, &kind, new_records.clone());
         records.extend(new_records);
     }
+    let mut updated = false;
     for rec in &mut records {
         let abs = dir.join(&rec.filename);
         if abs.is_file() {
+            let before = rec.clone();
             crate::util::fill_content_from_jar(rec, &abs);
+            if rec.name != before.name || rec.description != before.description || rec.icon != before.icon {
+                updated = true;
+            }
         }
+    }
+
+    if updated {
+        let _ = crate::instances::add_content_batch(&state, &instance_id, &kind, records.clone());
     }
     let items: Vec<Value> = records
         .iter()
@@ -987,6 +1001,128 @@ pub fn list_content(
         })
         .collect();
     Ok(json!({ "items": items, "onDisk": on_disk }))
+}
+
+/// Asynchronously identify unidentified content via Modrinth.
+/// Tries hash lookup first, then falls back to name search.
+/// Emits `content::identified` events per item as they are resolved.
+#[tauri::command]
+pub async fn identify_content(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    instance_id: String,
+    kind: String,
+) -> Result<(), String> {
+    let instance = crate::instances::get_instance(&state, &instance_id)?;
+    let folder = modrinth::kind_folder(&kind);
+    let dir = state.instances_dir().join(&instance.id).join(folder);
+    let records = crate::instances::list_content(&state, &instance_id, &kind);
+    let to_identify: Vec<(String, String)> = records.iter()
+        .filter(|r| r.project_id.is_none() && dir.join(&r.filename).is_file())
+        .filter_map(|r| {
+            let path = dir.join(&r.filename);
+            crate::util::file_sha1(&path).map(|h| (r.filename.clone(), h))
+        })
+        .collect();
+    if to_identify.is_empty() {
+        return Ok(());
+    }
+
+    let project_type = match kind.as_str() {
+        "shader" => "shader",
+        "resourcepack" => "resourcepack",
+        _ => "mod",
+    };
+
+    // ---- pass 1: hash lookup ----
+    let hash_strs: Vec<String> = to_identify.iter().map(|(_, h)| h.clone()).collect();
+    let resolved = modrinth::resolve_by_hashes(&state, &hash_strs).await;
+    let mut resolved_files: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for (filename, hash) in &to_identify {
+        if let Some((pid, vid)) = resolved.get(hash) {
+            if let Ok(info) = modrinth::project_info(&state, pid).await {
+                let slug = info.get("slug").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let name = info.get("title").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let desc = info.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let icon = info.get("icon_url").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
+                let authors = modrinth::project_authors(&state, pid).await;
+                let mut rec = crate::instances::list_content(&state, &instance_id, &kind)
+                    .into_iter()
+                    .find(|r| r.filename == *filename);
+                if let Some(ref mut rec) = rec {
+                    rec.source = "modrinth".into();
+                    rec.project_id = Some(pid.clone());
+                    rec.version_id = Some(vid.clone());
+                    rec.slug = slug.clone();
+                    if let Some(n) = &name { rec.name = Some(n.clone()); }
+                    if let Some(d) = &desc { rec.description = Some(d.clone()); }
+                    if let Some(ic) = &icon { rec.icon = Some(ic.clone()); }
+                    if !authors.is_empty() { rec.authors = Some(authors); }
+                    let _ = crate::instances::add_content_batch(&state, &instance_id, &kind, vec![rec.clone()]);
+                }
+                let _ = app.emit("content::identified", json!({
+                    "instanceId": instance_id, "kind": kind, "filename": filename,
+                    "source": "modrinth", "projectId": pid, "versionId": vid,
+                    "slug": slug, "name": name, "description": desc, "icon": icon,
+                    "authors": rec.as_ref().and_then(|r| r.authors.clone()),
+                }));
+                resolved_files.insert(filename.as_str());
+            }
+        }
+    }
+
+    // ---- pass 2: name search fallback for unresolved files ----
+    for (filename, _) in &to_identify {
+        if resolved_files.contains(filename.as_str()) { continue; }
+        let query = extract_search_query(filename);
+        if query.is_empty() { continue; }
+        let search_result = modrinth::search(&state, &query, project_type, "", "relevance", 0, 1, "", "").await;
+        if let Ok(sr) = search_result {
+            if let Some(hit) = sr.get("hits").and_then(|h| h.as_array()).and_then(|a| a.first()) {
+                let pid = hit.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let slug = hit.get("slug").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let name = hit.get("title").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let desc = hit.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let icon = hit.get("icon_url").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
+                let author = hit.get("author").and_then(|v| v.as_str()).map(|s| vec![s.to_string()]);
+                if pid.is_empty() { continue; }
+                let mut rec = crate::instances::list_content(&state, &instance_id, &kind)
+                    .into_iter()
+                    .find(|r| r.filename == *filename);
+                if let Some(ref mut rec) = rec {
+                    rec.source = "modrinth".into();
+                    rec.project_id = Some(pid.clone());
+                    rec.slug = slug.clone();
+                    if let Some(n) = &name { rec.name = Some(n.clone()); }
+                    if let Some(d) = &desc { rec.description = Some(d.clone()); }
+                    if let Some(ic) = &icon { rec.icon = Some(ic.clone()); }
+                    if let Some(a) = &author { rec.authors = Some(a.clone()); }
+                    let _ = crate::instances::add_content_batch(&state, &instance_id, &kind, vec![rec.clone()]);
+                }
+                let _ = app.emit("content::identified", json!({
+                    "instanceId": instance_id, "kind": kind, "filename": filename,
+                    "source": "modrinth", "projectId": pid, "versionId": null,
+                    "slug": slug, "name": name, "description": desc, "icon": icon,
+                    "authors": author,
+                }));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Extract a search query from a filename (strip extension + version suffixes).
+fn extract_search_query(filename: &str) -> String {
+    let stem = filename.trim_end_matches(".zip").trim_end_matches(".jar");
+    let parts: Vec<&str> = stem.split(|c: char| c == '_' || c == '-' || c == '+').collect();
+    let mut keep: Vec<&str> = Vec::new();
+    for p in &parts {
+        if p.is_empty() { continue; }
+        if p.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) { break; }
+        if p.len() <= 2 && p.chars().all(|c| c.is_ascii_digit() || c == '.') { break; }
+        keep.push(p);
+    }
+    keep.join(" ")
 }
 
 /// Import a local file (jar/zip) into an instance folder as manual content.
@@ -1243,15 +1379,23 @@ pub fn list_skins(state: State<AppState>) -> Result<Vec<SkinEntry>, String> {
     Ok(out)
 }
 
-/// Read a skin file (by filename in the skins dir, or absolute path) as a data URL.
+/// Read a skin file (by filename in the skins dir, or absolute path from a
+/// native file-picker) as a data URL.
 #[tauri::command]
 pub fn read_skin_data_url(state: State<AppState>, filename: String) -> Result<String, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
-    let path = if filename.contains(std::path::MAIN_SEPARATOR) || filename.starts_with('/') {
+    let is_abs = filename.contains('/') || filename.contains('\\');
+    let path = if is_abs {
         std::path::PathBuf::from(&filename)
     } else {
+        if !crate::util::is_safe_filename(&filename) {
+            return Err("非法文件名".into());
+        }
         state.root.join("skins").join(&filename)
     };
+    if !path.is_file() {
+        return Err("皮肤文件不存在".into());
+    }
     let bytes = std::fs::read(&path).map_err(|e| format!("读取皮肤文件失败: {e}"))?;
     Ok(format!("data:image/png;base64,{}", STANDARD.encode(&bytes)))
 }
@@ -1343,6 +1487,9 @@ pub async fn download_skin_from_url(
 /// Delete a skin file by filename in the skins directory.
 #[tauri::command]
 pub fn delete_skin(state: State<AppState>, filename: String) -> Result<(), String> {
+    if !crate::util::is_safe_filename(&filename) {
+        return Err("非法文件名".into());
+    }
     let path = state.root.join("skins").join(&filename);
     if !path.exists() {
         return Err("皮肤文件不存在".into());
@@ -1674,4 +1821,102 @@ pub fn apply_skin_offline(
     std::fs::write(skin_dir.join(format!("{uuid}.png")), &bytes)
         .map_err(|e| format!("保存皮肤失败: {e}"))?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Multiplayer servers
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn ping_mc_server(address: String) -> mcping::ServerStatus {
+    mcping::ping_server(&address).await
+}
+
+#[tauri::command]
+pub fn list_servers(state: State<AppState>, instance_id: String) -> Result<Value, String> {
+    let dir = state.instances_dir().join(&instance_id);
+
+    // 现代 Minecraft (1.20.5+) 使用 servers.json
+    let json_path = dir.join("servers.json");
+    if json_path.is_file() {
+        if let Ok(text) = std::fs::read_to_string(&json_path) {
+            if let Ok(v) = serde_json::from_str::<Value>(&text) {
+                if let Some(servers) = v.get("servers").and_then(|x| x.as_array()) {
+                    let list: Vec<Value> = servers
+                        .iter()
+                        .filter_map(|s| {
+                            let name = s.get("name").and_then(|x| x.as_str())?.to_string();
+                            let ip = s
+                                .get("ip")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            if ip.is_empty() {
+                                return None;
+                            }
+                            let icon = s.get("icon").and_then(|x| x.as_str()).map(|x| x.to_string());
+                            Some(json!({ "name": name, "address": ip, "icon": icon }))
+                        })
+                        .collect();
+                    return Ok(json!({ "servers": list }));
+                }
+            }
+        }
+    }
+
+    // 旧版 Minecraft 使用 servers.dat (GZIP 压缩的 NBT)
+    let dat_path = dir.join("servers.dat");
+    if dat_path.is_file() {
+        if let Ok(bytes) = std::fs::read(&dat_path) {
+            use std::io::Read;
+            // Minecraft 1.12 及更早的 servers.dat 是 gzip 压缩的 NBT，
+            // 1.13+ 改为未压缩的纯 NBT。根据魔数判断是否需要先解压。
+            let raw: Vec<u8> = if bytes.starts_with(&[0x1f, 0x8b]) {
+                use flate2::read::GzDecoder;
+                let mut decompressed = Vec::new();
+                match GzDecoder::new(&bytes[..]).read_to_end(&mut decompressed) {
+                    Ok(_) => decompressed,
+                    Err(_) => bytes,
+                }
+            } else {
+                bytes
+            };
+            if let Ok(root) = fastnbt::from_bytes::<ServersDat>(&raw) {
+                let list: Vec<Value> = root
+                    .servers
+                    .into_iter()
+                    .filter_map(|s| {
+                        if s.ip.trim().is_empty() {
+                            return None;
+                        }
+                        // NBT 中的 icon 是裸 base64（无 data: 前缀），补全以便前端渲染
+                        let icon = s.icon.filter(|i| !i.trim().is_empty()).map(|i| {
+                            if i.starts_with("data:") {
+                                i
+                            } else {
+                                format!("data:image/png;base64,{}", i)
+                            }
+                        });
+                        Some(json!({ "name": s.name, "address": s.ip, "icon": icon }))
+                    })
+                    .collect();
+                return Ok(json!({ "servers": list }));
+            }
+        }
+    }
+
+    Ok(json!({ "servers": [] }))
+}
+
+#[derive(serde::Deserialize)]
+struct ServersDat {
+    servers: Vec<ServerNbt>,
+}
+
+#[derive(serde::Deserialize)]
+struct ServerNbt {
+    name: String,
+    ip: String,
+    #[serde(default)]
+    icon: Option<String>,
 }

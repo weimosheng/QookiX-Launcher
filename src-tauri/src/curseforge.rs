@@ -17,12 +17,21 @@ pub fn class_id_for(kind: &str) -> u32 {
     }
 }
 
+/// Built-in CurseForge API Key. Injected at compile time via CURSEFORGE_API_KEY env var.
+pub const BUILTIN_CF_API_KEY: &str = match option_env!("CURSEFORGE_API_KEY") {
+    Some(k) => k,
+    None => "",
+};
+
 fn api_key(state: &AppState) -> Result<String, String> {
     let s = state.settings.read().unwrap();
-    s.curseforge_api_key
-        .clone()
-        .filter(|k| !k.is_empty())
-        .ok_or("未配置 CurseForge API Key，请在设置中填写（可前往 console.curseforge.com 免费申请）".into())
+    if let Some(k) = s.curseforge_api_key.clone().filter(|k| !k.is_empty()) {
+        return Ok(k);
+    }
+    if !BUILTIN_CF_API_KEY.is_empty() {
+        return Ok(BUILTIN_CF_API_KEY.to_string());
+    }
+    Err("未配置 CurseForge API Key，请在设置中填写，或用 CURSEFORGE_API_KEY 环境变量重新构建（可前往 console.curseforge.com 免费申请）".into())
 }
 
 async fn get(state: &AppState, path: &str, params: &[(&str, String)]) -> Result<Value, String> {
@@ -428,6 +437,11 @@ pub async fn install_file(
         .and_then(|v| v.as_str())
         .unwrap_or("file.jar")
         .to_string();
+    // `fileName` comes from the CurseForge API (untrusted); it is joined onto
+    // the instance content folder, so require a plain file name.
+    if !crate::util::is_safe_filename(&filename) {
+        return Err(format!("文件名为非法路径: {filename}"));
+    }
     let url = file_download_url(file);
     let size = file.get("fileLength").and_then(|v| v.as_u64()).unwrap_or(0);
     let project_name = file
@@ -609,6 +623,8 @@ async fn install_modpack_inner(
         mods: Vec::new(),
         resource_packs: Vec::new(),
         shaders: Vec::new(),
+        is_symlink: false,
+        source_path: None,
     };
     crate::install::emit_progress(
         &app,

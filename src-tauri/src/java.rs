@@ -2,6 +2,75 @@ use crate::models::JavaInfo;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Hide the console window when spawning console-subsystem children
+/// (`reg.exe`, `java.exe`) on Windows; otherwise each child flashes a cmd
+/// window open-and-closed from a GUI process.
+#[cfg(windows)]
+fn hidden(cmd: &mut Command) -> &mut Command {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+}
+#[cfg(not(windows))]
+fn hidden(cmd: &mut Command) -> &mut Command {
+    cmd
+}
+
+// ---------------------------------------------------------------------------
+// Persisted detection cache
+// ---------------------------------------------------------------------------
+// Java detection runs 26+ `reg query` calls, so we persist the result to disk
+// and only rescan when it goes stale (or the user forces a refresh, or a new
+// runtime is downloaded). This avoids scanning on every app launch.
+const JAVA_CACHE_FILE: &str = "java-cache.json";
+const JAVA_CACHE_TTL_SECS: u64 = 30 * 24 * 60 * 60; // 30 days
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct JavaCache {
+    fetched_at: u64,
+    candidates: Vec<JavaInfo>,
+}
+
+fn load_java_cache(root: &Path) -> Option<(u64, Vec<JavaInfo>)> {
+    let text = std::fs::read_to_string(root.join(JAVA_CACHE_FILE)).ok()?;
+    let cache: JavaCache = serde_json::from_str(&text).ok()?;
+    Some((cache.fetched_at, cache.candidates))
+}
+
+fn save_java_cache(root: &Path, candidates: &[JavaInfo], now: u64) {
+    let cache = JavaCache {
+        fetched_at: now,
+        candidates: candidates.to_vec(),
+    };
+    if let Ok(json) = serde_json::to_string(&cache) {
+        let _ = std::fs::write(root.join(JAVA_CACHE_FILE), json);
+    }
+}
+
+fn invalidate_java_cache(root: &Path) {
+    let _ = std::fs::remove_file(root.join(JAVA_CACHE_FILE));
+}
+
+/// Detected Java list, reusing the persisted cache when it is fresh enough;
+/// otherwise scan, persist the result, and return it. `force` skips the disk
+/// cache entirely (used by the manual “查找 Java” refresh).
+pub fn cached_detect(
+    root: &Path,
+    runtimes: &Path,
+    now: u64,
+    force: bool,
+) -> (u64, Vec<JavaInfo>) {
+    if !force {
+        if let Some((ts, list)) = load_java_cache(root) {
+            if now.saturating_sub(ts) < JAVA_CACHE_TTL_SECS {
+                return (now, list);
+            }
+        }
+    }
+    let detected = detect_java(None, Some(runtimes));
+    save_java_cache(root, &detected, now);
+    (now, detected)
+}
+
 /// Detect Java installations on this machine, including any runtimes the
 /// launcher itself downloaded under `runtime_root`.
 ///
@@ -153,6 +222,19 @@ pub async fn download_java_runtime(
         crate::download::download_many(app.clone(), state, task_id, "runtime", items).await?;
     }
 
+    // Verify against Adoptium's published sha256. Especially important because
+    // GitHub-hosted downloads are rewritten to the Tsinghua mirror — a different
+    // (third-party) source that must not be able to tamper with the runtime.
+    if let Some(expected) = pkg.get("checksum").and_then(|c| c.as_str()) {
+        if !expected.is_empty() {
+            let actual = crate::util::file_sha256(&zip_path).unwrap_or_default();
+            if !actual.eq_ignore_ascii_case(expected) {
+                let _ = std::fs::remove_file(&zip_path);
+                return Err("Java 运行时校验失败（sha256 不匹配），请重试".into());
+            }
+        }
+    }
+
     // extract into runtimes/java/<major>/ (zip contains one top-level folder)
     let dest = state.root.join("runtimes").join("java").join(major.to_string());
     if dest.exists() {
@@ -161,6 +243,11 @@ pub async fn download_java_runtime(
     std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
     crate::util::extract_zip(&zip_path, &dest, &["META-INF/"])
         .map_err(|e| format!("解压 Java 运行时失败: {e}"))?;
+
+    // the installed Java set just changed; drop cached results so the next
+    // detection (or launch) picks up the freshly installed runtime
+    *state.java_cache.lock().unwrap() = None;
+    invalidate_java_cache(&state.root);
 
     // locate the executable
     let found = detect_java(None, Some(&state.root.join("runtimes")))
@@ -192,6 +279,8 @@ fn instance_placeholder(_state: &crate::state::AppState) -> crate::models::Insta
         mods: Vec::new(),
         resource_packs: Vec::new(),
         shaders: Vec::new(),
+        is_symlink: false,
+        source_path: None,
     }
 }
 
@@ -206,7 +295,9 @@ pub fn java_exe() -> &'static str {
 /// Run `java -version` and parse the first line, e.g.
 /// `openjdk version "21.0.2" 2024-01-16` or `java version "1.8.0_392"`.
 pub fn probe_java(path: &Path) -> Option<JavaInfo> {
-    let output = Command::new(path).arg("-version").output().ok()?;
+    let mut cmd = Command::new(path);
+    cmd.arg("-version");
+    let output = hidden(&mut cmd).output().ok()?;
     let text = String::from_utf8_lossy(&output.stderr).to_string();
     let first = text.lines().next().unwrap_or("").to_string();
 
@@ -280,9 +371,9 @@ fn clean_path(path: &Path) -> String {
 }
 
 fn probe_arch(path: &Path) -> String {
-    let output = Command::new(path)
-        .args(["-XshowSettings:properties", "-version"])
-        .output();
+    let mut cmd = Command::new(path);
+    cmd.args(["-XshowSettings:properties", "-version"]);
+    let output = hidden(&mut cmd).output();
     if let Ok(o) = output {
         let text = String::from_utf8_lossy(&o.stderr).to_string();
         for line in text.lines() {
@@ -330,7 +421,9 @@ fn registry_java_paths() -> Vec<PathBuf> {
                 if !reg_view.is_empty() {
                     args.push(reg_view);
                 }
-                if let Ok(o) = Command::new("reg").args(&args).output() {
+                let mut reg_cmd = Command::new("reg");
+                reg_cmd.args(&args);
+                if let Ok(o) = hidden(&mut reg_cmd).output() {
                     let text = String::from_utf8_lossy(&o.stdout).to_string();
                     for line in text.lines() {
                         let t = line.trim();
@@ -446,5 +539,77 @@ fn scan_java_exe(dir: &std::path::Path, out: &mut Vec<PathBuf>, depth: usize, de
                 out.push(p);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_java() -> Vec<JavaInfo> {
+        vec![JavaInfo {
+            path: "C:\\Java\\bin\\javaw.exe".into(),
+            version: "17.0.2".into(),
+            major: 17,
+            vendor: "Adoptium".into(),
+            arch: "x86_64".into(),
+        }]
+    }
+
+    #[test]
+    fn cache_round_trip_save_load_invalidate() {
+        let dir = std::env::temp_dir().join(format!(
+            "qk-java-cache-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let list = sample_java();
+        let now = 1_700_000_000u64;
+        save_java_cache(&dir, &list, now);
+        assert_eq!(load_java_cache(&dir), Some((now, list)));
+
+        invalidate_java_cache(&dir);
+        assert!(load_java_cache(&dir).is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cached_detect_returns_fresh_disk_cache_without_rescan() {
+        let dir = std::env::temp_dir().join(format!(
+            "qk-java-cache-test2-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // A "fresh" cache (100s old, far below the 30-day TTL) must be
+        // returned as-is — no scan should happen.
+        let list = sample_java();
+        save_java_cache(&dir, &list, 1_700_000_000);
+        let now = 1_700_000_100;
+        let (ts, out) = cached_detect(&dir, &dir, now, false);
+        assert_eq!(out, list);
+        assert_eq!(ts, now);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cached_detect_force_ignores_disk_cache() {
+        let dir = std::env::temp_dir().join(format!(
+            "qk-java-cache-test3-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        save_java_cache(&dir, &sample_java(), 1_700_000_000);
+        // force=true must not return the fake cached Java; it scans and
+        // overwrites the cache (the real machine scan may find zero or more).
+        let now = 1_700_000_100;
+        let (_, out) = cached_detect(&dir, &dir, now, true);
+        assert!(out.iter().all(|j| j.path != "C:\\Java\\bin\\javaw.exe"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

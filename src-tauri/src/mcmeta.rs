@@ -43,7 +43,7 @@ pub async fn fetch_version_json(state: &AppState, id: &str) -> Result<VersionJso
 
 /// Cache a version JSON at `versions/<id>/<id>.json` (used for vanilla).
 pub async fn cache_version_json(state: &AppState, json: &VersionJson) -> Result<PathBuf, String> {
-    let dir = state.versions_dir().join(&json.id);
+    let dir = crate::paths::resolve_version_dir(state, &json.id);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(format!("{}.json", json.id));
     let text = serde_json::to_string_pretty(json).map_err(|e| e.to_string())?;

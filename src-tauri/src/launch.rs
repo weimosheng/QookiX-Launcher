@@ -35,23 +35,26 @@ struct LaunchContext {
     account: ResolvedAccount,
     resolution: Option<(u32, u32)>,
     world: Option<String>,
+    server: Option<String>,
 }
 
 /// Launch a game instance. Emits `launch://log`, `launch://state` events.
 /// `world` (optional) directly joins a singleplayer world via quick play.
+/// `server` (optional) directly joins a multiplayer server.
 pub async fn launch_game(
     app: tauri::AppHandle,
     state: &AppState,
     instance: &Instance,
     account: ResolvedAccount,
     world: Option<String>,
+    server: Option<String>,
 ) -> Result<LaunchResult, String> {
     let mut settings = state.settings.read().unwrap().clone();
     // Resolve effective Microsoft Client ID (built-in or user-configured)
     if let Ok(id) = crate::accounts::effective_ms_client_id(state) {
         settings.ms_client_id = id;
     }
-    let version_path = state.versions_dir().join(&instance.id).join(format!("{}.json", instance.id));
+    let version_path = crate::paths::resolve_version_dir(state, &instance.id).join(format!("{}.json", instance.id));
     if !version_path.exists() {
         return Err("游戏尚未安装，请先点击「安装游戏」".into());
     }
@@ -107,18 +110,30 @@ pub async fn launch_game(
     }
 
     // Offline skin: inject PNG into the version jar at launch time.
+    // The jar is only rewritten when the skin file actually changed (tracked by
+    // a marker file storing the skin's sha1) — rewriting an identical jar on
+    // every launch is wasted I/O and looks like "binary patching" to antivirus
+    // heuristics, a common source of false positives for launchers.
     if account.user_type == "legacy" {
         let skin_file = state.root.join("skins").join("offline").join(format!("{}.png", account.uuid));
         if skin_file.exists() {
-            let jar = state.versions_dir().join(&instance.id).join(format!("{}.jar", instance.id));
+            let jar = crate::paths::resolve_version_dir(state, &instance.id).join(format!("{}.jar", instance.id));
             if jar.exists() {
-                if let Ok(skin_bytes) = std::fs::read(&skin_file) {
-                    let _ = app.emit("launch//log", serde_json::json!({
-                        "instanceId": instance.id,
-                        "stream": "out",
-                        "line": "正在应用离线皮肤…",
-                    }));
-                    inject_skin_into_jar(&jar, &skin_bytes)?;
+                if let Some(skin_bytes) = std::fs::read(&skin_file).ok() {
+                    let current_hash = crate::util::file_sha1(&skin_file).unwrap_or_default();
+                    let marker = instance_dir.join(".qookix-skin-injected");
+                    let already_injected = std::fs::read_to_string(&marker)
+                        .map(|h| h.trim() == current_hash)
+                        .unwrap_or(false);
+                    if !already_injected {
+                        let _ = app.emit("launch//log", serde_json::json!({
+                            "instanceId": instance.id,
+                            "stream": "out",
+                            "line": "正在应用离线皮肤…",
+                        }));
+                        inject_skin_into_jar(&jar, &skin_bytes)?;
+                        let _ = std::fs::write(&marker, current_hash);
+                    }
                 }
             }
         }
@@ -138,15 +153,15 @@ pub async fn launch_game(
         // which is how modern versions (26.x) provide lwjgl.dll etc.
         if let Some(dl) = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()) {
             if let Some(p) = &dl.path {
-                classpath.push(crate::paths::libraries_dir(state, &instance.id).join(p).to_string_lossy().to_string());
+                classpath.push(crate::paths::libraries_dir(state).join(p).to_string_lossy().to_string());
             } else if let Some(rel) = crate::models::maven_to_path(&lib.name) {
-                classpath.push(crate::paths::libraries_dir(state, &instance.id).join(rel).to_string_lossy().to_string());
+                classpath.push(crate::paths::libraries_dir(state).join(rel).to_string_lossy().to_string());
             }
         } else if let Some(rel) = crate::models::maven_to_path(&lib.name) {
-            classpath.push(crate::paths::libraries_dir(state, &instance.id).join(rel).to_string_lossy().to_string());
+            classpath.push(crate::paths::libraries_dir(state).join(rel).to_string_lossy().to_string());
         }
     }
-    let client_jar = state.versions_dir().join(&instance.id).join(format!("{}.jar", instance.id));
+    let client_jar = crate::paths::resolve_version_dir(state, &instance.id).join(format!("{}.jar", instance.id));
     if client_jar.exists() {
         classpath.push(client_jar.to_string_lossy().to_string());
     }
@@ -161,12 +176,13 @@ pub async fn launch_game(
         classpath: classpath_str,
         natives_dir,
         instance_dir,
-        assets_dir: crate::paths::assets_dir(state, &instance.id),
-        libraries_dir: crate::paths::libraries_dir(state, &instance.id),
-        version_dir: state.versions_dir().join(&instance.id),
+        assets_dir: crate::paths::assets_dir(state),
+        libraries_dir: crate::paths::libraries_dir(state),
+        version_dir: crate::paths::resolve_version_dir(state, &instance.id),
         account,
         resolution,
         world,
+        server,
     };
 
     let args = build_args(&ctx);
@@ -203,7 +219,9 @@ pub async fn launch_game(
             .unwrap_or(0)
     ));
     std::fs::create_dir_all(state.logs_dir()).map_err(|e| e.to_string())?;
-    let _ = std::fs::write(&log_path, format!("$ java {}\n", args.join(" ")));
+    // Never write the raw access token into the launch log.
+    let logged = mask_secret_args(&args);
+    let _ = std::fs::write(&log_path, format!("$ java {}\n", logged.join(" ")));
 
     let _ = app.emit("launch://progress", serde_json::json!({ "step": "正在启动游戏进程…", "progress": 80 }));
 
@@ -319,30 +337,40 @@ pub async fn kill_game(state: &AppState) -> Result<(), String> {
         let mut guard = state.game_pids.lock().unwrap();
         guard.drain().map(|(_, v)| v).collect()
     };
-    for pid in pids {
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            // Graceful: send WM_CLOSE via taskkill (no /F), give the game 3s to exit cleanly
+    if pids.is_empty() {
+        return Ok(());
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        // Graceful: send WM_CLOSE via taskkill (no /F) to all, then give them a
+        // single shared window to exit cleanly before force-killing the rest.
+        for pid in &pids {
             let _ = Command::new("taskkill")
                 .args(["/PID", &pid.to_string()])
                 .creation_flags(CREATE_NO_WINDOW)
                 .output();
-            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        for pid in &pids {
             // Force kill the entire process tree if still alive
             let _ = Command::new("taskkill")
                 .args(["/T", "/F", "/PID", &pid.to_string()])
                 .creation_flags(CREATE_NO_WINDOW)
                 .output();
         }
-        #[cfg(not(windows))]
-        {
-            // Graceful: SIGTERM first
+    }
+    #[cfg(not(windows))]
+    {
+        // Graceful: SIGTERM all first
+        for pid in &pids {
             let _ = Command::new("kill")
                 .args(["-15", &pid.to_string()])
                 .output();
-            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        for pid in &pids {
             // Force kill if still alive
             let _ = Command::new("kill")
                 .args(["-9", &pid.to_string()])
@@ -364,7 +392,7 @@ pub fn is_running(state: &AppState) -> bool {
 /// client jar's class-file version as an authoritative fallback.
 pub fn required_java_for(state: &AppState, instance: &Instance) -> u32 {
     let mut required = 8u32;
-    let version_path = state.versions_dir().join(&instance.id).join(format!("{}.json", instance.id));
+    let version_path = crate::paths::resolve_version_dir(state, &instance.id).join(format!("{}.json", instance.id));
     if let Ok(text) = std::fs::read_to_string(&version_path) {
         if let Ok(vj) = serde_json::from_str::<VersionJson>(&text) {
             if let Some(j) = vj.java_version {
@@ -372,7 +400,7 @@ pub fn required_java_for(state: &AppState, instance: &Instance) -> u32 {
             }
         }
     }
-    let jar = state.versions_dir().join(&instance.id).join(format!("{}.jar", instance.id));
+    let jar = crate::paths::resolve_version_dir(state, &instance.id).join(format!("{}.jar", instance.id));
     if let Some(class_major) = crate::util::jar_class_version(&jar) {
         let from_jar = class_major.saturating_sub(44);
         if from_jar > required {
@@ -384,24 +412,23 @@ pub fn required_java_for(state: &AppState, instance: &Instance) -> u32 {
 
 /// Get detected Java list from cache. Re-scans if cache is older than 5 minutes.
 async fn get_detected_java(state: &AppState) -> Vec<JavaInfo> {
+    // Prefer in-memory results (loaded from the persisted cache at startup;
+    // refreshed on demand or after a runtime download invalidates it).
+    if let Some((_, list)) = state.java_cache.lock().unwrap().as_ref() {
+        return list.clone();
+    }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    {
-        if let Some((ts, list)) = state.java_cache.lock().unwrap().as_ref() {
-            if now.saturating_sub(*ts) < 300 {
-                return list.clone();
-            }
-        }
-    }
-    let runtimes = state.root.join("runtimes");
-    let detected = tokio::task::spawn_blocking(move || {
-        crate::java::detect_java(None, Some(&runtimes))
+    let root = state.root.clone();
+    let runtimes = root.join("runtimes");
+    let (ts, detected) = tokio::task::spawn_blocking(move || {
+        crate::java::cached_detect(&root, &runtimes, now, false)
     })
     .await
-    .unwrap_or_default();
-    *state.java_cache.lock().unwrap() = Some((now, detected.clone()));
+    .unwrap_or_else(|_| (now, Vec::new()));
+    *state.java_cache.lock().unwrap() = Some((ts, detected.clone()));
     detected
 }
 
@@ -451,7 +478,7 @@ async fn pick_java(
         .map(|j| j.major_version)
         .unwrap_or(8);
     // authoritative fallback: derive the requirement from the client jar itself
-    let jar = state.versions_dir().join(&instance.id).join(format!("{}.jar", instance.id));
+    let jar = crate::paths::resolve_version_dir(state, &instance.id).join(format!("{}.jar", instance.id));
     if let Some(class_major) = crate::util::jar_class_version(&jar) {
         let from_jar = class_major.saturating_sub(44);
         if from_jar > required {
@@ -507,7 +534,34 @@ async fn pick_java(
     Ok(best.clone())
 }
 
-/// Set `lang:zh_CN` (or `zh_cn` for 1.13+) in the instance's `options.txt` so the game launches in Chinese.
+/// Redact sensitive arguments (the Minecraft access token) before logging the
+/// launch command line to `logs/<instance>-<ts>.log`.
+fn mask_secret_args(args: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(args.len());
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if a == "--accessToken" {
+            out.push(a.clone());
+            if i + 1 < args.len() {
+                out.push("***".into());
+                i += 2;
+                continue;
+            }
+        } else if a.starts_with("--accessToken=") {
+            out.push("--accessToken=***".into());
+            i += 1;
+            continue;
+        }
+        out.push(a.clone());
+        i += 1;
+    }
+    out
+}
+
+/// Set `lang:zh_CN` (or `zh_cn` for 1.13+) in the instance's `options.txt` so
+/// the game launches in Chinese. Only writes the default when the user has not
+/// already chosen a language, so their in-game language preference is respected.
 fn set_chinese_lang(instance_dir: &std::path::Path, mc_version: &str) {
     let options_path = instance_dir.join("options.txt");
     // Minecraft 1.13+ uses lowercase language codes (zh_cn), older versions use zh_CN
@@ -516,24 +570,11 @@ fn set_chinese_lang(instance_dir: &std::path::Path, mc_version: &str) {
     let minor: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
     let target_line = if major == 1 && minor < 13 { "lang:zh_CN" } else { "lang:zh_cn" };
     if let Ok(text) = std::fs::read_to_string(&options_path) {
-        let mut found = false;
-        let updated: String = text
-            .lines()
-            .map(|line| {
-                if line.starts_with("lang:") {
-                    found = true;
-                    target_line.to_string()
-                } else {
-                    line.to_string()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        let result = if found {
-            updated
-        } else {
-            format!("{updated}\n{target_line}")
-        };
+        // Respect an existing language choice instead of forcing zh.
+        if text.lines().any(|l| l.starts_with("lang:")) {
+            return;
+        }
+        let result = format!("{text}\n{target_line}");
         let _ = std::fs::write(&options_path, result);
     } else {
         let _ = std::fs::write(&options_path, target_line);
@@ -741,8 +782,44 @@ fn build_args(ctx: &LaunchContext) -> Vec<String> {
         }
     }
 
+    // quick play: directly join a multiplayer server
+    if let Some(server) = &ctx.server {
+        if supports_quick_play(&ctx.instance.mc_version) {
+            args.push("--quickPlayMultiplayer".into());
+            args.push(server.clone());
+        } else {
+            // 1.20.2 之前的版本使用 --server / --port 参数
+            let (host, port) = split_host_port(server);
+            args.push("--server".into());
+            args.push(host);
+            args.push("--port".into());
+            args.push(port.to_string());
+        }
+    }
+
     args.extend(game_args);
     args
+}
+
+/// 把 "host"、"host:port" 或 "[ipv6]:port" 拆成 (host, port)，默认 25565
+fn split_host_port(addr: &str) -> (String, u16) {
+    if addr.starts_with('[') {
+        if let Some(end) = addr.find(']') {
+            let host = addr[1..end].to_string();
+            let port = addr[end + 1..]
+                .strip_prefix(':')
+                .and_then(|p| p.parse::<u16>().ok())
+                .unwrap_or(25565);
+            return (host, port);
+        }
+    }
+    if let Some(idx) = addr.rfind(':') {
+        let (h, p) = addr.split_at(idx);
+        if let Ok(port) = p[1..].parse::<u16>() {
+            return (h.to_string(), port);
+        }
+    }
+    (addr.to_string(), 25565)
 }
 
 /// Minecraft added quick-play (`--quickPlaySingleplayer`) in 1.20.2.
