@@ -32,6 +32,13 @@ function draw() {
       cx.drawImage(img, 44, 20, 4, 12, 0, 8, 4, 12);
       cx.restore();
     }
+    // 第二层（overlay）—— 仅在 64px 高清皮肤上存在
+    if (img.height >= 64) {
+      s(40, 8, 8, 8, 4, 0); // 头部 overlay
+      s(20, 36, 8, 12, 4, 8); // 身体 overlay
+      s(44, 36, 4, 12, 0, 8); // 右臂 overlay
+      s(52, 52, 4, 12, 12, 8); // 左臂 overlay
+    }
   };
   img.src = props.src;
 }

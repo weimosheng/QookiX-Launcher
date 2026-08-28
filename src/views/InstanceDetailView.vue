@@ -13,7 +13,7 @@ import AppIcon from "../components/AppIcon.vue";
 import IconPickerDialog from "../components/IconPickerDialog.vue";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ContentItem, ProjectVersion, UpdateInfo } from "../types";
+import type { ContentItem, ProjectVersion, ServerEntry, ServerStatus, UpdateInfo } from "../types";
 
 function sourceLabel(s: string) {
   return s === "modrinth" ? "Modrinth" : s === "curseforge" ? "CurseForge" : s === "modpack" ? "整合包" : "手动";
@@ -35,6 +35,7 @@ import {
   IconRepeat,
   IconSearch,
   IconTrash,
+  IconGlobe,
 } from "../components/icons";
 const route = useRoute();
 const router = useRouter();
@@ -56,6 +57,85 @@ async function handleConfirm() {
   } finally {
     confirmLoading.value = false;
   }
+}
+
+// 世界（单人游戏 + 多人游戏）相关状态
+const worldSub = ref<"sp" | "mp">("sp");
+const servers = ref<ServerEntry[]>([]);
+const serverStatus = ref<Record<string, ServerStatus>>({});
+const pinging = ref<Set<string>>(new Set());
+const loadingServers = ref(false);
+
+async function loadServers() {
+  loadingServers.value = true;
+  try {
+    servers.value = await api.listServers(instanceId);
+  } catch (e) {
+    servers.value = [];
+    message.error(String(e));
+  } finally {
+    loadingServers.value = false;
+  }
+  await pingMissing();
+}
+
+// 只对还没有状态记录的服务器测延迟，避免重复 ping 已有数据
+async function pingMissing() {
+  const todo = servers.value.filter((s) => !serverStatus.value[s.address]);
+  await Promise.all(todo.map((s) => pingOne(s.address)));
+}
+
+async function pingOne(address: string) {
+  const next = new Set(pinging.value);
+  next.add(address);
+  pinging.value = next;
+  try {
+    const st = await api.pingServer(address);
+    serverStatus.value = { ...serverStatus.value, [address]: st };
+  } catch (e) {
+    serverStatus.value = {
+      ...serverStatus.value,
+      [address]: {
+        online: false,
+        address,
+        name: null,
+        version: null,
+        players_online: null,
+        players_max: null,
+        motd: null,
+        favicon: null,
+        latency_ms: null,
+        error: String(e),
+      },
+    };
+  } finally {
+    const n2 = new Set(pinging.value);
+    n2.delete(address);
+    pinging.value = n2;
+  }
+}
+
+function selectWorldSub(s: "sp" | "mp") {
+  worldSub.value = s;
+  if (s === "mp" && !loadingServers.value) {
+    loadServers();
+  }
+}
+
+function serverIcon(entry: ServerEntry, st?: ServerStatus): string | undefined {
+  if (st && !st.online) return undefined;
+  if (st?.favicon) return st.favicon;
+  if (entry.icon) return "data:image/png;base64," + entry.icon;
+  return undefined;
+}
+
+function latencyInfo(latency: number | null | undefined): { count: number; tier: string } {
+  if (latency == null) return { count: 0, tier: "off" };
+  if (latency <= 50) return { count: 5, tier: "good" };
+  if (latency <= 100) return { count: 4, tier: "good" };
+  if (latency <= 200) return { count: 3, tier: "mid" };
+  if (latency <= 300) return { count: 2, tier: "bad" };
+  return { count: 1, tier: "bad" };
 }
 
 const instanceId = route.params.id as string;
@@ -95,16 +175,20 @@ const ALL_TABS = [
   { key: "shaders", label: "光影", icon: IconLayers, folder: "shaderpacks" },
   { key: "resourcepacks", label: "材质包", icon: IconImage, folder: "resourcepacks" },
   { key: "screenshots", label: "截图", icon: IconCamera, folder: "screenshots" },
-  { key: "saves", label: "存档", icon: IconFolder, folder: "saves" },
+  { key: "saves", label: "世界", icon: IconFolder, folder: "saves" },
   { key: "logs", label: "日志", icon: IconFile },
   { key: "settings", label: "设置", icon: IconExternal },
 ];
 
 // folder-backed tabs are only shown when the corresponding folder exists;
-// vanilla instances have no mods so hide that tab entirely.
+// vanilla instances have no mods and no shaders, so hide those tabs entirely.
 const tabs = computed(() =>
   ALL_TABS.filter((t) => {
-    if (t.key === "mods" && instance.value?.loader === "vanilla") return false;
+    if (
+      (t.key === "mods" || t.key === "shaders") &&
+      instance.value?.loader === "vanilla"
+    )
+      return false;
     return !t.folder || folders.value[t.folder] || t.key === tab.value;
   })
 );
@@ -164,6 +248,7 @@ async function loadContent() {
     const res = await api.listContent(instanceId, kindOf(tab.value));
     if (seq !== loadSeq) return;
     contentItems.value = res.items;
+    api.identifyContent(instanceId, kindOf(tab.value)).catch(() => {});
   } catch (e) {
     if (seq !== loadSeq) return;
     message.error(String(e));
@@ -227,6 +312,70 @@ async function launchWorld(name: string) {
   } finally {
     launchingWorld.value = "";
   }
+}
+
+const launchingServer = ref<string>("");
+async function launchServer(entry: ServerEntry) {
+  const i = instance.value;
+  if (!i) return;
+  if (!accounts.accounts.length) {
+    message.warning("请先添加账号（正版或离线）");
+    accounts.showManager = true;
+    return;
+  }
+  launchingServer.value = entry.address;
+  try {
+    await instances.launch(i.id, undefined, entry.address);
+    message.success(`正在加入服务器「${entry.name || entry.address}」`);
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    launchingServer.value = "";
+  }
+}
+
+// 把 MC 的 §x 颜色码解析为可渲染的片段，用于彩色显示服务器 MOTD
+const MC_COLORS: Record<string, string> = {
+  "0": "#000000", "1": "#0000aa", "2": "#00aa00", "3": "#00aaaa",
+  "4": "#aa0000", "5": "#aa00aa", "6": "#ffaa00", "7": "#aaaaaa",
+  "8": "#555555", "9": "#5555ff", "a": "#55ff55", "b": "#55ffff",
+  "c": "#ff5555", "d": "#ff55ff", "e": "#ffff55", "f": "#ffffff",
+};
+function parseMotd(raw?: string | null): Array<{ text: string; color: string | null; bold: boolean; italic: boolean; underline: boolean; strike: boolean }> {
+  if (!raw) return [];
+  const out: Array<{ text: string; color: string | null; bold: boolean; italic: boolean; underline: boolean; strike: boolean }> = [];
+  let style = { color: null as string | null, bold: false, italic: false, underline: false, strike: false };
+  let buf = "";
+  const flush = () => { if (buf) { out.push({ text: buf, ...style }); buf = ""; } };
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (ch === "§" && i + 1 < raw.length) {
+      const code = raw[i + 1].toLowerCase();
+      i++;
+      flush();
+      if (code === "r") {
+        style = { color: null, bold: false, italic: false, underline: false, strike: false };
+      } else if (code === "l") {
+        style.bold = true;
+      } else if (code === "m") {
+        style.strike = true;
+      } else if (code === "n") {
+        style.underline = true;
+      } else if (code === "o") {
+        style.italic = true;
+      } else if (code === "k") {
+        // 乱码（obfuscated）：无法还原，保留原文本
+      } else if (MC_COLORS[code]) {
+        style = { color: MC_COLORS[code], bold: false, italic: false, underline: false, strike: false };
+      } else {
+        buf += "§" + code;
+      }
+      continue;
+    }
+    buf += ch;
+  }
+  flush();
+  return out;
 }
 
 async function checkUpdates() {
@@ -342,6 +491,7 @@ function onDocMouseDown(e: MouseEvent) {
   }
 }
 let unlistenUpdate: UnlistenFn | null = null;
+let unlistenIdentify: UnlistenFn | null = null;
 onMounted(async () => {
   document.addEventListener("mousedown", onDocMouseDown);
   try {
@@ -360,11 +510,37 @@ onMounted(async () => {
   } catch {
     /* 事件监听不可用不影响主流程 */
   }
+  try {
+    unlistenIdentify = await listen<{
+      instanceId: string; kind: string; filename: string;
+      source: string; projectId: string; versionId: string;
+      slug: string | null; name: string | null; description: string | null;
+      icon: string | null; authors: string[] | null;
+    }>("content::identified", (ev) => {
+      const p = ev.payload;
+      if (p.instanceId !== instanceId) return;
+      const idx = contentItems.value.findIndex((it) => it.record.filename === p.filename);
+      if (idx < 0) return;
+      const rec = contentItems.value[idx].record;
+      rec.source = p.source;
+      rec.project_id = p.projectId;
+      rec.version_id = p.versionId;
+      rec.slug = p.slug;
+      if (p.name) rec.name = p.name;
+      if (p.description) rec.description = p.description;
+      if (p.icon) rec.icon = p.icon;
+      if (p.authors) rec.authors = p.authors;
+    });
+  } catch {
+    /* ignore */
+  }
 });
 onBeforeUnmount(() => {
   document.removeEventListener("mousedown", onDocMouseDown);
   unlistenUpdate?.();
   unlistenUpdate = null;
+  unlistenIdentify?.();
+  unlistenIdentify = null;
   if (memTimer) clearInterval(memTimer);
   if (saveTimer) clearTimeout(saveTimer);
 });
@@ -720,6 +896,7 @@ watch(
       memTimer = setInterval(loadMemoryInfo, 10000);
     } else if (t === "screenshots" || t === "saves") {
       loadFiles();
+      if (t === "saves" && !loadingServers.value) loadServers();
     } else {
       loadContent();
       updates.value = {};
@@ -736,8 +913,10 @@ watch(
   () => instance.value?.installed,
   () => {
     loadFolders();
-    if (tab.value === "screenshots" || tab.value === "saves") loadFiles();
-    else loadContent();
+    if (tab.value === "screenshots" || tab.value === "saves") {
+      loadFiles();
+      if (tab.value === "saves" && !loadingServers.value) loadServers();
+    } else loadContent();
   },
   { immediate: true }
 );
@@ -775,6 +954,11 @@ watch(
       </div>
     </div>
 
+    <div v-if="instance.is_symlink" class="symlink-notice glass">
+      <IconExternal />
+      <span>当前实例通过符号链接方式导入，对 mods / 存档等文件所做的更改会直接影响原始目录<template v-if="instance.source_path">（来源：{{ instance.source_path }}）</template>。下载的 mod 也会保存到原始目录。</span>
+    </div>
+
     <div ref="tabsBox" class="tabs glass">
       <div class="indicator" :style="tabIndicatorStyle"></div>
       <button
@@ -806,8 +990,7 @@ watch(
     <div class="tab-body">
       <!-- mods / resourcepacks / shaders -->
       <template v-if="tab === 'mods' || tab === 'resourcepacks' || tab === 'shaders'">
-        <div v-if="loadingContent" class="center">加载中…</div>
-        <div v-else-if="!contentItems.length" class="empty glass">
+        <div v-if="!loadingContent && !contentItems.length" class="empty glass">
           <p>这里还是空的</p>
           <div class="empty-actions">
             <button class="btn ghost" @click="importLocal"><IconPlus /> 导入本地文件</button>
@@ -835,7 +1018,7 @@ watch(
               </div>
               <div v-if="(item.record.name && item.record.name !== item.record.filename) || item.record.cn_name" class="c-file text-ellipsis">{{ item.record.filename }}</div>
               <div class="c-meta">
-                <span class="src" :class="item.record.source">{{ sourceLabel(item.record.source) }}</span>
+                <span v-if="item.record.source !== 'manual'" class="src" :class="item.record.source">{{ sourceLabel(item.record.source) }}</span>
                 <span v-if="item.record.version" class="ver">{{ item.record.version }}</span>
                 <span v-if="item.record.authors && item.record.authors.length" class="author">作者：{{ item.record.authors.join("、") }}</span>
                 <span v-if="!item.exists" class="missing">文件缺失</span>
@@ -912,36 +1095,105 @@ watch(
         </div>
       </template>
 
-      <!-- saves -->
+      <!-- 世界：单人游戏 / 多人游戏 -->
       <template v-if="tab === 'saves'">
-        <div v-if="loadingFiles" class="center">加载中…</div>
-        <div v-else-if="!fileItems.length" class="empty glass">
-          <p>还没有存档</p>
-          <button class="btn ghost" @click="openTabFolder"><IconFolder /> 打开存档文件夹</button>
+        <div class="world-sub">
+          <button class="seg" :class="{ active: worldSub === 'sp' }" @click="selectWorldSub('sp')">
+            <IconFolder /> 单人游戏
+          </button>
+          <button class="seg" :class="{ active: worldSub === 'mp' }" @click="selectWorldSub('mp')">
+            <IconGlobe /> 多人游戏
+          </button>
         </div>
-        <div v-else class="content-list glass">
-          <div v-for="f in fileItems.filter((x) => x.isDir)" :key="f.name" class="world-row">
-            <img v-if="f.icon" :src="assetUrl(f.icon)" class="world-icon" alt="" />
-            <div v-else class="world-icon ph"><IconFolder /></div>
-            <div class="c-info">
-              <div class="c-name text-ellipsis">{{ f.name }}</div>
-              <div class="c-meta">
-                <span class="ver">世界存档</span>
-                <span v-if="f.modified" class="ver">{{ fmtDate(f.modified) }}</span>
+
+        <!-- 单人游戏：本地世界存档 -->
+        <template v-if="worldSub === 'sp'">
+          <div v-if="loadingFiles" class="center">加载中…</div>
+          <div v-else-if="!fileItems.length" class="empty glass">
+            <p>还没有世界存档</p>
+            <button class="btn ghost" @click="openTabFolder"><IconFolder /> 打开存档文件夹</button>
+          </div>
+          <div v-else class="content-list glass">
+            <div v-for="f in fileItems.filter((x) => x.isDir)" :key="f.name" class="world-row">
+              <img v-if="f.icon" :src="assetUrl(f.icon)" class="world-icon" alt="" />
+              <div v-else class="world-icon ph"><IconFolder /></div>
+              <div class="c-info">
+                <div class="c-name text-ellipsis">{{ f.name }}</div>
+                <div class="c-meta">
+                  <span class="ver">世界存档</span>
+                  <span v-if="f.modified" class="ver">{{ fmtDate(f.modified) }}</span>
+                </div>
+              </div>
+              <div class="c-actions">
+                <button
+                  class="mini-btn play"
+                  :disabled="!!launchingWorld"
+                  @click="launchWorld(f.name)"
+                >
+                  <IconPlay /> {{ launchingWorld === f.name ? "启动中…" : "启动" }}
+                </button>
               </div>
             </div>
-            <div class="c-actions">
-              <button
-                class="mini-btn play"
-                :disabled="!!launchingWorld"
-                @click="launchWorld(f.name)"
-              >
-                <IconPlay /> {{ launchingWorld === f.name ? "启动中…" : "直接启动" }}
-              </button>
+            <div v-if="!fileItems.some((x) => x.isDir)" class="center">这个实例还没有世界存档</div>
+          </div>
+        </template>
+
+        <!-- 多人游戏：服务器列表 -->
+        <template v-else>
+          <div v-if="loadingServers" class="center">加载中…</div>
+          <div v-else-if="!servers.length" class="empty glass">
+            <p>还没有添加服务器</p>
+            <p class="hint">在游戏内“多人游戏”中添加一个服务器，它会出现在这里</p>
+          </div>
+          <div v-else class="content-list glass">
+            <div v-for="s in servers" :key="s.address" class="server-row">
+              <img v-if="serverIcon(s, serverStatus[s.address])" :src="serverIcon(s, serverStatus[s.address])!" class="server-icon" alt="" />
+              <div class="c-info">
+                <div class="c-name text-ellipsis">{{ serverStatus[s.address]?.name || s.name }}</div>
+                <div class="server-meta">
+                  <span class="latency" :class="latencyInfo(serverStatus[s.address]?.latency_ms).tier">
+                    <span class="bars">
+                      <i v-for="n in 5" :key="n" :class="{ on: n <= latencyInfo(serverStatus[s.address]?.latency_ms).count }"></i>
+                    </span>
+                    <span v-if="serverStatus[s.address]?.latency_ms != null">{{ serverStatus[s.address]?.latency_ms }} ms</span>
+                    <span v-else-if="serverStatus[s.address] && !serverStatus[s.address]?.online">离线</span>
+                    <span v-else>…</span>
+                  </span>
+                  <span v-if="serverStatus[s.address]?.players_online != null" class="players">
+                    {{ serverStatus[s.address]?.players_online }}<template v-if="serverStatus[s.address]?.players_max != null">/{{ serverStatus[s.address]?.players_max }}</template> 人在线
+                  </span>
+                  <span v-else-if="serverStatus[s.address]?.error" class="err" :title="serverStatus[s.address]?.error ?? undefined">无法连接</span>
+                </div>
+                <div v-if="serverStatus[s.address]?.motd" class="server-motd">
+                  <span
+                    v-for="(seg, si) in parseMotd(serverStatus[s.address]?.motd)"
+                    :key="si"
+                    :style="{
+                      color: seg.color || undefined,
+                      fontWeight: seg.bold ? 700 : undefined,
+                      fontStyle: seg.italic ? 'italic' : undefined,
+                      textDecoration: (seg.underline ? 'underline ' : '') + (seg.strike ? 'line-through' : '') || undefined,
+                    }"
+                    >{{ seg.text }}</span
+                  >
+                </div>
+              </div>
+              <div class="c-actions">
+                <button
+                  class="mini-btn play"
+                  :disabled="!!launchingServer || pinging.has(s.address)"
+                  :title="launchingServer === s.address ? '启动中…' : '启动并加入此服务器'"
+                  @click="launchServer(s)"
+                >
+                  <IconPlay /> {{ launchingServer === s.address ? "启动中" : "启动" }}
+                </button>
+                <button class="mini-btn" :disabled="pinging.has(s.address) || !!launchingServer" @click="pingOne(s.address)">
+                  <IconRefresh /> {{ pinging.has(s.address) ? "测试中" : "刷新" }}
+                </button>
+              </div>
             </div>
           </div>
-          <div v-if="!fileItems.some((x) => x.isDir)" class="center">这个实例还没有世界存档</div>
-        </div>
+        </template>
       </template>
 
       <!-- logs -->
@@ -1107,7 +1359,7 @@ watch(
       style="width: 420px; max-width: 92vw"
       :mask-closable="true"
       :close-on-esc="true"
-      :on-update:show="(v: boolean) => { if (!v) confirmState = null; }"
+      @update:show="(v: boolean) => { if (!v) confirmState = null; }"
       @mask-click="confirmState = null"
     >
       <div v-if="confirmState" ref="confirmCardRef" style="display: flex; flex-direction: column; gap: 16px;">
@@ -1194,6 +1446,20 @@ watch(
   align-items: center;
   gap: 16px;
   padding: 18px 20px;
+}
+.symlink-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: #e8a33d;
+  background: rgba(232, 163, 61, 0.1);
+  border-radius: 12px;
+}
+.symlink-notice svg {
+  flex-shrink: 0;
 }
 .d-icon {
   width: 56px;
@@ -1654,6 +1920,122 @@ watch(
   justify-content: center;
   color: var(--text-3);
   font-size: 18px;
+}
+.world-sub {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.seg:hover {
+  color: var(--text-1);
+  border-color: var(--accent);
+}
+.seg.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: rgba(232, 154, 75, 0.5);
+}
+.mp-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.mp-hint {
+  font-size: 13px;
+  color: var(--text-3);
+}
+.server-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.server-row:last-child {
+  border-bottom: none;
+}
+.server-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  image-rendering: pixelated;
+  background: rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
+}
+.server-icon.ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  font-size: 18px;
+}
+.server-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.latency {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.latency .bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+.latency .bars i {
+  width: 3px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 1px;
+  opacity: 0.35;
+}
+.latency .bars i:nth-child(1) { height: 4px; }
+.latency .bars i:nth-child(2) { height: 6px; }
+.latency .bars i:nth-child(3) { height: 8px; }
+.latency .bars i:nth-child(4) { height: 10px; }
+.latency .bars i:nth-child(5) { height: 12px; }
+.latency .bars i.on { opacity: 1; }
+.latency.good .bars i.on { background: #57c257; }
+.latency.good span:not(.bars) { color: #57c257; }
+.latency.mid .bars i.on { background: #e0c000; }
+.latency.mid span:not(.bars) { color: #e0c000; }
+.latency.bad .bars i.on { background: #e0533d; }
+.latency.bad span:not(.bars) { color: #e0533d; }
+.latency.off { color: rgba(255, 255, 255, 0.4); }
+.players { color: var(--text-2); }
+.err { color: #e0533d; }
+.server-motd {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 2px;
+  max-width: 540px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+.hint {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 4px;
 }
 .mini-btn.play {
   color: var(--accent);

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { NTabs, NTabPane, NSwitch, useMessage } from "naive-ui";
+import { NTabs, NTabPane, useMessage } from "naive-ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useSettingsStore } from "../stores/settings";
 import { api } from "../api";
@@ -186,14 +186,6 @@ onUnmounted(() => {
                 </button>
               </div>
             </div>
-            <div class="choice-row">
-              <span>版本隔离</span>
-              <n-switch
-                v-model:value="settings.settings.isolation"
-                @update:value="(v: boolean) => settings.patch({ isolation: v })"
-              />
-            </div>
-            <p class="hint">开启后，每个实例的依赖库与资源文件独立存放（更占空间，互不干扰）。</p>
           </div>
 
           <div class="card glass">

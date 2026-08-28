@@ -28,7 +28,10 @@ function skinToAvatar(skinDataUrl: string): Promise<string> {
       const ctx = canvas.getContext("2d");
       if (!ctx) return resolve("");
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(img, 8, 8, 8, 8, 0, 0, 8, 8);
+      ctx.drawImage(img, 8, 8, 8, 8, 0, 0, 8, 8); // 头部基础层
+      if (img.height >= 64) {
+        ctx.drawImage(img, 40, 8, 8, 8, 0, 0, 8, 8); // 头部第二层（overlay）
+      }
       resolve(canvas.toDataURL("image/png"));
     };
     img.onerror = () => resolve("");

@@ -97,8 +97,8 @@ async function loadMcWikiUrl() {
 }
 
 const instanceOptions = () =>
-  instances.instances.map((i) => ({
-    label: `${i.name} (${i.mc_version} ${i.loader === "vanilla" ? "" : i.loader})`,
+  instances.instances.filter((i) => i.loader !== "vanilla").map((i) => ({
+    label: `${i.name} (${i.mc_version} ${i.loader})`,
     value: i.id,
   }));
 
@@ -168,9 +168,10 @@ watch(selectedInstance, () => {
 
 function resetForProject() {
   if (!props.project) return;
-  const pref = props.defaultInstance && instances.instances.some((i) => i.id === props.defaultInstance)
+  const nonVanilla = instances.instances.filter((i) => i.loader !== "vanilla");
+  const pref = props.defaultInstance && nonVanilla.some((i) => i.id === props.defaultInstance)
     ? props.defaultInstance
-    : instances.instances[0]?.id ?? null;
+    : nonVanilla[0]?.id ?? null;
   selectedInstance.value = isModpack.value ? null : pref;
   installMsg.value = "";
   typeFilter.value = "all";
@@ -239,7 +240,7 @@ function fmtDate(s: string) {
     style="width: 640px; max-width: 94vw"
     :mask-closable="true"
     :close-on-esc="true"
-    :on-update:show="(v: boolean) => emit('update:show', v)"
+    @update:show="(v: boolean) => emit('update:show', v)"
     @mask-click="() => emit('update:show', false)"
     @after-enter="onOpen"
   >

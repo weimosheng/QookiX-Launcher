@@ -30,7 +30,10 @@ uuid = { version = "1", features = ["v3", "v4"] }
 sha1 = "0.10"
 sha2 = "0.10"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+fastnbt = "2"
+flate2 = "1"
 directories = "5"
 percent-encoding = "2"
 base64 = "0.22"
 sysinfo = "0.30"
+junction = "1"

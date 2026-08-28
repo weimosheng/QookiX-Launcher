@@ -106,7 +106,7 @@ function confirmDelete() {
     preset="card"
     :title="confirmState?.title ?? ''"
     style="width: 420px; max-width: 92vw"
-    :on-update:show="(v: boolean) => { if (!v) confirmState = null; }"
+    @update:show="(v: boolean) => { if (!v) confirmState = null; }"
   >
     <div v-if="confirmState" style="display: flex; flex-direction: column; gap: 16px;">
       <div style="font-size: 14px; color: var(--text-2); line-height: 1.6;">{{ confirmState.content }}</div>

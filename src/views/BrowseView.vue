@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
-import { NButton, NDrawer, NDrawerContent, NSelect, useMessage } from "naive-ui";
+import { NButton, NDrawer, NDrawerContent, NSelect, useMessage, type SelectOption } from "naive-ui";
 import { api } from "../api";
 import InstallDialog from "../components/InstallDialog.vue";
 import ProjectCard from "../components/ProjectCard.vue";
@@ -103,6 +103,34 @@ const instanceSelectWidth = computed(() => {
   if (!inst) return 140;
   const label = `${inst.name} (${inst.mc_version}${inst.loader !== "vanilla" ? ` ${inst.loader}` : ""})`;
   return Math.max(140, Math.min(label.length * 8 + 40, 300));
+});
+// 实例下拉：按名字 / MC 版本 / 加载器 任一匹配即可搜到对应实例，
+// 避免只能靠滚动且无法用版本定位到实例的问题
+function filterInstance(pattern: string, option: SelectOption) {
+  const p = pattern.trim().toLowerCase();
+  if (!p) return true;
+  const inst = instances.value.find((i) => i.id === option.value);
+  if (!inst) return String(option.label).toLowerCase().includes(p);
+  return (
+    String(inst.name).toLowerCase().includes(p) ||
+    String(inst.mc_version).toLowerCase().includes(p) ||
+    String(inst.loader).toLowerCase().includes(p)
+  );
+}
+// 是否为可用的标准 MC 版本号（如 1.20.1）。导入实例若无法识别出真实版本，
+// 其 mc_version 可能被落成实例名（如 "mod开发"），这种非法值不能注入版本筛选，
+// 否则上游按不存在的版本搜索会什么都搜不到。
+function isValidMcVersion(v: string): boolean {
+  return /^\d+\.\d+/.test((v || "").trim());
+}
+// 版本筛选下拉：仅当选中实例的版本是合法 MC 版本号时，才把它并入版本下拉，
+// 避免导入实例用了非"最新 40 个正式版"内的版本时版本筛选看不到/显示错乱
+const displayVersionOptions = computed(() => {
+  const inst = instances.value.find((i) => i.id === selectedInstanceId.value);
+  if (!inst || !isValidMcVersion(inst.mc_version)) return versionOptions.value;
+  const exists = versionOptions.value.some((o) => o.value === inst.mc_version);
+  if (exists) return versionOptions.value;
+  return [{ label: inst.mc_version, value: inst.mc_version }, ...versionOptions.value];
 });
 
 let searchSeq = 0;
@@ -252,7 +280,7 @@ watch([gameVersion, loader], () => {
   // 如果手动改了版本/加载器，且不再匹配所选实例，则切换为"不关联实例"
   const inst = instances.value.find((i) => i.id === selectedInstanceId.value);
   if (inst) {
-    const versionMismatch = gameVersion.value !== inst.mc_version;
+    const versionMismatch = isValidMcVersion(inst.mc_version) && gameVersion.value !== inst.mc_version;
     const loaderMismatch = showLoaderFilter.value && loader.value !== (inst.loader === "vanilla" ? "" : inst.loader);
     if (versionMismatch || loaderMismatch) {
       suppressInstanceClear = true;
@@ -271,7 +299,9 @@ watch(selectedInstanceId, () => {
   }
   const inst = instances.value.find((i) => i.id === selectedInstanceId.value);
   if (inst) {
-    gameVersion.value = inst.mc_version;
+    // 仅当识别出合法 MC 版本时才自动填充版本筛选；
+    // 识别不出（mc_version 被落成实例名）时不注入非法版本，让用户手动选版本
+    gameVersion.value = isValidMcVersion(inst.mc_version) ? inst.mc_version : "";
     if (showLoaderFilter.value) {
       loader.value = inst.loader === "vanilla" ? "" : inst.loader;
     }
@@ -359,12 +389,12 @@ onMounted(async () => {
   } catch {
     instances.value = [];
   }
-  // 默认选择最近游玩的实例
-  if (instances.value.length > 0 && type.value !== "modpack") {
-    const sorted = [...instances.value].sort(
-      (a, b) => (b.last_played ?? 0) - (a.last_played ?? 0)
-    );
-    selectedInstanceId.value = sorted[0].id;
+  // 默认选择最近游玩的实例（排除原版，原版无法装 mod）
+  if (type.value !== "modpack") {
+    const sorted = [...instances.value]
+      .filter((i) => i.loader !== "vanilla")
+      .sort((a, b) => (b.last_played ?? 0) - (a.last_played ?? 0));
+    if (sorted.length > 0) selectedInstanceId.value = sorted[0].id;
   }
   rebuildOptions();
   loadVersions();
@@ -405,6 +435,9 @@ onMounted(async () => {
           size="small"
           class="tb-select instance-select"
           :style="{ width: instanceSelectWidth + 'px' }"
+          filterable
+          :filter="filterInstance"
+          placeholder="搜索实例名 / 版本 / 加载器"
         />
       </div>
       <div class="toolbar-row">
@@ -489,7 +522,7 @@ onMounted(async () => {
       <n-drawer-content title="筛选" closable>
         <div class="filter-group">
           <label>游戏版本</label>
-          <n-select v-model:value="gameVersion" :options="versionOptions" size="small" />
+          <n-select v-model:value="gameVersion" :options="displayVersionOptions" size="small" />
         </div>
         <div v-if="showLoaderFilter" class="filter-group">
           <label>加载器</label>

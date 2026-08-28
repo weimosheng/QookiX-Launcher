@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { NSelect, NInput, useMessage } from "naive-ui";
+import { NSelect, NInput, NModal, useMessage } from "naive-ui";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "../api";
@@ -130,7 +130,10 @@ const importMcBaseName = computed(() =>
 );
 const migrateMode = ref<"copy" | "symlink">("copy");
 const scanning = ref(false);
+const showVersionDialog = ref(false);
 const importingMc = ref(false);
+const importStep = ref(1);
+const calcSize = ref(false);
 // live migration progress (one entry per selected version)
 const importProgress = ref<{ current: number; total: number; name: string; phase: string; done: boolean } | null>(null);
 const mcVersions = ref<{ id: string; raw_id: string; inherits_base: boolean; loader: string; loader_version: string | null; size_bytes: number }[]>([]);
@@ -171,8 +174,6 @@ const scan = ref<{
   assets_known: boolean;
 } | null>(null);
 
-const hasScan = computed(() => scan.value !== null);
-
 function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -208,14 +209,15 @@ async function runScan() {
 }
 
 // refresh estimates when the selected versions change:
-//  - download size for the last selected version (network, fast)
-//  - migration size for the whole selection (disk walk, deferred until now)
-watch(selectedVersions, async (list) => {
-  if (mode.value !== "importmc" || list.length === 0 || !importSrc.value) return;
+// now triggered explicitly in goStep2 instead of reactively
+async function calcImportSize() {
+  if (mode.value !== "importmc" || selectedVersions.value.length === 0 || !importSrc.value) return;
+  const list = selectedVersions.value;
   const v = list[list.length - 1];
   const rawIds = list
     .map((id) => mcVersions.value.find((x) => x.id === id)?.raw_id ?? id)
     .filter(Boolean);
+  calcSize.value = true;
   try {
     const dl = await api.estimateDownload(v);
     const imp = await api.estimateImport(importSrc.value, rawIds);
@@ -228,8 +230,15 @@ watch(selectedVersions, async (list) => {
     };
   } catch {
     /* ignore */
+  } finally {
+    calcSize.value = false;
   }
-});
+}
+
+async function goStep2() {
+  importStep.value = 2;
+  await calcImportSize();
+}
 
 function pathBasename(p: string): string {
   const parts = p.split(/[\\/]/).filter(Boolean);
@@ -260,6 +269,7 @@ async function importMc() {
     rawIds.push(v?.raw_id ?? sel);
   }
   importingMc.value = true;
+  showVersionDialog.value = false;
   importProgress.value = { current: 0, total: rawIds.length, name: "", phase: "migrate", done: false };
   try {
     const plans = await api.importMinecraftFolder(
@@ -271,6 +281,18 @@ async function importMc() {
       loaderVersions,
       migrateMode.value
     );
+    // assign random game icon to each imported instance
+    for (const p of plans) {
+      try {
+        const icons = await api.extractGameIcons(p.instance_id);
+        if (icons.length > 0) {
+          const pick = icons[Math.floor(Math.random() * icons.length)];
+          const bgs = ["amber", "blue", "green", "purple", "red", "slate", "dark"];
+          const bg = bgs[Math.floor(Math.random() * bgs.length)];
+          await instances.patch({ id: p.instance_id, icon: `bg:${bg},img:${pick.path}` });
+        }
+      } catch { /* game not fully installed yet — bg-only is fine */ }
+    }
     const fellBack = migrateMode.value === "symlink" && plans.some((p) => p.symlink_fallback);
     if (plans.length === 1) {
       if (fellBack) {
@@ -349,7 +371,10 @@ onMounted(async () => {
       download_bytes: p.download_bytes ?? scan.value?.download_bytes ?? 0,
       assets_known: p.assets_known ?? scan.value?.assets_known ?? false,
     };
-    if (p.done) scanning.value = false;
+    if (p.done) {
+      scanning.value = false;
+      if (mcVersions.value.length > 0) { importStep.value = 1; showVersionDialog.value = true; }
+    }
   });
   unlisteners.push(u1);
   // versions arrive one-by-one; append and auto-select the first.
@@ -486,12 +511,9 @@ onUnmounted(() => {
     <!-- import existing .minecraft folder -->
     <div v-else class="importmc glass">
       <div class="fresh-head">
-        <button class="icon-box" title="选择图标" @click="showIconPicker = true">
-          <AppIcon :name="iconStr" />
-        </button>
         <div class="fresh-title">
           <h2>导入 .minecraft 游戏文件夹</h2>
-          <p>选择已有的游戏目录，将其存档、模组、配置等迁移到新实例</p>
+          <p>选择已有的游戏目录（PCL2 / HMCL 等），将其存档、模组、配置等迁移到新实例</p>
         </div>
       </div>
 
@@ -500,84 +522,9 @@ onUnmounted(() => {
         <button class="folder-btn" @click="pickMcFolder">
           <IconFolder /> {{ importSrc || "选择 .minecraft 文件夹" }}
         </button>
-      </div>
-
-      <div class="field" v-if="importMcBaseName">
-        <label>实例名称（自动生成）</label>
-        <div class="name-preview">
-          {{ importMcBaseName }}<template v-if="selectedVersions.length"> · {{ selectedVersions.join(" / ") }}</template>
-        </div>
-      </div>
-
-      <div class="field">
-        <label>游戏版本（可多选，每个版本各创建一个实例）</label>
-        <div v-if="mcVersions.length" class="detected-hint">
-          检测到 {{ mcVersions.length }} 个已安装版本，已选 {{ selectedVersions.length }} 个：
-        </div>
-        <div v-else-if="importSrc && !scanning" class="detected-hint warn">
+        <div v-if="importSrc && !scanning && mcVersions.length === 0" class="detected-hint warn">
           未能在文件夹中找到任何版本（versions 目录为空）
         </div>
-        <div class="ver-list">
-          <template v-for="g in groupedVersions" :key="g.loader">
-            <div class="ver-group-title">
-              {{ loaderLabel(g.loader) }} <span class="ver-group-count">{{ g.items.length }}</span>
-            </div>
-            <button
-              v-for="v in g.items"
-              :key="v.id"
-              class="ver-item"
-              :class="{ active: selectedVersions.includes(v.id) }"
-              @click="toggleVersion(v.id)"
-            >
-              <span class="ver-id mono">{{ v.id }}</span>
-              <span class="ver-loader" :class="'ld-' + v.loader">
-                {{ loaderLabel(v.loader) }}{{ v.loader_version ? " " + v.loader_version : "" }}
-              </span>
-            </button>
-          </template>
-          <div v-if="!mcVersions.length && !scanning" class="ver-empty">未找到版本</div>
-        </div>
-        <div class="detected-hint">
-          加载器已按各版本文件夹自动识别，无需手动选择。
-        </div>
-      </div>
-
-      <div v-if="scan" class="scan-panel">
-        <div class="scan-row">
-          <span class="scan-label">将迁移（{{ migrateMode === 'symlink' ? '符号链接' : '复制' }}）</span>
-          <span class="scan-val">{{ scan.import_files }} 个文件 · {{ fmtBytes(scan.import_bytes) }}</span>
-        </div>
-        <div class="scan-row">
-          <span class="scan-label">需要下载（游戏核心）</span>
-          <span class="scan-val">
-            {{ scan.download_files }} 个文件 · {{ fmtBytes(scan.download_bytes) }}
-            <em v-if="!scan.assets_known">（资源文件大小需在安装时联网获取）</em>
-          </span>
-        </div>
-      </div>
-      <div v-else-if="scanning" class="scan-hint">正在计算…</div>
-
-      <div class="field">
-        <label>迁移方式</label>
-        <div class="loader-row">
-          <button
-            class="loader-btn"
-            :class="{ active: migrateMode === 'copy' }"
-            @click="migrateMode = 'copy'"
-          >
-            复制文件
-          </button>
-          <button
-            class="loader-btn"
-            :class="{ active: migrateMode === 'symlink' }"
-            @click="migrateMode = 'symlink'"
-          >
-            符号链接
-          </button>
-        </div>
-        <p class="sub-p">
-          复制方式占用额外磁盘空间但完全独立；符号链接不占用空间，但原文件夹不可删除或移动到其他磁盘。
-        </p>
       </div>
 
       <div v-if="importProgress" class="import-progress">
@@ -596,11 +543,77 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="create-actions">
-        <button class="btn primary" :disabled="importingMc || !hasScan || selectedVersions.length === 0" @click="importMc">
-          <IconPlus /> {{ importingMc ? "导入中…" : "迁移并创建实例" }}
-        </button>
-      </div>
+      <NModal v-model:show="showVersionDialog" preset="card" :title="importStep === 1 ? '选择要迁移的版本' : '确认迁移信息'" style="max-width: 640px;" @update:show="(v: boolean) => { if (!v) importStep = 1; }">
+        <div class="ver-dialog-body">
+          <!-- Step 1: select versions -->
+          <template v-if="importStep === 1">
+            <div class="detected-hint">
+              检测到 {{ mcVersions.length }} 个已安装版本，已选 {{ selectedVersions.length }} 个。每个版本创建一个独立实例，实例名使用版本号。
+            </div>
+            <div class="ver-list">
+              <template v-for="g in groupedVersions" :key="g.loader">
+                <div class="ver-group-title">
+                  {{ loaderLabel(g.loader) }} <span class="ver-group-count">{{ g.items.length }}</span>
+                </div>
+                <button
+                  v-for="v in g.items"
+                  :key="v.id"
+                  class="ver-item"
+                  :class="{ active: selectedVersions.includes(v.id) }"
+                  @click="toggleVersion(v.id)"
+                >
+                  <span class="ver-id mono">{{ v.id }}</span>
+                  <span class="ver-loader" :class="'ld-' + v.loader">
+                    {{ loaderLabel(v.loader) }}{{ v.loader_version ? " " + v.loader_version : "" }}
+                  </span>
+                </button>
+              </template>
+            </div>
+          </template>
+          <!-- Step 2: size info + migration method -->
+          <template v-else>
+            <div class="detected-hint">
+              已选 {{ selectedVersions.length }} 个版本：{{ selectedVersions.join("、") }}
+            </div>
+            <div v-if="calcSize" class="scan-hint">正在计算迁移数据量…</div>
+            <div v-else-if="scan" class="scan-panel">
+              <div class="scan-row">
+                <span class="scan-label">将迁移（{{ migrateMode === 'symlink' ? '符号链接' : '复制' }}）</span>
+                <span class="scan-val">{{ scan.import_files }} 个文件 · {{ fmtBytes(scan.import_bytes) }}</span>
+              </div>
+              <div class="scan-row">
+                <span class="scan-label">需要下载（游戏核心）</span>
+                <span class="scan-val">
+                  {{ scan.download_files }} 个文件 · {{ fmtBytes(scan.download_bytes) }}
+                  <em v-if="!scan.assets_known">（资源文件大小需在安装时联网获取）</em>
+                </span>
+              </div>
+            </div>
+            <div class="field">
+              <label>迁移方式</label>
+              <div class="loader-row">
+                <button class="loader-btn" :class="{ active: migrateMode === 'copy' }" @click="migrateMode = 'copy'">复制文件</button>
+                <button class="loader-btn" :class="{ active: migrateMode === 'symlink' }" @click="migrateMode = 'symlink'">符号链接</button>
+              </div>
+              <p class="sub-p">
+                复制方式占用额外磁盘空间但完全独立；符号链接不占用空间，下载的 mod 会直接保存到原始目录，但原文件夹不可删除或移动到其他磁盘。
+              </p>
+            </div>
+          </template>
+        </div>
+        <template #footer>
+          <div class="dialog-actions">
+            <button v-if="importStep === 2" class="btn ghost" @click="importStep = 1">上一步</button>
+            <button v-if="importStep === 1" class="btn ghost" @click="showVersionDialog = false">取消</button>
+            <button v-if="importStep === 1" class="btn primary" :disabled="selectedVersions.length === 0" @click="goStep2">
+              下一步
+            </button>
+            <button v-if="importStep === 2" class="btn primary" :disabled="importingMc || calcSize || !scan" @click="importMc">
+              <IconPlus /> {{ importingMc ? "导入中…" : `迁移 ${selectedVersions.length} 个版本` }}
+            </button>
+          </div>
+        </template>
+      </NModal>
     </div>
 
     <IconPickerDialog v-model:show="showIconPicker" :value="iconStr" @save="iconStr = $event" />
@@ -733,8 +746,16 @@ onUnmounted(() => {
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 8px;
-  background: rgba(255, 255, 255, 0.02);
+}
+.ver-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 .ver-group-title {
   margin: 10px 2px 2px;

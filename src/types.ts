@@ -16,7 +16,6 @@ export interface Settings {
   keep_open: boolean;
   ms_client_id: string;
   selected_account: string | null;
-  isolation: boolean;
   proxy: string | null;
 }
 
@@ -48,6 +47,8 @@ export interface Instance {
   mods: InstalledContent[];
   resource_packs: InstalledContent[];
   shaders: InstalledContent[];
+  is_symlink?: boolean;
+  source_path?: string | null;
 }
 
 export type Account =
@@ -183,4 +184,25 @@ export interface LaunchStateEvent {
   state: "running" | "exited";
   pid: number;
   code: number | null;
+}
+
+// 实例的多人游戏服务器条目（来自游戏内 servers.json / servers.dat）
+export interface ServerEntry {
+  name: string;
+  address: string;
+  icon: string | null; // 原始 base64（无 data: 前缀）
+}
+
+// 经 Server List Ping 获取的实时状态
+export interface ServerStatus {
+  online: boolean;
+  address: string;
+  name: string | null;
+  version: string | null;
+  players_online: number | null;
+  players_max: number | null;
+  motd: string | null;
+  favicon: string | null; // 完整 data:image/png;base64,...
+  latency_ms: number | null;
+  error: string | null;
 }

@@ -570,6 +570,7 @@ onMounted(async () => {
     </n-modal>
 
     <Teleport to="body">
+      <Transition name="cape">
       <div v-if="capeModalShow" class="cape-overlay" @click.self="capeModalShow = false">
         <div class="cape-dialog glass">
           <div class="cape-dialog-head">
@@ -601,6 +602,7 @@ onMounted(async () => {
           </div>
         </div>
       </div>
+      </Transition>
     </Teleport>
 
     <n-modal v-model:show="renameModalShow" preset="card" title="命名皮肤" style="max-width: 420px;">
@@ -758,6 +760,23 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   backdrop-filter: blur(2px);
+}
+.cape-enter-active,
+.cape-leave-active {
+  transition: opacity 0.2s ease;
+}
+.cape-enter-active .cape-dialog,
+.cape-leave-active .cape-dialog {
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.cape-enter-from,
+.cape-leave-to {
+  opacity: 0;
+}
+.cape-enter-from .cape-dialog,
+.cape-leave-to .cape-dialog {
+  transform: scale(0.94);
+  opacity: 0;
 }
 .cape-dialog {
   width: 520px;
@@ -945,6 +964,9 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.07);
   border-color: rgba(232, 154, 75, 0.35);
   transform: translateY(-1px);
+}
+.skin-card:active {
+  transform: scale(0.97);
 }
 .skin-card.active {
   border-color: var(--accent);

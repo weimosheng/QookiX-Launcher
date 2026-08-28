@@ -94,7 +94,7 @@ function save() {
     preset="card"
     title="选择实例图标"
     style="width: 560px; max-width: 94vw"
-    :on-update:show="(v: boolean) => emit('update:show', v)"
+    @update:show="(v: boolean) => emit('update:show', v)"
   >
     <div class="ip-body">
       <div class="ip-preview">

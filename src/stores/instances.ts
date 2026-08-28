@@ -55,10 +55,10 @@ export const useInstancesStore = defineStore("instances", {
       api.cancelInstall();
       this.installingId = null;
     },
-    async launch(id: string, world?: string) {
+    async launch(id: string, world?: string, server?: string) {
       this.launchingId = id;
       try {
-        const res = await api.launchInstance(id, world);
+        const res = await api.launchInstance(id, world, server);
         return res;
       } finally {
         this.launchingId = null;

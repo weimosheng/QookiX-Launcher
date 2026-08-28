@@ -6,10 +6,12 @@ import type {
   JavaInfo,
   ProjectHit,
   ProjectVersion,
+  ServerEntry,
+  ServerStatus,
   Settings,
 } from "./types";
 
-const SILENT_COMMANDS = new Set(["install_game", "install_content", "download_java", "mc_wiki_url", "project_dependencies", "launch_instance", "apply_update"]);
+const SILENT_COMMANDS = new Set(["install_game", "install_content", "download_java", "mc_wiki_url", "project_dependencies", "launch_instance", "apply_update", "identify_content"]);
 
 function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const silent = SILENT_COMMANDS.has(cmd);
@@ -64,10 +66,11 @@ export const api = {
   installGame: (instanceId: string) =>
     invoke<{ instance_id: string; total_bytes: number; file_count: number }>("install_game", { instanceId }),
   cancelInstall: () => invoke<void>("cancel_install"),
-  launchInstance: (instanceId: string, world?: string) =>
+  launchInstance: (instanceId: string, world?: string, server?: string) =>
     invoke<{ pid: number; command: string[] }>("launch_instance", {
       instanceId,
       world: world ?? null,
+      server: server ?? null,
     }),
   stopGame: () => invoke<void>("stop_game"),
   isGameRunning: () => invoke<boolean>("is_game_running"),
@@ -207,6 +210,8 @@ export const api = {
     invoke<void>("uninstall_content", { instanceId, kind, filename }),
   listContent: (instanceId: string, kind: string) =>
     invoke<{ items: import("./types").ContentItem[]; onDisk: string[] }>("list_content", { instanceId, kind }),
+  identifyContent: (instanceId: string, kind: string) =>
+    invoke<void>("identify_content", { instanceId, kind }),
   toggleContentEnabled: (instanceId: string, kind: string, filename: string, enabled: boolean) =>
     invoke<void>("toggle_content_enabled", { instanceId, kind, filename, enabled }),
   importLocalFile: (instanceId: string, kind: string, sourcePath: string) =>
@@ -244,4 +249,9 @@ export const api = {
     invoke<void>("apply_cape_to_account", { accountUuid, capeId }),
   applySkinOffline: (skinData: string, variant: string, uuid: string) =>
     invoke<void>("apply_skin_offline", { skinData, variant, uuid }),
+
+  // multiplayer servers
+  listServers: (instanceId: string) =>
+    invoke<{ servers: ServerEntry[] }>("list_servers", { instanceId }).then((r) => r.servers),
+  pingServer: (address: string) => invoke<ServerStatus>("ping_mc_server", { address }),
 };
