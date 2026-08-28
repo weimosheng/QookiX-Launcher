@@ -254,6 +254,10 @@ export const api = {
     invoke<void>("apply_cape_to_account", { accountUuid, capeId }),
   applySkinOffline: (skinData: string, variant: string, uuid: string) =>
     invoke<void>("apply_skin_offline", { skinData, variant, uuid }),
+  getOfflineSkin: (uuid: string) =>
+    invoke<{ src: string; variant: "slim" | "classic" | null } | null>("get_offline_skin", {
+      uuid,
+    }),
 
   // multiplayer servers
   listServers: (instanceId: string) =>

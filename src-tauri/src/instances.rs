@@ -814,27 +814,30 @@ async fn import_one(
     }
     {
         let mut migrated = 0u64;
-        for d in IMPORT_DIRS {
-            let src = source.join(d);
-            if !src.is_dir() {
-                continue;
-            }
-            let dst = dest.join(d);
-            if link {
-                crate::util::link_dir(&src, &dst, &mut symlink_fallback)?;
-            } else {
+        // In symlink mode, only the version folder is linked — NOT the shared
+        // user-data dirs (saves/mods/resourcepacks/…).  Those are shared across
+        // versions in the source .minecraft and linking them would cause content
+        // to "bleed" between instances.  Each instance gets its own independent
+        // empty dirs (created below).
+        if !link {
+            for d in IMPORT_DIRS {
+                let src = source.join(d);
+                if !src.is_dir() {
+                    continue;
+                }
+                let dst = dest.join(d);
                 if let Some(p) = dst.parent() {
                     std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
                 }
                 migrate_tree(&src, &dst, link, &mut symlink_fallback)?;
-            }
-            migrated += 1;
-        }
-        for f in IMPORT_FILES {
-            let src = source.join(f);
-            if src.is_file() {
-                crate::util::copy_or_link(&src, &dest.join(f), link, &mut symlink_fallback)?;
                 migrated += 1;
+            }
+            for f in IMPORT_FILES {
+                let src = source.join(f);
+                if src.is_file() {
+                    crate::util::copy_or_link(&src, &dest.join(f), link, &mut symlink_fallback)?;
+                    migrated += 1;
+                }
             }
         }
         let _ = migrated;
@@ -846,6 +849,19 @@ async fn import_one(
     let src_ver = source.join("versions").join(&raw_ver);
     if src_ver.is_dir() {
         migrate_version_dir(&src_ver, &dest, &instance.id, &raw_ver, link, &mut symlink_fallback)?;
+    }
+
+    // In symlink mode, warn if the source version had no version-isolation
+    // (no mods/saves inside versions/<ver>/).  The shared root-level mods/saves
+    // are intentionally not linked to avoid content bleed between instances.
+    if link && src_ver.is_dir() {
+        let has_isolation = IMPORT_DIRS.iter().any(|d| src_ver.join(d).is_dir());
+        if !has_isolation {
+            let _ = app.emit("import://warning", serde_json::json!({
+                "name": raw_ver,
+                "message": "未开启版本隔离，mods / 存档 / 材质包等共享内容未导入",
+            }));
+        }
     }
 
     // make sure standard folders exist

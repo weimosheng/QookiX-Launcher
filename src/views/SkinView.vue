@@ -4,6 +4,7 @@ import { NTabs, NTabPane, NInput, NButton, NSwitch, NModal, useMessage } from "n
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
 import { useSkinRenderer, type AnimationKind } from "../composables/useSkinRenderer";
+import { loadOfflineSkin, saveOfflineSkinCache } from "../composables/useOfflineSkin";
 import { useAccountsStore } from "../stores/accounts";
 import SkinThumb from "../components/SkinThumb.vue";
 import { BUILTIN_SKINS } from "../assets/builtin-skins";
@@ -133,17 +134,14 @@ async function loadCurrentAccountSkin() {
     }
   } else {
     resetCapeList();
-    const saved = localStorage.getItem(`qookix:offline_skin:${acc.uuid}`);
+    const saved = await loadOfflineSkin(acc.uuid);
     if (saved) {
       if (token !== skinLoadToken) return;
-      const savedVariant = localStorage.getItem(`qookix:offline_variant:${acc.uuid}`);
-      const variant = (savedVariant === "slim" || savedVariant === "classic")
-        ? savedVariant
-        : await detectSkinModel(saved);
+      const variant = saved.variant ?? (await detectSkinModel(saved.src));
       skinVariant.value = variant;
       renderer.setModel(variant === "slim" ? "slim" : "default");
-      await previewSkin(saved, acc.username, "local");
-      lastAppliedSrc.value = saved;
+      await previewSkin(saved.src, acc.username, "local");
+      lastAppliedSrc.value = saved.src;
       return;
     }
   }
@@ -207,8 +205,10 @@ async function applySkin() {
     try {
       await api.applySkinOffline(currentSrc.value, skinVariant.value, currentAccount.value!.uuid);
       lastAppliedSrc.value = currentSrc.value;
-      localStorage.setItem(`qookix:offline_skin:${currentAccount.value!.uuid}`, currentSrc.value);
-      localStorage.setItem(`qookix:offline_variant:${currentAccount.value!.uuid}`, skinVariant.value);
+      saveOfflineSkinCache(currentAccount.value!.uuid, {
+        src: currentSrc.value,
+        variant: skinVariant.value,
+      });
       accounts.bumpAvatar();
       offlineHintShow.value = true;
       message.success("皮肤已保存，启动游戏时自动应用");

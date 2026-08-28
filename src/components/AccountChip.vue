@@ -2,6 +2,7 @@
 import { computed, reactive, ref, watch } from "vue";
 import { NButton, NInput, NModal, NPopover, useMessage } from "naive-ui";
 import { useAccountsStore } from "../stores/accounts";
+import { loadOfflineSkin } from "../composables/useOfflineSkin";
 import MsLoginDialog from "./MsLoginDialog.vue";
 import { IconCheck, IconChevronDown, IconTrash, IconUser, IconPlus } from "./icons";
 import type { Account } from "../types";
@@ -48,9 +49,9 @@ watch(
   async () => {
     for (const acc of accounts.accounts) {
       if (acc.type === "offline" && !offlineAvatarCache[acc.uuid]) {
-        const skin = localStorage.getItem(`qookix:offline_skin:${acc.uuid}`);
+        const skin = await loadOfflineSkin(acc.uuid);
         if (skin) {
-          const avatar = await skinToAvatar(skin);
+          const avatar = await skinToAvatar(skin.src);
           if (avatar) offlineAvatarCache[acc.uuid] = avatar;
         }
       }
@@ -64,9 +65,9 @@ watch(
   async () => {
     const cur = accounts.current;
     if (cur && cur.type === "offline") {
-      const skin = localStorage.getItem(`qookix:offline_skin:${cur.uuid}`);
+      const skin = await loadOfflineSkin(cur.uuid);
       if (skin) {
-        const avatar = await skinToAvatar(skin);
+        const avatar = await skinToAvatar(skin.src);
         if (avatar) offlineAvatarCache[cur.uuid] = avatar;
       }
     }

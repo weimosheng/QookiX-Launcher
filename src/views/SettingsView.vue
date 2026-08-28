@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { NTabs, NTabPane, NModal, useMessage } from "naive-ui";
+import { NTabs, NTabPane, NModal, useMessage, useDialog } from "naive-ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -8,10 +8,55 @@ import { useSettingsStore } from "../stores/settings";
 import { api } from "../api";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import { IconCpu, IconSearch } from "../components/icons";
+import { peekUpdate, downloadAndInstall, relaunchApp } from "../updater";
 import type { JavaInfo } from "../types";
 
 const settings = useSettingsStore();
 const message = useMessage();
+const dialog = useDialog();
+
+const checking = ref(false);
+const updateVersion = ref<string | null>(null);
+
+async function checkUpdate() {
+  if (checking.value) return;
+  checking.value = true;
+  updateVersion.value = null;
+  try {
+    const update = await peekUpdate();
+    if (!update) {
+      message.success("已是最新版本");
+      return;
+    }
+    updateVersion.value = update.version;
+    dialog.warning({
+      title: "发现新版本",
+      content: `QookiX Launcher 有新版本 v${update.version}，是否下载并安装？`,
+      positiveText: "下载并更新",
+      negativeText: "以后再说",
+      onPositiveClick: () => doInstall(),
+    });
+  } catch {
+    message.error("检查更新失败，请稍后重试");
+  } finally {
+    checking.value = false;
+  }
+}
+
+async function doInstall() {
+  const installed = await downloadAndInstall((m) => message.info(m));
+  if (installed) {
+    dialog.success({
+      title: "更新完成",
+      content: "需要重启启动器才能生效，是否立即重启？",
+      positiveText: "立即重启",
+      negativeText: "稍后手动重启",
+      onPositiveClick: () => relaunchApp(),
+    });
+  } else {
+    message.error("更新失败，请稍后重试或手动下载");
+  }
+}
 
 // 主题 seg 滑动高亮
 const themeSegRef = ref<HTMLElement | null>(null);
@@ -383,11 +428,19 @@ onUnmounted(() => {
         <div class="grid">
           <div class="card glass">
             <h3>QookiX Launcher</h3>
-            <p class="hint">版本 v0.2.2</p>
+            <p class="hint">版本 v0.2.4</p>
             <p class="hint">现代化、简洁、无广告的 Minecraft 启动器。</p>
             <p class="hint">
               支持 Modrinth / CurseForge 内容中心、多线程下载、Java 自动检测。
             </p>
+            <div class="about-update">
+              <button class="mini-btn primary" :disabled="checking" @click="checkUpdate">
+                {{ checking ? "检查中…" : "检查更新" }}
+              </button>
+              <span v-if="updateVersion" class="hint-inline">
+                发现新版本 v{{ updateVersion }}
+              </span>
+            </div>
           </div>
         </div>
       </n-tab-pane>
@@ -818,5 +871,11 @@ textarea.text-input {
 }
 .mini-btn.primary:hover {
   background: var(--accent-soft);
+}
+.about-update {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
 }
 </style>

@@ -399,6 +399,10 @@ onMounted(async () => {
     }
   );
   unlisteners.push(u3);
+  const u4 = await listen<{ name: string; message: string }>("import://warning", (ev) => {
+    message.warning(`${ev.payload.name}：${ev.payload.message}`);
+  });
+  unlisteners.push(u4);
 });
 
 onUnmounted(() => {

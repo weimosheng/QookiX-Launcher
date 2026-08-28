@@ -659,9 +659,12 @@ function openTabFolder() {
 }
 
 function removeInstance() {
+  const isSymlink = instance.value?.is_symlink;
   confirm({
     title: "删除实例",
-    content: "删除实例将移除其游戏目录与全部内容，此操作不可恢复。",
+    content: isSymlink
+      ? `此实例通过符号链接导入，删除只会移除启动器中的链接，原始目录${instance.value?.source_path ? `（${instance.value.source_path}）` : ""}的文件会完整保留。确定删除该实例吗？`
+      : "删除实例将移除其游戏目录与全部内容，此操作不可恢复。",
     positiveText: "删除",
     onOk: async () => {
       try {

@@ -1,6 +1,6 @@
 [package]
 name = "qookix-installer-ui"
-version = "0.2.2"
+version = "0.2.4"
 description = "QookiX Launcher modern installer frontend (Windows only)"
 edition = "2024"
 

@@ -1813,11 +1813,13 @@ pub async fn apply_skin_to_account(
 
 /// Save the offline skin PNG so it can be injected into the version jar at
 /// launch time.  No jar modification happens here — that would be slow.
+/// The skin variant ("slim"/"classic") is persisted alongside in a JSON meta
+/// file so it survives any frontend cache (localStorage) clears.
 #[tauri::command]
 pub fn apply_skin_offline(
     state: State<AppState>,
     skin_data: String,
-    _variant: String,
+    variant: String,
     uuid: String,
 ) -> Result<(), String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
@@ -1833,7 +1835,41 @@ pub fn apply_skin_offline(
     std::fs::create_dir_all(&skin_dir).map_err(|e| format!("创建皮肤目录失败: {e}"))?;
     std::fs::write(skin_dir.join(format!("{uuid}.png")), &bytes)
         .map_err(|e| format!("保存皮肤失败: {e}"))?;
+
+    let variant = if variant == "slim" { "slim" } else { "classic" };
+    let meta = serde_json::json!({ "variant": variant });
+    let meta_str = serde_json::to_string_pretty(&meta)
+        .unwrap_or_else(|_| r#"{"variant":"classic"}"#.to_string());
+    std::fs::write(skin_dir.join(format!("{uuid}.json")), meta_str)
+        .map_err(|e| format!("保存皮肤变体失败: {e}"))?;
     Ok(())
+}
+
+/// Read back a saved offline skin (PNG as a base64 data URL) plus its variant.
+/// Returns `null` when no skin has been saved for that uuid.
+#[tauri::command]
+pub fn get_offline_skin(
+    state: State<AppState>,
+    uuid: String,
+) -> Result<Option<serde_json::Value>, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let skin_dir = state.root.join("skins").join("offline");
+    let png_path = skin_dir.join(format!("{uuid}.png"));
+    if !png_path.is_file() {
+        return Ok(None);
+    }
+    let bytes = std::fs::read(&png_path).map_err(|e| format!("读取皮肤失败: {e}"))?;
+    let src = format!("data:image/png;base64,{}", STANDARD.encode(&bytes));
+
+    // `None` when no meta file exists yet → frontend falls back to auto-detection.
+    let variant = std::fs::read_to_string(skin_dir.join(format!("{uuid}.json")))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.get("variant").and_then(|s| s.as_str()).map(String::from))
+        .filter(|v| v == "slim" || v == "classic");
+
+    Ok(Some(serde_json::json!({ "src": src, "variant": variant })))
 }
 
 // ---------------------------------------------------------------------------

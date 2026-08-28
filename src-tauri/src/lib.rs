@@ -125,6 +125,7 @@ pub fn run() {
             commands::apply_skin_to_account,
             commands::apply_cape_to_account,
             commands::apply_skin_offline,
+            commands::get_offline_skin,
             // multiplayer servers
             commands::list_servers,
             commands::ping_mc_server,
