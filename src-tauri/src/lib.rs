@@ -147,6 +147,14 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             let root = app.state::<AppState>().root.clone();
+            // Allow the asset protocol to serve any file under the launcher's
+            // data root (game icons, instance/pack icons, skins, ...). The
+            // static `assetProtocol.scope` in tauri.conf.json cannot express a
+            // runtime/custom `data_dir` (its `$APPDATA/**` maps to the
+            // identifier-based app dir, not `...\QookiX-Launcher`), which used
+            // to make `convertFileSrc` images fail with HTTP 403. Extend the
+            // scope at runtime so icons load regardless of the data location.
+            let _ = app.asset_protocol_scope().allow_directory(&root, true);
             let runtimes = root.join("runtimes");
             tauri::async_runtime::spawn(async move {
                 let now = std::time::SystemTime::now()
