@@ -5,10 +5,11 @@ import { useInstancesStore } from "../stores/instances";
 import { useMessage, NModal, NButton } from "naive-ui";
 import { api } from "../api";
 import AppIcon from "./AppIcon.vue";
-import { IconFolder, IconPlay, IconTrash } from "./icons";
+import { IconFolder, IconLayers, IconPlay, IconTrash } from "./icons";
 import type { Instance } from "../types";
 
 const props = defineProps<{ instance: Instance }>();
+const emit = defineEmits<{ move: [instance: Instance] }>();
 const instances = useInstancesStore();
 const router = useRouter();
 const message = useMessage();
@@ -94,6 +95,9 @@ function confirmDelete() {
         </button>
         <button class="icon-btn" title="打开游戏目录" @click="apiOpen">
           <IconFolder />
+        </button>
+        <button class="icon-btn" title="移动到分组" @click="emit('move', instance)">
+          <IconLayers />
         </button>
         <button class="icon-btn danger" title="删除实例" @click="confirmDelete">
           <IconTrash />

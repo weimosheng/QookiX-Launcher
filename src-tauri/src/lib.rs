@@ -77,6 +77,11 @@ pub fn run() {
             commands::create_instance,
             commands::update_instance_settings,
             commands::delete_instance,
+            commands::list_instance_groups,
+            commands::create_instance_group,
+            commands::rename_instance_group,
+            commands::delete_instance_group,
+            commands::reorder_instance_groups,
             commands::install_game,
             commands::cancel_install,
             commands::launch_instance,
@@ -365,6 +370,7 @@ mod smoke {
             shaders: vec![],
             is_symlink: false,
             source_path: None,
+            group: None,
         };
         let vanilla = crate::mcmeta::fetch_version_json(&state, "1.20.1").await.unwrap();
         let patched = crate::install::fabric_patch(&state, &vanilla, &instance).await.unwrap();

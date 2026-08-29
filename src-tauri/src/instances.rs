@@ -1,4 +1,4 @@
-use crate::models::{InstalledContent, Instance, LoaderType};
+use crate::models::{InstalledContent, Instance, InstanceGroup, LoaderType};
 use crate::state::AppState;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Emitter;
@@ -112,6 +112,7 @@ pub fn create_instance(
         shaders: Vec::new(),
         is_symlink: false,
         source_path: None,
+        group: None,
     };
     // game dir
     std::fs::create_dir_all(state.instances_dir().join(&instance.id)).map_err(|e| e.to_string())?;
@@ -178,6 +179,17 @@ pub fn update_instance(state: &AppState, patch: serde_json::Value) -> Result<Ins
             }
         }
     }
+    if let Some(v) = patch.get("group") {
+        let gid = v.as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        if let Some(ref gid) = gid {
+            // 防止前端传入已删除/不存在的分组 id 造成"幽灵分组"
+            let known = load_groups(state).iter().any(|g| g.id == *gid);
+            if !known {
+                return Err("分组不存在".into());
+            }
+        }
+        inst.group = gid;
+    }
     save_instance(state, &inst)?;
     Ok(inst)
 }
@@ -187,6 +199,133 @@ pub fn touch_last_played(state: &AppState, id: &str) {
         inst.last_played = Some(now());
         let _ = save_instance(state, &inst);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Instance groups
+// ---------------------------------------------------------------------------
+
+pub fn groups_path(state: &AppState) -> std::path::PathBuf {
+    state.root.join("instance_groups.json")
+}
+
+pub fn load_groups(state: &AppState) -> Vec<InstanceGroup> {
+    std::fs::read_to_string(groups_path(state))
+        .ok()
+        .and_then(|s| serde_json::from_str::<Vec<InstanceGroup>>(&s).ok())
+        .unwrap_or_default()
+}
+
+pub fn save_groups(state: &AppState, groups: &[InstanceGroup]) -> Result<(), String> {
+    let path = groups_path(state);
+    if let Some(p) = path.parent() {
+        std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
+    }
+    let json = serde_json::to_string_pretty(groups).map_err(|e| e.to_string())?;
+    std::fs::write(path, json).map_err(|e| e.to_string())
+}
+
+/// 仅读取分组，缺失时回退为空列表（groups.json 本身就是唯一数据源）。
+pub fn create_group(
+    state: &AppState,
+    name: String,
+    color: Option<String>,
+) -> Result<InstanceGroup, String> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("分组名称不能为空".into());
+    }
+    if name.len() > 40 {
+        return Err("分组名称过长（最多 40 个字符）".into());
+    }
+    let mut groups = load_groups(state);
+    if groups.iter().any(|g| g.name == name) {
+        return Err("已存在同名分组".into());
+    }
+    let mut id = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
+    while groups.iter().any(|g| g.id == id) {
+        id = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
+    }
+    let group = InstanceGroup {
+        id,
+        name,
+        color: color
+            .map(|c| c.trim().to_string())
+            .filter(|c| !c.is_empty()),
+        created: now(),
+    };
+    groups.push(group.clone());
+    save_groups(state, &groups)?;
+    Ok(group)
+}
+
+pub fn rename_group(
+    state: &AppState,
+    id: &str,
+    name: String,
+    color: Option<String>,
+) -> Result<InstanceGroup, String> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("分组名称不能为空".into());
+    }
+    if name.len() > 40 {
+        return Err("分组名称过长（最多 40 个字符）".into());
+    }
+    let mut groups = load_groups(state);
+    if groups.iter().any(|g| g.name == name && g.id != id) {
+        return Err("已存在同名分组".into());
+    }
+    let Some(group) = groups.iter_mut().find(|g| g.id == id) else {
+        return Err("分组不存在".into());
+    };
+    group.name = name;
+    if let Some(c) = color {
+        group.color = if c.trim().is_empty() { None } else { Some(c) };
+    }
+    let updated = group.clone();
+    save_groups(state, &groups)?;
+    Ok(updated)
+}
+
+/// 删除分组：其中的实例会被移回"未分组"，不会被删除。
+pub fn delete_group(state: &AppState, id: &str) -> Result<(), String> {
+    let mut groups = load_groups(state);
+    let before = groups.len();
+    groups.retain(|g| g.id != id);
+    if groups.len() == before {
+        return Err("分组不存在".into());
+    }
+    save_groups(state, &groups)?;
+    for inst in load_instances(state) {
+        if inst.group.as_deref() == Some(id) {
+            if let Ok(mut i) = get_instance(state, &inst.id) {
+                i.group = None;
+                let _ = save_instance(state, &i);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 按给定 id 顺序重排分组（未知 id 忽略，未列出的分组保持相对顺序追加到末尾）。
+pub fn reorder_groups(state: &AppState, ids: Vec<String>) -> Result<Vec<InstanceGroup>, String> {
+    let groups = load_groups(state);
+    let mut ordered: Vec<InstanceGroup> = Vec::with_capacity(groups.len());
+    for id in ids {
+        if let Some(g) = groups.iter().find(|g| g.id == id) {
+            if !ordered.iter().any(|o| o.id == g.id) {
+                ordered.push(g.clone());
+            }
+        }
+    }
+    for g in groups {
+        if !ordered.iter().any(|o| o.id == g.id) {
+            ordered.push(g);
+        }
+    }
+    save_groups(state, &ordered)?;
+    Ok(ordered)
 }
 
 // ---------------------------------------------------------------------------

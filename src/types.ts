@@ -23,6 +23,7 @@ export interface Settings {
   glass_blur: number;
   show_home_hero: boolean;
   show_sidebar_collapse_btn: boolean;
+  dismissed_update_version: string | null;
 }
 
 export interface JavaInfo {
@@ -55,6 +56,16 @@ export interface Instance {
   shaders: InstalledContent[];
   is_symlink?: boolean;
   source_path?: string | null;
+  /** 所属分组 id，null / undefined 表示未分组 */
+  group?: string | null;
+}
+
+/** 实例分组（持久化在 instance_groups.json） */
+export interface InstanceGroup {
+  id: string;
+  name: string;
+  color: string | null;
+  created: number;
 }
 
 export type Account =

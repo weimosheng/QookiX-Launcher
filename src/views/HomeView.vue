@@ -55,6 +55,23 @@ watch(selectedId, (id) => {
   if (id) localStorage.setItem(STORAGE_KEY, id);
 });
 
+// 切换实例弹窗按分组展示（空分组不显示）
+const pickerSections = computed(() => {
+  const list = instances.groups
+    .map((g) => ({
+      key: g.id,
+      name: g.name,
+      color: g.color as string | null,
+      items: instances.instances.filter((i) => i.group === g.id),
+    }))
+    .filter((s) => s.items.length);
+  const rest = instances.instances.filter((i) => !i.group);
+  if (rest.length) {
+    list.push({ key: "__ungrouped__", name: "未分组", color: null, items: rest });
+  }
+  return list;
+});
+
 function loaderBadge(i: { loader: string }) {
   return i.loader === "vanilla" ? "原版" : i.loader.charAt(0).toUpperCase() + i.loader.slice(1);
 }
@@ -291,24 +308,33 @@ onMounted(() => {
       title="切换实例"
       style="width: 720px; max-width: 92vw"
     >
-      <div class="pick-grid">
-        <div
-          v-for="inst in instances.instances"
-          :key="inst.id"
-          class="pick-card"
-          :class="{ active: selected?.id === inst.id }"
-          @click="pick(inst)"
-        >
-          <div class="pick-icon"><AppIcon :name="inst.icon" /></div>
-          <div class="pick-info">
-            <div class="pick-name text-ellipsis">{{ inst.name }}</div>
-            <div class="pick-meta">
-              <span class="badge">{{ loaderBadge(inst) }}</span>
-              <span class="ver-text">{{ inst.mc_version }}</span>
+      <div class="pick-scroll">
+        <section v-for="s in pickerSections" :key="s.key" class="pick-section">
+          <div class="pick-group">
+            <i class="dot" :style="{ background: s.color || 'var(--text-3)' }"></i>
+            <span>{{ s.name }}</span>
+            <span class="pick-group-count">{{ s.items.length }}</span>
+          </div>
+          <div class="pick-grid">
+            <div
+              v-for="inst in s.items"
+              :key="inst.id"
+              class="pick-card"
+              :class="{ active: selected?.id === inst.id }"
+              @click="pick(inst)"
+            >
+              <div class="pick-icon"><AppIcon :name="inst.icon" /></div>
+              <div class="pick-info">
+                <div class="pick-name text-ellipsis">{{ inst.name }}</div>
+                <div class="pick-meta">
+                  <span class="badge">{{ loaderBadge(inst) }}</span>
+                  <span class="ver-text">{{ inst.mc_version }}</span>
+                </div>
+              </div>
+              <div v-if="selected?.id === inst.id" class="pick-current">当前</div>
             </div>
           </div>
-          <div v-if="selected?.id === inst.id" class="pick-current">当前</div>
-        </div>
+        </section>
       </div>
     </n-modal>
   </div>
@@ -657,13 +683,37 @@ onMounted(() => {
 }
 
 /* 切换弹窗 */
+.pick-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 56vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.pick-group {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.pick-group .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pick-group-count {
+  font-size: 11px;
+  color: var(--text-3);
+}
 .pick-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
-  max-height: 56vh;
-  overflow-y: auto;
-  padding-right: 4px;
 }
 .pick-card {
   position: relative;

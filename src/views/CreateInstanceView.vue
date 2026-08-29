@@ -25,6 +25,12 @@ const mcVersion = ref("");
 const loader = ref<Loader>("vanilla");
 const loaderVersion = ref<string | null>(null);
 
+// 新实例要加入的分组（null = 未分组）
+const newGroup = ref<string | null>(null);
+const groupOptions = computed(() =>
+  instances.groups.map((g) => ({ label: g.name, value: g.id }))
+);
+
 const versionCat = ref<string>("release");
 const versions = ref<{ id: string; type: string; releaseTime: string }[]>([]);
 const loaderVersions = ref<string[]>([]);
@@ -90,6 +96,9 @@ async function create() {
     );
     if (iconStr.value) {
       await instances.patch({ id: inst.id, icon: iconStr.value });
+    }
+    if (newGroup.value) {
+      await instances.moveToGroup(inst.id, newGroup.value);
     }
     message.success("实例已创建，正在安装游戏文件…");
     router.push(`/instance/${inst.id}`);
@@ -438,6 +447,16 @@ onUnmounted(() => {
       <div class="field">
         <label>实例名称</label>
         <n-input v-model:value="name" placeholder="留空则自动用版本号命名" maxlength="40" />
+      </div>
+
+      <div v-if="instances.groups.length" class="field">
+        <label>分组</label>
+        <n-select
+          v-model:value="newGroup"
+          :options="groupOptions"
+          placeholder="未分组"
+          clearable
+        />
       </div>
 
       <div class="field">

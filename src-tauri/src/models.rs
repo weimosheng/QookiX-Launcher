@@ -70,6 +70,9 @@ pub struct Settings {
     pub show_home_hero: bool,
     /// 侧边栏展开/收缩按钮是否显示
     pub show_sidebar_collapse_btn: bool,
+    /// 用户点击「忽略此版本」后记录的版本号。启动时若为同一版本则不再弹窗提示，
+    /// 出现更新的版本时恢复提醒。
+    pub dismissed_update_version: Option<String>,
 }
 
 impl Default for Settings {
@@ -97,6 +100,7 @@ impl Default for Settings {
             glass_blur: 8,
             show_home_hero: false,
             show_sidebar_collapse_btn: false,
+            dismissed_update_version: None,
         }
     }
 }
@@ -195,6 +199,25 @@ pub struct Instance {
     /// 导入来源的 .minecraft 路径（符号链接模式下用于提醒与溯源）
     #[serde(default)]
     pub source_path: Option<String>,
+    /// 所属分组 id（None 表示未分组）
+    #[serde(default)]
+    pub group: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Instance groups
+// ---------------------------------------------------------------------------
+
+/// 实例分组，单独持久化在 `instance_groups.json`。
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct InstanceGroup {
+    pub id: String,
+    pub name: String,
+    /// 主题色（任意 CSS 颜色）；为空时前端回退到默认强调色
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub created: u64,
 }
 
 // ---------------------------------------------------------------------------

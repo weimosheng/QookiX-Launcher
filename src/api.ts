@@ -3,6 +3,7 @@ import { trackStart, trackEnd, trackError } from "./loadingBar";
 import type {
   Account,
   Instance,
+  InstanceGroup,
   JavaInfo,
   ProjectHit,
   ProjectVersion,
@@ -68,6 +69,15 @@ export const api = {
     invoke<Instance>("create_instance", { name, mcVersion: mc_version, loader, loaderVersion: loader_version }),
   updateInstance: (patch: Record<string, unknown>) => invoke<Instance>("update_instance_settings", { patch }),
   deleteInstance: (id: string) => invoke<void>("delete_instance", { id }),
+
+  // instance groups
+  listGroups: () => invoke<InstanceGroup[]>("list_instance_groups"),
+  createGroup: (name: string, color?: string | null) =>
+    invoke<InstanceGroup>("create_instance_group", { name, color: color ?? null }),
+  renameGroup: (id: string, name: string, color?: string | null) =>
+    invoke<InstanceGroup>("rename_instance_group", { id, name, color: color ?? null }),
+  deleteGroup: (id: string) => invoke<void>("delete_instance_group", { id }),
+  reorderGroups: (ids: string[]) => invoke<InstanceGroup[]>("reorder_instance_groups", { ids }),
   installGame: (instanceId: string) =>
     invoke<{ instance_id: string; total_bytes: number; file_count: number }>("install_game", { instanceId }),
   cancelInstall: () => invoke<void>("cancel_install"),

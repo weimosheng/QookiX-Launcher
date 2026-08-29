@@ -9,7 +9,15 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { useSettingsStore } from "../stores/settings";
 import { api } from "../api";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
-import { IconCpu, IconSearch } from "../components/icons";
+import {
+  IconCpu,
+  IconDownload,
+  IconFile,
+  IconGlobe,
+  IconImage,
+  IconSearch,
+  IconSliders,
+} from "../components/icons";
 import { peekUpdate, downloadAndInstall, relaunchApp } from "../updater";
 import type { JavaInfo } from "../types";
 import logoUrl from "../assets/logo.png";
@@ -38,7 +46,11 @@ async function checkUpdate() {
       content: `QookiX Launcher 有新版本 v${update.version}，是否下载并安装？`,
       positiveText: "下载并更新",
       negativeText: "以后再说",
-      onPositiveClick: () => doInstall(),
+      // 返回 true 让弹窗立即关闭；doInstall 在后台异步执行，避免等待下载完成才关闭。
+      onPositiveClick: () => {
+        doInstall();
+        return true;
+      },
     });
   } catch {
     message.error("检查更新失败，请稍后重试");
@@ -47,11 +59,21 @@ async function checkUpdate() {
   }
 }
 
+/** 恢复被「忽略此版本」关掉的启动更新提醒。 */
+async function restoreDismissed() {
+  try {
+    await settings.patch({ dismissed_update_version: null });
+    message.success("已恢复更新提醒");
+  } catch {
+    message.error("操作失败，请稍后重试");
+  }
+}
+
 async function doInstall() {
   // Jump to the Download Center so the user can watch the progress live.
   router.push("/downloads");
   try {
-    const installed = await downloadAndInstall((p) => message.info(p.message));
+    const installed = await downloadAndInstall();
     if (!installed) return;
     dialog.success({
       title: "更新完成",
@@ -91,6 +113,15 @@ const javaCandidates = ref<JavaInfo[]>([]);
 const detecting = ref(false);
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 const tab = ref("general");
+
+const tabs = [
+  { key: "general", label: "常规", icon: IconSliders },
+  { key: "appearance", label: "外观", icon: IconImage },
+  { key: "java", label: "Java", icon: IconCpu },
+  { key: "download", label: "下载", icon: IconDownload },
+  { key: "content", label: "内容服务", icon: IconGlobe },
+  { key: "about", label: "关于", icon: IconFile },
+];
 
 const memTotal = ref(0);
 const memUsed = ref(0);
@@ -257,12 +288,16 @@ onUnmounted(() => {
   <div v-if="settings.settings" class="settings-view">
     <aside class="settings-nav">
       <nav class="nav-list">
-        <button class="nav-item" :class="{ active: tab === 'general' }" @click="tab = 'general'">常规</button>
-        <button class="nav-item" :class="{ active: tab === 'appearance' }" @click="tab = 'appearance'">外观</button>
-        <button class="nav-item" :class="{ active: tab === 'java' }" @click="tab = 'java'">Java</button>
-        <button class="nav-item" :class="{ active: tab === 'download' }" @click="tab = 'download'">下载</button>
-        <button class="nav-item" :class="{ active: tab === 'content' }" @click="tab = 'content'">内容服务</button>
-        <button class="nav-item" :class="{ active: tab === 'about' }" @click="tab = 'about'">关于</button>
+        <button
+          v-for="t in tabs"
+          :key="t.key"
+          class="nav-item"
+          :class="{ active: tab === t.key }"
+          @click="tab = t.key"
+        >
+          <component :is="t.icon" class="nav-icon" />
+          <span>{{ t.label }}</span>
+        </button>
       </nav>
     </aside>
 
@@ -563,7 +598,7 @@ onUnmounted(() => {
             <div class="about-logo">
               <img class="about-logo-img" :src="logoUrl" alt="QookiX" />
               <span class="about-name">QookiX Launcher</span>
-              <span class="about-ver">v0.3.6</span>
+              <span class="about-ver">v0.3.7</span>
             </div>
             <p class="about-desc">现代化、简洁、无广告的 Minecraft 启动器</p>
             <div class="about-features">
@@ -580,6 +615,13 @@ onUnmounted(() => {
               <span v-if="updateVersion" class="hint-inline">
                 发现新版本 v{{ updateVersion }}
               </span>
+              <button
+                v-if="settings.settings?.dismissed_update_version"
+                class="mini-btn"
+                @click="restoreDismissed"
+              >
+                恢复 v{{ settings.settings.dismissed_update_version }} 更新提醒
+              </button>
             </div>
           </div>
           <div class="card glass about-links">
@@ -669,6 +711,9 @@ onUnmounted(() => {
   gap: 3px;
 }
 .nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   text-align: left;
   border: none;
   background: transparent;
@@ -681,6 +726,12 @@ onUnmounted(() => {
   font-family: inherit;
   transition: background 0.12s, color 0.12s;
 }
+.nav-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
 .nav-item:hover {
   background: var(--panel-hover);
   color: var(--text-1);
@@ -689,6 +740,9 @@ onUnmounted(() => {
   background: var(--accent-soft);
   color: var(--accent);
   font-weight: 600;
+}
+.nav-item.active .nav-icon {
+  opacity: 1;
 }
 .settings-body {
   flex: 1;

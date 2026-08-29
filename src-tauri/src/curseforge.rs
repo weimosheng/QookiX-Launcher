@@ -625,6 +625,7 @@ async fn install_modpack_inner(
         shaders: Vec::new(),
         is_symlink: false,
         source_path: None,
+        group: None,
     };
     crate::install::emit_progress(
         &app,

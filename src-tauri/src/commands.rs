@@ -192,6 +192,43 @@ pub fn delete_instance(state: State<AppState>, id: String) -> Result<(), String>
 }
 
 #[tauri::command]
+pub fn list_instance_groups(state: State<AppState>) -> Vec<InstanceGroup> {
+    crate::instances::load_groups(&state)
+}
+
+#[tauri::command]
+pub fn create_instance_group(
+    state: State<AppState>,
+    name: String,
+    color: Option<String>,
+) -> Result<InstanceGroup, String> {
+    crate::instances::create_group(&state, name, color)
+}
+
+#[tauri::command]
+pub fn rename_instance_group(
+    state: State<AppState>,
+    id: String,
+    name: String,
+    color: Option<String>,
+) -> Result<InstanceGroup, String> {
+    crate::instances::rename_group(&state, &id, name, color)
+}
+
+#[tauri::command]
+pub fn delete_instance_group(state: State<AppState>, id: String) -> Result<(), String> {
+    crate::instances::delete_group(&state, &id)
+}
+
+#[tauri::command]
+pub fn reorder_instance_groups(
+    state: State<AppState>,
+    ids: Vec<String>,
+) -> Result<Vec<InstanceGroup>, String> {
+    crate::instances::reorder_groups(&state, ids)
+}
+
+#[tauri::command]
 pub async fn install_game(
     app: tauri::AppHandle,
     state: State<'_, AppState>,

@@ -281,6 +281,7 @@ fn instance_placeholder(_state: &crate::state::AppState) -> crate::models::Insta
         shaders: Vec::new(),
         is_symlink: false,
         source_path: None,
+        group: None,
     }
 }
 
