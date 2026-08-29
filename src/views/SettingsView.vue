@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { NModal, useMessage, useDialog } from "naive-ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -16,6 +17,7 @@ import logoUrl from "../assets/logo.png";
 const settings = useSettingsStore();
 const message = useMessage();
 const dialog = useDialog();
+const router = useRouter();
 
 const checking = ref(false);
 const updateVersion = ref<string | null>(null);
@@ -46,8 +48,11 @@ async function checkUpdate() {
 }
 
 async function doInstall() {
-  const installed = await downloadAndInstall((m) => message.info(m));
-  if (installed) {
+  // Jump to the Download Center so the user can watch the progress live.
+  router.push("/downloads");
+  try {
+    const installed = await downloadAndInstall((p) => message.info(p.message));
+    if (!installed) return;
     dialog.success({
       title: "更新完成",
       content: "需要重启启动器才能生效，是否立即重启？",
@@ -55,8 +60,10 @@ async function doInstall() {
       negativeText: "稍后手动重启",
       onPositiveClick: () => relaunchApp(),
     });
-  } else {
-    message.error("更新失败，请稍后重试或手动下载");
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    message.error(detail || "更新失败，请稍后重试或手动下载");
+    console.error("[updater] install error:", err);
   }
 }
 
@@ -523,7 +530,7 @@ onUnmounted(() => {
             <div class="about-logo">
               <img class="about-logo-img" :src="logoUrl" alt="QookiX" />
               <span class="about-name">QookiX Launcher</span>
-              <span class="about-ver">v0.3.4</span>
+              <span class="about-ver">v0.3.5</span>
             </div>
             <p class="about-desc">现代化、简洁、无广告的 Minecraft 启动器</p>
             <div class="about-features">
