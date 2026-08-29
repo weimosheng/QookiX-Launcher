@@ -40,8 +40,13 @@ export async function downloadAndInstall(onStatus?: ProgressFn): Promise<boolean
       }
     });
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    // Surface the real reason (404, signature mismatch, permissions...) so the
+    // UI can show something actionable instead of a generic "update failed".
+    console.error("[updater] downloadAndInstall failed:", err);
+    const detail =
+      err instanceof Error && err.message ? err.message : String(err);
+    throw new Error(`更新失败：${detail}`);
   }
 }
 

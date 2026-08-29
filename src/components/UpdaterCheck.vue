@@ -33,8 +33,9 @@ async function runCheck() {
 }
 
 async function doInstall() {
-  const installed = await downloadAndInstall((m) => message.info(m));
-  if (installed) {
+  try {
+    const installed = await downloadAndInstall((m) => message.info(m));
+    if (!installed) return;
     dialog.success({
       title: "更新完成",
       content: "需要重启启动器才能生效，是否立即重启？",
@@ -42,8 +43,10 @@ async function doInstall() {
       negativeText: "稍后手动重启",
       onPositiveClick: () => relaunchApp(),
     });
-  } else {
-    message.error("更新失败，请稍后重试或手动下载");
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    message.error(detail || "更新失败，请稍后重试或手动下载");
+    console.error("[updater] install error:", err);
   }
 }
 </script>

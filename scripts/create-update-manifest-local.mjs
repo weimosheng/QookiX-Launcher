@@ -27,8 +27,8 @@ if (!repo) throw new Error('GITHUB_REPOSITORY is not set')
 const targets = [
   { platforms: ['windows-x86_64'], suffixes: ['_x64-setup.exe', '.nsis.zip'] },
   { platforms: ['darwin-aarch64', 'darwin-x86_64'], suffixes: ['.app.tar.gz'] },
-  { platforms: ['linux-x86_64'], suffixes: ['_amd64.AppImage.tar.gz'] },
-  { platforms: ['linux-aarch64'], suffixes: ['_aarch64.AppImage.tar.gz'] },
+  { platforms: ['linux-x86_64'], suffixes: ['_amd64.AppImage', '_amd64.AppImage.tar.gz'] },
+  { platforms: ['linux-aarch64'], suffixes: ['_aarch64.AppImage', '_aarch64.AppImage.tar.gz'] },
 ]
 
 function filesEndingWith(dir, suffix) {

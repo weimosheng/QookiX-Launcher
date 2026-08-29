@@ -148,17 +148,45 @@ jobs:
           path: release
           merge-multiple: true
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Fail fast: a failure here (e.g. no signed bundles, or an unexpected
+      # artifact layout) MUST fail the job, not silently ship a broken manifest.
       - name: Generate update manifest (latest.json)
         run: |
-          node scripts/create-update-manifest-local.mjs release "${GITHUB_REF_NAME}" latest.json || true
+          node scripts/create-update-manifest-local.mjs release "${GITHUB_REF_NAME}" latest.json
+
+      # Build a human-friendly release body: a per-platform download table whose
+      # links point at the actual artifacts about to be published, so users can
+      # grab the right installer directly from the release page.
+      - name: Generate release notes (download table)
+        run: |
+          node scripts/generate-release-notes.mjs release "${GITHUB_REF_NAME}" body.md
 
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             release/**/*
-            latest.json
-          generate_release_notes: true
+          body_path: body.md
+          generate_release_notes: false
           prerelease: ${{ contains(github.ref_name, '-') }}
+
+      # Rebuild latest.json from the release's REAL asset URLs (via the GitHub
+      # API) and overwrite the placeholder generated above. This guarantees the
+      # manifest always points at assets that actually exist on the release,
+      # regardless of how Tauri names bundles (e.g. "QookiX Launcher" vs
+      # "QookiX.Launcher" — Tauri replaces spaces with dots). Otherwise a
+      # mismatched asset name makes the updater hit a 404 and every auto-update
+      # fails.
+      - name: Rebuild latest.json from published assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TAG: ${{ github.ref_name }}
+        run: |
+          node scripts/fix-update-manifest.mjs
 
 
