@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import { useDialog, useMessage } from "naive-ui";
 import { peekUpdate, downloadAndInstall, relaunchApp } from "../updater";
 
 const dialog = useDialog();
 const message = useMessage();
+const router = useRouter();
 const checking = ref(false);
 
 onMounted(() => {
@@ -33,8 +35,10 @@ async function runCheck() {
 }
 
 async function doInstall() {
+  // Jump to the Download Center so the user can watch the progress live.
+  router.push("/downloads");
   try {
-    const installed = await downloadAndInstall((m) => message.info(m));
+    const installed = await downloadAndInstall((p) => message.info(p.message));
     if (!installed) return;
     dialog.success({
       title: "更新完成",

@@ -41,6 +41,8 @@ export interface TaskEntry {
   finished: boolean;
   ok?: boolean;
   activity: "download" | "install";
+  /** 0..1 overall progress (used e.g. by the app updater, which has no per-file/byte accounting). */
+  fraction?: number;
 }
 
 function nowMs() {

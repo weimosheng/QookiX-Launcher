@@ -75,7 +75,7 @@ if (parts.length === 0) {
   throw new Error(`No downloadable artifacts found in ${absDir}`)
 }
 
-const full = `${body}${parts.join('\n\n---\n\n')}\n`
+const full = `${body}${parts.join('\n')}\n`
 fs.writeFileSync(output, full)
 console.log(`Wrote ${output}`)
 console.log(`  Windows: ${windows.length}, macOS: ${macos.length}, Linux: ${linux.length}`)

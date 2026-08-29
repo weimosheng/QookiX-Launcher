@@ -83,6 +83,7 @@ function pct(done: number, total: number) {
 }
 
 function downloadPct(t: TaskEntry) {
+  if (t.fraction != null && t.fraction >= 0) return Math.min(100, Math.round(t.fraction * 100));
   if (t.bytesTotal > 0) return pct(t.bytesDone, t.bytesTotal);
   return pct(t.fileDone, t.fileTotal);
 }
@@ -153,7 +154,8 @@ function isModpackTask(t: TaskEntry) {
           <div class="task-side">
             <template v-if="t.activity === 'download' && !t.finished">
               <div class="speed">{{ fmtSpeed(t.speed) }}</div>
-              <div class="stage">{{ t.fileDone }} / {{ t.fileTotal }} 个文件</div>
+              <div v-if="t.fraction != null" class="stage">{{ Math.round(t.fraction * 100) }}%</div>
+              <div v-else class="stage">{{ t.fileDone }} / {{ t.fileTotal }} 个文件</div>
             </template>
             <template v-else-if="!t.finished">
               <div class="stage install">安装阶段</div>
@@ -176,7 +178,8 @@ function isModpackTask(t: TaskEntry) {
             ></div>
           </div>
           <div class="bar-info">
-            <span>{{ t.fileDone }} / {{ t.fileTotal }} 个文件</span>
+            <span v-if="t.fraction != null">{{ Math.round(t.fraction * 100) }}%</span>
+            <span v-else>{{ t.fileDone }} / {{ t.fileTotal }} 个文件</span>
             <span v-if="t.bytesTotal">
               {{ fmtBytes(t.bytesDone) }} / {{ fmtBytes(t.bytesTotal) }}
             </span>
