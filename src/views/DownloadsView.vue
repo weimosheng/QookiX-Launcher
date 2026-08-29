@@ -7,7 +7,6 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconDownload,
-  IconTrash,
 } from "../components/icons";
 
 const tasks = useTasksStore();
@@ -112,20 +111,6 @@ function isModpackTask(t: TaskEntry) {
 
 <template>
   <div class="dl-view">
-    <div class="head">
-      <div>
-        <h1>下载中心</h1>
-        <p class="sub">
-          {{ tasks.activeCount ? `${tasks.activeCount} 个任务进行中` : "暂无进行中的任务" }}
-        </p>
-      </div>
-      <div class="head-actions">
-        <button class="btn ghost" :disabled="!finishedTasks.length" @click="tasks.clearFinished()">
-          <IconTrash /> 清除已完成
-        </button>
-      </div>
-    </div>
-
     <div ref="tabBox" class="tabs">
       <div class="indicator" :style="tabIndicatorStyle"></div>
       <button :class="{ active: activeTab === 'active' }" @click="activeTab = 'active'">
@@ -252,12 +237,6 @@ function isModpackTask(t: TaskEntry) {
   max-width: 980px;
   margin: 0 auto;
 }
-.head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 16px;
-}
 .tabs {
   position: relative;
   display: flex;
@@ -301,15 +280,7 @@ function isModpackTask(t: TaskEntry) {
   padding: 1px 7px;
   font-weight: 700;
 }
-.head h1 {
-  margin: 0 0 4px;
-  font-size: 24px;
-}
-.sub {
-  margin: 0;
-  color: var(--text-3);
-  font-size: 13px;
-}
+
 .btn {
   display: inline-flex;
   align-items: center;

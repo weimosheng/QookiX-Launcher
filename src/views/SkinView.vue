@@ -406,13 +406,6 @@ onMounted(async () => {
 
 <template>
   <div class="skin-view">
-    <div class="head">
-      <div>
-        <h1>皮肤中心</h1>
-        <p class="sub">拖动左侧预览可旋转角色，管理本地与官方皮肤</p>
-      </div>
-    </div>
-
     <div class="skin-body">
       <section class="preview-pane glass">
         <div class="preview-stage">
@@ -629,15 +622,7 @@ onMounted(async () => {
   flex-direction: column;
   gap: 18px;
 }
-.head h1 {
-  margin: 0 0 4px;
-  font-size: 24px;
-}
-.sub {
-  margin: 0;
-  color: var(--text-3);
-  font-size: 13px;
-}
+
 .skin-body {
   display: grid;
   grid-template-columns: 360px 1fr;

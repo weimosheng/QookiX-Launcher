@@ -405,11 +405,6 @@ onMounted(async () => {
 
 <template>
   <div class="browse">
-    <div class="head">
-      <h1>内容中心</h1>
-      <p class="sub">从 Modrinth 与 CurseForge 一键浏览、安装与升级模组、整合包、资源包和光影，支持全部来源整合浏览</p>
-    </div>
-
     <div ref="typeBox" class="type-card glass">
       <div class="indicator" :style="typeIndicatorStyle"></div>
       <button
@@ -568,15 +563,7 @@ onMounted(async () => {
   flex-direction: column;
   gap: 16px;
 }
-.head h1 {
-  margin: 0 0 4px;
-  font-size: 24px;
-}
-.sub {
-  margin: 0;
-  color: var(--text-3);
-  font-size: 13px;
-}
+
 .toolbar {
   display: flex;
   flex-direction: column;

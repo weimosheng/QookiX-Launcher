@@ -96,6 +96,7 @@ export const api = {
     }>("list_instance_files", { instanceId, sub }),
   importModpack: (filePath: string) => invoke<Instance>("import_modpack", { filePath }),
   importInstanceImage: (sourcePath: string) => invoke<string>("import_instance_image", { sourcePath }),
+  importBackgroundImage: (sourcePath: string) => invoke<string>("import_background_image", { sourcePath }),
   scanMinecraftImport: (source: string) => invoke<void>("scan_minecraft_import", { source }),
   estimateDownload: (mcVersion: string) =>
     invoke<{

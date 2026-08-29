@@ -150,6 +150,18 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
         let p = v.as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
         settings.proxy = p;
     }
+    if let Some(v) = patch.get("background_image") {
+        settings.background_image = v.as_str().map(|s| s.to_string()).filter(|s| !s.is_empty());
+    }
+    if let Some(v) = patch.get("background_blur").and_then(|v| v.as_u64()) {
+        settings.background_blur = (v as u32).min(50);
+    }
+    if let Some(v) = patch.get("background_dim").and_then(|v| v.as_u64()) {
+        settings.background_dim = (v as u32).min(100);
+    }
+    if let Some(v) = patch.get("glass_blur").and_then(|v| v.as_u64()) {
+        settings.glass_blur = (v as u32).min(30);
+    }
     let cloned = settings.clone();
     drop(settings);
     persist(state)?;

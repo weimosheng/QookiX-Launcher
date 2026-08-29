@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, computed, watch } from "vue";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { darkTheme, lightTheme, NConfigProvider, NDialogProvider, NLoadingBarProvider, NMessageProvider, NNotificationProvider } from "naive-ui";
 import TitleBar from "./components/TitleBar.vue";
 import SideBar from "./components/SideBar.vue";
@@ -26,6 +27,25 @@ watch(isDark, () => {
   document.documentElement.classList.toggle("light", !isDark.value);
 }, { immediate: true });
 
+const bgStyle = computed(() => {
+  const s = settings.settings;
+  if (!s?.background_image) return {} as Record<string, string>;
+  return {
+    "--bg-image": `url("${convertFileSrc(s.background_image)}")`,
+    "--bg-blur": `${s.background_blur}px`,
+    "--bg-dim": String(s.background_dim / 100),
+    "--bg-dim-light": String((s.background_dim / 100) * 0.45),
+  } as Record<string, string>;
+});
+
+watch(() => settings.settings?.glass_blur, (v) => {
+  if (v != null) document.documentElement.style.setProperty("--glass-blur", `${v}px`);
+}, { immediate: true });
+
+watch(() => settings.settings?.background_image, (p) => {
+  document.documentElement.classList.toggle("has-bg", !!p);
+}, { immediate: true });
+
 onMounted(() => {
   tasks.init();
   settings.load();
@@ -41,7 +61,7 @@ onMounted(() => {
         <n-dialog-provider>
           <n-message-provider>
             <n-notification-provider>
-              <div class="app app-bg" :class="{ light: !isDark }">
+                <div class="app app-bg" :class="{ light: !isDark }" :style="bgStyle">
                 <TitleBar />
                 <div class="body">
                   <SideBar />

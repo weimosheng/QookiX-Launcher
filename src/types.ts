@@ -17,6 +17,10 @@ export interface Settings {
   ms_client_id: string;
   selected_account: string | null;
   proxy: string | null;
+  background_image: string | null;
+  background_blur: number;
+  background_dim: number;
+  glass_blur: number;
 }
 
 export interface JavaInfo {

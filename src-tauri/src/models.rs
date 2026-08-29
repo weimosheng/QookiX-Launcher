@@ -58,6 +58,14 @@ pub struct Settings {
     pub selected_account: Option<String>,
     /// HTTP/SOCKS proxy URL for downloads (e.g. "http://127.0.0.1:7890")
     pub proxy: Option<String>,
+    /// 自定义背景图片绝对路径（None = 使用默认渐变背景）
+    pub background_image: Option<String>,
+    /// 背景图片模糊半径 px（0-50）
+    pub background_blur: u32,
+    /// 背景图片暗化程度 0-100（数值越大前景内容越清晰）
+    pub background_dim: u32,
+    /// 磨砂卡片模糊半径 px（0-30）
+    pub glass_blur: u32,
 }
 
 impl Default for Settings {
@@ -79,6 +87,10 @@ impl Default for Settings {
             ms_client_id: "00000000-0000-0000-0000-000000000000".into(),
             selected_account: None,
             proxy: None,
+            background_image: None,
+            background_blur: 0,
+            background_dim: 45,
+            glass_blur: 8,
         }
     }
 }

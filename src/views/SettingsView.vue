@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { NTabs, NTabPane, NModal, useMessage, useDialog } from "naive-ui";
+import { NModal, useMessage, useDialog } from "naive-ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open } from "@tauri-apps/plugin-dialog";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { useSettingsStore } from "../stores/settings";
 import { api } from "../api";
@@ -10,6 +11,7 @@ import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import { IconCpu, IconSearch } from "../components/icons";
 import { peekUpdate, downloadAndInstall, relaunchApp } from "../updater";
 import type { JavaInfo } from "../types";
+import logoUrl from "../assets/logo.png";
 
 const settings = useSettingsStore();
 const message = useMessage();
@@ -169,6 +171,25 @@ async function openPath(path: string) {
   }
 }
 
+async function pickBackground() {
+  try {
+    const picked = await open({
+      multiple: false,
+      filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp"] }],
+    });
+    if (!picked || typeof picked !== "string") return;
+    const path = await api.importBackgroundImage(picked);
+    await settings.patch({ background_image: path });
+  } catch (e) {
+    message.error(String(e));
+  }
+}
+
+const bgPreviewUrl = computed(() => {
+  const p = settings.settings?.background_image;
+  return p ? convertFileSrc(p) : "";
+});
+
 // 数据目录迁移
 const migrating = ref(false);
 const migrateModal = ref(false);
@@ -227,37 +248,23 @@ onUnmounted(() => {
 
 <template>
   <div v-if="settings.settings" class="settings-view">
-    <div class="head">
-      <div>
-        <h1>设置</h1>
-        <p class="sub">Java、内存、下载与账号相关配置</p>
-      </div>
-    </div>
+    <aside class="settings-nav">
+      <nav class="nav-list">
+        <button class="nav-item" :class="{ active: tab === 'general' }" @click="tab = 'general'">常规</button>
+        <button class="nav-item" :class="{ active: tab === 'appearance' }" @click="tab = 'appearance'">外观</button>
+        <button class="nav-item" :class="{ active: tab === 'java' }" @click="tab = 'java'">Java</button>
+        <button class="nav-item" :class="{ active: tab === 'download' }" @click="tab = 'download'">下载</button>
+        <button class="nav-item" :class="{ active: tab === 'content' }" @click="tab = 'content'">内容服务</button>
+        <button class="nav-item" :class="{ active: tab === 'about' }" @click="tab = 'about'">关于</button>
+      </nav>
+    </aside>
 
-    <n-tabs v-model:value="tab" type="line" animated class="st-tabs">
+    <div class="settings-body">
       <!-- 常规 -->
-      <n-tab-pane name="general" tab="常规">
+      <div v-show="tab === 'general'" class="settings-pane">
         <div class="grid">
           <div class="card glass">
-            <h3>外观与行为</h3>
-            <div class="choice-row">
-              <span>主题</span>
-              <div ref="themeSegRef" class="seg">
-                <div class="indicator" :style="themeSegStyle"></div>
-                <button
-                  :class="{ active: settings.settings.theme === 'dark' }"
-                  @click="settings.patch({ theme: 'dark' })"
-                >
-                  深色
-                </button>
-                <button
-                  :class="{ active: settings.settings.theme === 'light' }"
-                  @click="settings.patch({ theme: 'light' })"
-                >
-                  浅色
-                </button>
-              </div>
-            </div>
+            <h3>行为</h3>
             <div class="choice-row">
               <span>关闭窗口时</span>
               <div ref="closeSegRef" class="seg">
@@ -288,10 +295,96 @@ onUnmounted(() => {
             <p class="hint">实例、游戏文件与下载缓存均存储在此目录。点击「更改」可迁移到其他位置。</p>
           </div>
         </div>
-      </n-tab-pane>
+      </div>
+
+      <!-- 外观 -->
+      <div v-show="tab === 'appearance'" class="settings-pane">
+        <div class="card glass">
+          <h3>主题</h3>
+          <div class="choice-row">
+            <span>主题</span>
+            <div ref="themeSegRef" class="seg">
+              <div class="indicator" :style="themeSegStyle"></div>
+              <button
+                :class="{ active: settings.settings.theme === 'dark' }"
+                @click="settings.patch({ theme: 'dark' })"
+              >
+                深色
+              </button>
+              <button
+                :class="{ active: settings.settings.theme === 'light' }"
+                @click="settings.patch({ theme: 'light' })"
+              >
+                浅色
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="card glass">
+          <h3>背景图片</h3>
+          <div v-if="settings.settings.background_image" class="bg-preview">
+            <img :src="bgPreviewUrl" alt="背景预览" />
+          </div>
+          <div class="choice-row">
+            <span>背景图片</span>
+            <div class="bg-actions">
+              <button class="mini-btn" @click="pickBackground">选择图片</button>
+              <button
+                v-if="settings.settings.background_image"
+                class="mini-btn"
+                @click="settings.patch({ background_image: null })"
+              >
+                清除
+              </button>
+            </div>
+          </div>
+          <div v-if="settings.settings.background_image" class="tune-block">
+            <div class="tune-row">
+              <label>背景模糊</label>
+              <input
+                v-model.number="settings.settings.background_blur"
+                type="range"
+                min="0"
+                max="50"
+                step="1"
+                class="range"
+              />
+              <span class="tune-val">{{ settings.settings.background_blur }} px</span>
+            </div>
+            <div class="tune-row">
+              <label>背景遮罩</label>
+              <input
+                v-model.number="settings.settings.background_dim"
+                type="range"
+                min="0"
+                max="100"
+                step="5"
+                class="range"
+              />
+              <span class="tune-val">{{ settings.settings.background_dim }}%</span>
+            </div>
+          </div>
+        </div>
+        <div class="card glass">
+          <h3>磨砂卡片</h3>
+          <div class="tune-row">
+            <label>磨砂强度</label>
+            <input
+              v-model.number="settings.settings.glass_blur"
+              type="range"
+              min="0"
+              max="30"
+              step="1"
+              class="range"
+            />
+            <span class="tune-val">{{ settings.settings.glass_blur }} px</span>
+          </div>
+          <p class="hint">调节卡片毛玻璃模糊半径，数值越大磨砂越强。</p>
+        </div>
+      </div>
 
       <!-- Java -->
-      <n-tab-pane name="java" tab="Java">
+      <div v-show="tab === 'java'" class="settings-pane">
         <div class="grid">
           <div class="card glass">
             <h3><IconCpu /> Java 运行时</h3>
@@ -372,10 +465,10 @@ onUnmounted(() => {
             />
           </div>
         </div>
-      </n-tab-pane>
+      </div>
 
       <!-- 下载 -->
-      <n-tab-pane name="download" tab="下载">
+      <div v-show="tab === 'download'" class="settings-pane">
         <div class="grid">
           <div class="card glass">
             <h3>并行下载</h3>
@@ -397,10 +490,10 @@ onUnmounted(() => {
             <p class="hint">所有安装与下载任务可在左侧「下载中心」实时查看进度、速度与剩余文件。</p>
           </div>
         </div>
-      </n-tab-pane>
+      </div>
 
       <!-- 内容服务 -->
-      <n-tab-pane name="content" tab="内容服务">
+      <div v-show="tab === 'content'" class="settings-pane">
         <div class="grid">
           <div class="card glass">
             <h3>CurseForge API Key</h3>
@@ -421,15 +514,16 @@ onUnmounted(() => {
             <p class="hint">可选。用于绕过 CDN 下载失败（404/连接失败）。修改后需重启启动器生效。</p>
           </div>
         </div>
-      </n-tab-pane>
+      </div>
 
       <!-- 关于 -->
-      <n-tab-pane name="about" tab="关于">
+      <div v-show="tab === 'about'" class="settings-pane">
         <div class="grid about-grid">
           <div class="card glass about-card">
             <div class="about-logo">
+              <img class="about-logo-img" :src="logoUrl" alt="QookiX" />
               <span class="about-name">QookiX Launcher</span>
-              <span class="about-ver">v0.2.4</span>
+              <span class="about-ver">v0.3.1</span>
             </div>
             <p class="about-desc">现代化、简洁、无广告的 Minecraft 启动器</p>
             <div class="about-features">
@@ -465,8 +559,8 @@ onUnmounted(() => {
 
           </div>
         </div>
-      </n-tab-pane>
-    </n-tabs>
+      </div>
+    </div>
 
     <n-modal v-model:show="migrateModal" preset="card" title="更改数据目录" class="migrate-modal">
       <div v-if="migratePhase === 'select'" class="migrate-body">
@@ -513,23 +607,57 @@ onUnmounted(() => {
 
 <style scoped>
 .settings-view {
-  max-width: 1000px;
-  margin: 0 auto;
-}
-.head {
   display: flex;
-  justify-content: space-between;
+  gap: 22px;
   align-items: flex-start;
-  margin-bottom: 18px;
 }
-.head h1 {
-  margin: 0 0 4px;
-  font-size: 24px;
+.settings-nav {
+  flex-shrink: 0;
+  width: 188px;
+  position: sticky;
+  top: 0;
+  padding: 16px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  backdrop-filter: blur(var(--glass-blur, 8px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 8px));
 }
-.sub {
-  margin: 0;
-  color: var(--text-3);
+.nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.nav-item {
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  padding: 9px 12px;
+  border-radius: 9px;
   font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s;
+}
+.nav-item:hover {
+  background: var(--panel-hover);
+  color: var(--text-1);
+}
+.nav-item.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.settings-body {
+  flex: 1;
+  min-width: 0;
+}
+.settings-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 .btn {
   display: inline-flex;
@@ -554,8 +682,8 @@ onUnmounted(() => {
 .btn:disabled {
   opacity: 0.6;
 }
-.st-tabs {
-  margin-top: 4px;
+.settings-pane > .grid {
+  margin-top: 0;
 }
 .grid {
   display: grid;
@@ -909,9 +1037,15 @@ textarea.text-input {
 }
 .about-logo {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   margin-bottom: 4px;
+}
+.about-logo-img {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  flex-shrink: 0;
 }
 .about-name {
   font-size: 18px;
@@ -984,5 +1118,54 @@ textarea.text-input {
 .about-link:hover .link-arrow {
   transform: translateX(3px);
   color: var(--accent);
+}
+.appearance-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0 14px;
+}
+.bg-preview {
+  margin-bottom: 12px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.bg-preview img {
+  display: block;
+  width: 100%;
+  height: 92px;
+  object-fit: cover;
+}
+.bg-actions {
+  display: flex;
+  gap: 8px;
+}
+.tune-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.tune-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.tune-row label {
+  flex-shrink: 0;
+  width: 96px;
+}
+.tune-row .range {
+  flex: 1;
+}
+.tune-val {
+  flex-shrink: 0;
+  width: 46px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
 }
 </style>

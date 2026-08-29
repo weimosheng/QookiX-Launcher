@@ -1,6 +1,6 @@
 [package]
 name = "qookix-launcher"
-version = "0.2.4"
+version = "0.3.1"
 description = "QookiX Launcher - a modern, clean and ad-free Minecraft launcher"
 authors = ["QookiX"]
 edition = "2021"

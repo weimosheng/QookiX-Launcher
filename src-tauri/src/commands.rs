@@ -400,6 +400,28 @@ pub fn import_instance_image(
     Ok(dest.to_string_lossy().to_string())
 }
 
+/// Copy a user-selected image into the launcher backgrounds dir; returns the absolute path.
+#[tauri::command]
+pub fn import_background_image(
+    state: State<AppState>,
+    source_path: String,
+) -> Result<String, String> {
+    const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp"];
+    let source = std::path::Path::new(&source_path);
+    let ext = source
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_else(|| "png".into());
+    if !IMAGE_EXTS.contains(&ext.as_str()) {
+        return Err("不支持的图片格式".into());
+    }
+    let dir = state.root.join("backgrounds");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dest = dir.join(format!("{}.{}", uuid::Uuid::new_v4().simple(), ext));
+    std::fs::copy(source, &dest).map_err(|e| format!("复制背景图片失败: {e}"))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
 /// Scan a `.minecraft` folder. Returns immediately; the actual work is streamed
 /// to the frontend through events so the UI renders progressively:
 ///   - `import://scan-version`   { id, inherits_base, size_bytes }  one per version

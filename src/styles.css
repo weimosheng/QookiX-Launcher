@@ -52,12 +52,60 @@ body,
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
 }
 
+:root.has-bg {
+  --panel: rgba(22, 25, 34, 0.62);
+  --panel-hover: rgba(30, 34, 44, 0.74);
+  --border: rgba(255, 255, 255, 0.14);
+}
+:root.has-bg.light {
+  --panel: rgba(255, 255, 255, 0.62);
+  --panel-hover: rgba(255, 255, 255, 0.8);
+  --border: rgba(0, 0, 0, 0.1);
+}
+:root.has-bg .content h1,
+:root.has-bg .content h3 {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+:root.has-bg.light .content h1,
+:root.has-bg.light .content h3 {
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.65);
+}
+
 .app-bg {
+  position: relative;
   background:
     radial-gradient(900px 480px at 85% -10%, rgba(232, 154, 75, 0.12), transparent 60%),
     radial-gradient(700px 420px at -10% 110%, rgba(90, 162, 240, 0.08), transparent 55%),
     linear-gradient(180deg, var(--bg-0), var(--bg-1) 55%, #0d1016);
   color: var(--text-1);
+}
+.app-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--bg-image, none);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  filter: blur(var(--bg-blur, 0px));
+  transform: scale(1.08);
+  z-index: 0;
+  pointer-events: none;
+}
+.app-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, var(--bg-dim, 0));
+  z-index: 0;
+  pointer-events: none;
+}
+:root.light .app-bg::after {
+  background: rgba(255, 255, 255, var(--bg-dim-light, 0));
+}
+.app-bg > * {
+  position: relative;
+  z-index: 1;
 }
 
 ::-webkit-scrollbar {
@@ -79,7 +127,8 @@ body,
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 14px;
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(var(--glass-blur, 8px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 8px));
 }
 
 .clickable {

@@ -87,6 +87,7 @@ pub fn run() {
             commands::list_instance_files,
             commands::import_modpack,
             commands::import_instance_image,
+            commands::import_background_image,
             commands::scan_minecraft_import,
             commands::estimate_download,
             commands::estimate_import,

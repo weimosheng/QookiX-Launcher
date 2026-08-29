@@ -109,7 +109,9 @@ async function stopAll() {
   flex-direction: column;
   padding: 18px 12px 12px;
   border-right: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-1) 72%, transparent);
+  background: color-mix(in srgb, var(--bg-1) 84%, transparent);
+  backdrop-filter: blur(var(--glass-blur, 8px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 8px));
   transition: width 0.2s ease, padding 0.2s ease;
 }
 .sidebar.collapsed {
