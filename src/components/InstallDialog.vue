@@ -408,7 +408,7 @@ function fmtDate(s: string) {
 }
 .id-link:hover {
   color: var(--accent, #e89a4b);
-  border-color: rgba(232, 154, 75, 0.45);
+  border-color: var(--accent-45);
 }
 .id-site {
   display: inline-flex;
@@ -427,7 +427,7 @@ function fmtDate(s: string) {
 }
 .id-site:hover {
   color: var(--accent);
-  border-color: rgba(232, 154, 75, 0.45);
+  border-color: var(--accent-45);
 }
 .id-form {
   display: flex;
@@ -515,7 +515,7 @@ function fmtDate(s: string) {
   background: var(--panel);
 }
 .id-ver-row.active {
-  border-color: rgba(232, 154, 75, 0.5);
+  border-color: var(--accent-05);
   background: var(--accent-soft);
 }
 .id-ver-num {
@@ -592,7 +592,7 @@ function fmtDate(s: string) {
   font-family: inherit;
 }
 .id-dep-chip:hover {
-  border-color: rgba(232, 154, 75, 0.45);
+  border-color: var(--accent-45);
 }
 .id-dep-tag {
   font-size: 10px;

@@ -505,7 +505,7 @@ function isModpackTask(t: TaskEntry) {
   background: rgba(229, 83, 75, 0.06);
 }
 .file-row.active {
-  background: rgba(232, 154, 75, 0.08);
+  background: var(--accent-08);
 }
 .file-status {
   font-weight: 700;

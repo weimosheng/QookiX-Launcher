@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch, inject } from "vue";
 import { useRouter } from "vue-router";
 import { useInstancesStore } from "../stores/instances";
 import InstanceCard from "../components/InstanceCard.vue";
@@ -143,6 +143,10 @@ function openCreateGroup() {
   };
 }
 
+// 监听标题栏“新建分组”按钮的触发信号
+const groupDialogRequest = inject<{ value: number }>("groupDialogRequest", { value: 0 });
+watch(groupDialogRequest, () => openCreateGroup());
+
 function openRenameGroup(g: InstanceGroup) {
   groupDialog.value = { mode: "rename", id: g.id, name: g.name, color: g.color };
 }
@@ -236,11 +240,6 @@ async function moveTo(groupId: string | null) {
             @click="filter = 'ungrouped'"
           >
             未分组 <span class="chip-count">{{ instances.ungrouped.length }}</span>
-          </button>
-        </div>
-        <div class="toolbar-actions">
-          <button class="btn ghost sm" @click="openCreateGroup">
-            <IconPlus /> 新建分组
           </button>
         </div>
       </div>

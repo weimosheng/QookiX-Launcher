@@ -46,6 +46,8 @@ pub struct Settings {
     pub curseforge_api_key: Option<String>,
     /// "dark" | "light"
     pub theme: String,
+    /// 主题强调色（hex，如 "#e89a4b"）
+    pub theme_color: String,
     /// What happens when the window is closed: "minimize" | "quit"
     pub close_behavior: String,
     /// Auto launch last played instance on startup
@@ -88,6 +90,7 @@ impl Default for Settings {
             download_threads: 8,
             curseforge_api_key: None,
             theme: "dark".into(),
+            theme_color: "#e89a4b".into(),
             close_behavior: "minimize".into(),
             auto_launch: false,
             keep_open: true,

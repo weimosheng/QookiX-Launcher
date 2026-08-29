@@ -165,7 +165,7 @@ function fmtDate(s: string) {
 }
 .copy-btn:hover {
   color: var(--accent);
-  border-color: rgba(232, 154, 75, 0.5);
+  border-color: var(--accent-05);
 }
 .p-side-actions {
   display: flex;
@@ -361,6 +361,6 @@ function fmtDate(s: string) {
 }
 .site-btn:hover {
   color: var(--accent);
-  border-color: rgba(232, 154, 75, 0.5);
+  border-color: var(--accent-05);
 }
 </style>

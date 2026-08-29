@@ -1558,7 +1558,7 @@ watch(
   font-size: 12px;
 }
 .badge {
-  background: rgba(232, 154, 75, 0.16);
+  background: var(--accent-16);
   color: var(--accent);
   border-radius: 6px;
   padding: 1px 8px;
@@ -1711,7 +1711,7 @@ watch(
 }
 .mini-btn.accent {
   color: var(--accent);
-  border-color: rgba(232, 154, 75, 0.4);
+  border-color: var(--accent-04);
 }
 .upd-n {
   background: var(--accent);
@@ -1725,7 +1725,7 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 8px;
-  border-color: rgba(232, 154, 75, 0.3);
+  border-color: var(--accent-03);
 }
 .upd-row {
   display: flex;
@@ -2012,7 +2012,7 @@ watch(
 .seg.active {
   background: var(--accent-soft);
   color: var(--accent);
-  border-color: rgba(232, 154, 75, 0.5);
+  border-color: var(--accent-05);
 }
 .mp-toolbar {
   display: flex;
@@ -2105,7 +2105,7 @@ watch(
 }
 .mini-btn.play {
   color: var(--accent);
-  border-color: rgba(232, 154, 75, 0.4);
+  border-color: var(--accent-04);
   background: var(--accent-soft);
 }
 .mini-btn.play:disabled {
@@ -2121,7 +2121,7 @@ watch(
 }
 .mini-btn.pin.active {
   color: var(--accent);
-  border-color: rgba(232, 154, 75, 0.4);
+  border-color: var(--accent-04);
   background: var(--accent-soft);
 }
 .empty {
@@ -2165,7 +2165,7 @@ watch(
 }
 .mini-btn.accent {
   color: var(--accent);
-  border-color: rgba(232, 154, 75, 0.4);
+  border-color: var(--accent-04);
 }
 .java-row {
   display: flex;
@@ -2185,7 +2185,7 @@ watch(
   transition: border-color 0.12s;
 }
 .text-input:focus {
-  border-color: rgba(232, 154, 75, 0.5);
+  border-color: var(--accent-05);
 }
 textarea.text-input {
   resize: vertical;
@@ -2225,7 +2225,7 @@ textarea.text-input {
   white-space: nowrap;
 }
 .java-item.active {
-  border-color: rgba(232, 154, 75, 0.5);
+  border-color: var(--accent-05);
   background: var(--accent-soft);
   color: var(--accent);
 }

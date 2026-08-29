@@ -721,7 +721,7 @@ onUnmounted(() => {
   inset: 0;
 }
 .icon-box:hover {
-  border-color: rgba(232, 154, 75, 0.6);
+  border-color: var(--accent-06);
 }
 .fresh-title h2 {
   margin: 0 0 4px;
@@ -818,7 +818,7 @@ onUnmounted(() => {
   background: rgba(255, 255, 255, 0.05);
 }
 .ver-item.active {
-  border-color: rgba(232, 154, 75, 0.5);
+  border-color: var(--accent-05);
   background: var(--accent-soft);
   color: var(--accent);
 }
@@ -872,7 +872,7 @@ onUnmounted(() => {
 }
 .loader-btn.active {
   background: var(--accent-soft);
-  border-color: rgba(232, 154, 75, 0.45);
+  border-color: var(--accent-45);
   color: var(--accent);
 }
 .loader-select {
@@ -953,7 +953,7 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .folder-btn:hover {
-  border-color: rgba(232, 154, 75, 0.5);
+  border-color: var(--accent-05);
   color: var(--accent);
 }
 .scan-panel {

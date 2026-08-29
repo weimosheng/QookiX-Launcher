@@ -166,14 +166,21 @@ async function stopAll() {
   position: absolute;
   left: 0;
   width: 100%;
+  z-index: 1;
   border-radius: 10px;
   background: var(--accent-soft);
-  border: 1px solid rgba(232, 154, 75, 0.3);
+  border: 1px solid var(--accent-03);
   transition:
     top 0.28s cubic-bezier(0.22, 1, 0.36, 1),
     height 0.28s cubic-bezier(0.22, 1, 0.36, 1),
     opacity 0.18s;
   pointer-events: none;
+}
+.nav-icon,
+.nav-label,
+.nav-badge {
+  position: relative;
+  z-index: 2;
 }
 .nav-icon {
   font-size: 18px;

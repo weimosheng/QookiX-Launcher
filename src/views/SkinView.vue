@@ -641,7 +641,7 @@ onMounted(async () => {
   min-height: 320px;
   border-radius: 12px;
   background:
-    radial-gradient(ellipse at center, rgba(232, 154, 75, 0.08), transparent 70%),
+    radial-gradient(ellipse at center, var(--accent-08), transparent 70%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(0, 0, 0, 0.12));
   border: 1px solid var(--border);
   overflow: hidden;
@@ -947,7 +947,7 @@ onMounted(async () => {
 }
 .skin-card:hover {
   background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(232, 154, 75, 0.35);
+  border-color: var(--accent-35);
   transform: translateY(-1px);
 }
 .skin-card:active {
@@ -964,7 +964,7 @@ onMounted(async () => {
 }
 .upload-card:hover {
   color: var(--text-1);
-  border-color: rgba(232, 154, 75, 0.45);
+  border-color: var(--accent-45);
 }
 .thumb-wrap {
   width: 100%;

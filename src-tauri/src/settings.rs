@@ -129,6 +129,11 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
     if let Some(v) = patch.get("theme").and_then(|v| v.as_str()) {
         settings.theme = v.to_string();
     }
+    if let Some(v) = patch.get("theme_color").and_then(|v| v.as_str()) {
+        if !v.trim().is_empty() {
+            settings.theme_color = v.trim().to_string();
+        }
+    }
     if let Some(v) = patch.get("close_behavior").and_then(|v| v.as_str()) {
         settings.close_behavior = v.to_string();
     }

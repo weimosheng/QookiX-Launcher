@@ -405,8 +405,8 @@ function typeLabel(a: Account) {
   background: rgba(255, 255, 255, 0.06);
 }
 .acctm-row.active {
-  background: rgba(232, 154, 75, 0.14);
-  border-color: rgba(232, 154, 75, 0.35);
+  background: var(--accent-14);
+  border-color: var(--accent-35);
 }
 .acctm-avatar {
   width: 30px;
@@ -504,12 +504,12 @@ function typeLabel(a: Account) {
   background: rgba(255, 255, 255, 0.1);
 }
 .acctm-btn.ms {
-  background: rgba(232, 154, 75, 0.14);
-  border-color: rgba(232, 154, 75, 0.45);
+  background: var(--accent-14);
+  border-color: var(--accent-45);
   color: #e89a4b;
 }
 .acctm-btn.ms:hover {
-  background: rgba(232, 154, 75, 0.22);
+  background: var(--accent-22);
 }
 .acctm-offline-box {
   display: flex;

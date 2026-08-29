@@ -80,9 +80,8 @@ function confirmDelete() {
     </div>
     <div class="card-foot">
       <div class="foot-info">
-        <span>{{ instance.mods.length }} 模组</span>
         <span v-if="instance.last_played">
-          · 最近 {{ new Date(instance.last_played * 1000).toLocaleDateString() }}
+          最近 {{ new Date(instance.last_played * 1000).toLocaleDateString() }}
         </span>
       </div>
       <div class="actions" @click.stop>
@@ -166,7 +165,7 @@ function confirmDelete() {
   font-size: 12px;
 }
 .badge {
-  background: rgba(232, 154, 75, 0.16);
+  background: var(--accent-16);
   color: var(--accent);
   border-radius: 6px;
   padding: 1px 7px;
@@ -229,7 +228,7 @@ function confirmDelete() {
 }
 .icon-btn.play {
   color: var(--accent);
-  border-color: rgba(232, 154, 75, 0.4);
+  border-color: var(--accent-04);
   background: var(--accent-soft);
 }
 .icon-btn.danger:hover {

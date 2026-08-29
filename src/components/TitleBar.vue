@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from "vue";
+import { computed, ref, onMounted, inject } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -38,6 +38,11 @@ const actionIcons: Record<string, any> = {
 };
 // 页面路由 meta 中配置的导航按钮（如“新建实例”）
 const pageAction = computed(() => (route.meta.action as { text?: string; icon?: string; to?: string }) ?? null);
+// 供实例页触发的“新建分组”信号（由 App 提供）
+const groupDialogRequest = inject<{ value: number }>("groupDialogRequest", { value: 0 });
+function requestCreateGroup() {
+  groupDialogRequest.value++;
+}
 // 下载中心特殊的“清除已完成”操作按钮
 const finishedCount = computed(() => tasks.taskList.filter((t) => t.finished).length);
 
@@ -72,6 +77,13 @@ onMounted(async () => {
     </div>
     <div class="tb-right" data-tauri-drag-region>
       <div class="tb-actions">
+        <button
+          v-if="route.name === 'instances'"
+          class="tb-action"
+          @click="requestCreateGroup"
+        >
+          <IconPlus class="tb-action-icon" /> 新建分组
+        </button>
         <button
           v-if="pageAction?.to"
           class="tb-action primary"
@@ -190,7 +202,7 @@ onMounted(async () => {
   border: none;
   background: linear-gradient(135deg, var(--accent), var(--accent-deep));
   color: #1a1208;
-  box-shadow: 0 4px 16px rgba(232, 154, 75, 0.3);
+  box-shadow: 0 4px 16px var(--accent-03);
 }
 .tb-action.primary:hover:not(:disabled) {
   filter: brightness(1.08);

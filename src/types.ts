@@ -11,6 +11,7 @@ export interface Settings {
   download_threads: number;
   curseforge_api_key: string | null;
   theme: string;
+  theme_color: string;
   close_behavior: string;
   auto_launch: boolean;
   keep_open: boolean;
@@ -32,6 +33,33 @@ export interface JavaInfo {
   major: number;
   vendor: string;
   arch: string;
+}
+
+export interface StorageCategory {
+  key: string;
+  label: string;
+  size: number;
+  files: number;
+}
+
+export interface InstanceStorage {
+  id: string;
+  name: string;
+  size: number;
+  files: number;
+}
+
+export interface StorageStats {
+  categories: StorageCategory[];
+  instances: InstanceStorage[];
+  total: number;
+  instance_count: number;
+  updated_at: number;
+  cached: boolean;
+}
+
+export interface CacheClearResult {
+  freed: number;
 }
 
 export interface Instance {

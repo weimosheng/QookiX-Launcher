@@ -220,7 +220,7 @@ function save() {
 }
 .ip-bg.active {
   border-color: #e89a4b;
-  background: rgba(232, 154, 75, 0.14);
+  background: var(--accent-14);
   color: #e89a4b;
 }
 .ip-swatch {
@@ -269,7 +269,7 @@ function save() {
 }
 .ip-icon.active {
   border-color: #e89a4b;
-  background: rgba(232, 154, 75, 0.16);
+  background: var(--accent-16);
 }
 .ip-icon-img {
   width: 100%;

@@ -14,12 +14,15 @@ import {
   IconDownload,
   IconFile,
   IconGlobe,
+  IconHardDrive,
   IconImage,
+  IconRefresh,
   IconSearch,
   IconSliders,
+  IconTrash,
 } from "../components/icons";
 import { peekUpdate, downloadAndInstall, relaunchApp } from "../updater";
-import type { JavaInfo } from "../types";
+import type { JavaInfo, StorageStats } from "../types";
 import logoUrl from "../assets/logo.png";
 
 const settings = useSettingsStore();
@@ -99,6 +102,23 @@ const { indicatorStyle: themeSegStyle, refresh: refreshThemeSeg } = useSlidingIn
 );
 watch(() => settings.settings?.theme, () => nextTick(() => refreshThemeSeg()));
 
+// 主题色预设
+const themeColorPresets = [
+  "#e89a4b",
+  "#ff6b35",
+  "#e5534b",
+  "#ec4899",
+  "#8b5cf6",
+  "#5aa2f0",
+  "#22d3ee",
+  "#4ec9a0",
+  "#f5c518",
+];
+function onThemeColorInput(e: Event) {
+  const val = (e.target as HTMLInputElement).value;
+  if (val) settings.patch({ theme_color: val });
+}
+
 // 关闭行为 seg 滑动高亮
 const closeSegRef = ref<HTMLElement | null>(null);
 const { indicatorStyle: closeSegStyle, refresh: refreshCloseSeg } = useSlidingIndicator(
@@ -120,6 +140,7 @@ const tabs = [
   { key: "java", label: "Java", icon: IconCpu },
   { key: "download", label: "下载", icon: IconDownload },
   { key: "content", label: "内容服务", icon: IconGlobe },
+  { key: "storage", label: "存储", icon: IconHardDrive },
   { key: "about", label: "关于", icon: IconFile },
 ];
 
@@ -271,12 +292,119 @@ async function relaunchNow() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 存储统计
+// ---------------------------------------------------------------------------
+const stats = ref<StorageStats | null>(null);
+const loadingStats = ref(false);
+const clearing = ref(false);
+
+const DONUT_COLORS: Record<string, string> = {
+  instances: "var(--accent)",
+  libraries: "#5aa2f0",
+  assets: "#4ec9a0",
+  versions: "#8b5cf6",
+  runtime: "#ec4899",
+  logs: "#94a3b8",
+  other: "#64748b",
+  launcher: "#22d3ee",
+};
+const DONUT_R = 74;
+const DONUT_C = 2 * Math.PI * DONUT_R;
+
+function fmtSize(bytes: number): string {
+  if (!bytes || bytes <= 0) return "0 B";
+  if (bytes < 1024) return bytes + " B";
+  const units = ["KB", "MB", "GB", "TB"];
+  let v = bytes / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return (v >= 100 ? v.toFixed(0) : v.toFixed(1)) + " " + units[i];
+}
+
+function fmtTime(ts: number): string {
+  if (!ts) return "—";
+  const d = new Date(ts * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function pct(size: number): number {
+  if (!stats.value || !stats.value.total) return 0;
+  return Math.round((size / stats.value.total) * 1000) / 10;
+}
+
+const visibleCats = computed(() => (stats.value?.categories ?? []).filter((c) => c.size > 0));
+
+/** 环形饼图各分段：start 偏移累积，返回 dash/offset 供 SVG stroke-dasharray 使用 */
+const donutSegs = computed(() => {
+  const total = stats.value?.total ?? 0;
+  if (!total) return [];
+  let acc = 0;
+  return visibleCats.value.map((c) => {
+    const frac = c.size / total;
+    const dash = Math.max(0, frac * DONUT_C - 1.5);
+    const seg = { key: c.key, dash, offset: -acc, color: DONUT_COLORS[c.key] ?? "#64748b" };
+    acc += frac * DONUT_C;
+    return seg;
+  });
+});
+
+async function loadStats() {
+  loadingStats.value = true;
+  try {
+    stats.value = await api.getStorageStats();
+  } catch (e) {
+    message.error("加载存储统计失败：" + String(e));
+  } finally {
+    loadingStats.value = false;
+  }
+}
+
+async function refreshStats() {
+  loadingStats.value = true;
+  try {
+    stats.value = await api.refreshStorageStats();
+    message.success("已更新存储统计");
+  } catch (e) {
+    message.error("更新存储统计失败：" + String(e));
+  } finally {
+    loadingStats.value = false;
+  }
+}
+
+function confirmClear() {
+  dialog.warning({
+    title: "清除缓存",
+    content:
+      "将清理 Java 下载临时文件、Java 检测缓存等可安全删除的缓存，不会影响任何实例、库、资源或版本文件。确定继续吗？",
+    positiveText: "清除",
+    negativeText: "取消",
+    onPositiveClick: async () => {
+      clearing.value = true;
+      try {
+        const res = await api.clearCache();
+        message.success(`已清除缓存，释放 ${fmtSize(res.freed)}`);
+        await refreshStats();
+      } catch (e) {
+        message.error("清除缓存失败：" + String(e));
+      } finally {
+        clearing.value = false;
+      }
+    },
+  });
+}
+
 onMounted(() => {
   settings.load();
   // cached scan: no full rescan if another view already fetched recently
   settings.loadJava().then((c) => (javaCandidates.value = c));
   loadMemoryInfo();
   memTimer = setInterval(loadMemoryInfo, 10000);
+  loadStats();
 });
 onUnmounted(() => {
   if (memTimer) clearInterval(memTimer);
@@ -359,6 +487,26 @@ onUnmounted(() => {
               >
                 浅色
               </button>
+            </div>
+          </div>
+          <div class="appearance-divider"></div>
+          <div class="choice-row">
+            <span>主题色</span>
+            <div class="theme-color-row">
+              <button
+                v-for="c in themeColorPresets"
+                :key="c"
+                type="button"
+                class="color-swatch"
+                :class="{ active: settings.settings.theme_color === c }"
+                :style="{ background: c }"
+                :title="c"
+                @click="settings.patch({ theme_color: c })"
+              ></button>
+              <label class="color-custom" title="自定义颜色">
+                <span class="color-custom-ring" :style="{ background: settings.settings.theme_color }"></span>
+                <input type="color" :value="settings.settings.theme_color" @input="onThemeColorInput" />
+              </label>
             </div>
           </div>
         </div>
@@ -591,6 +739,86 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <!-- 存储 -->
+      <div v-show="tab === 'storage'" class="settings-pane">
+        <div class="grid storage-grid">
+          <div class="card glass storage-card">
+            <div class="storage-header">
+              <h3>存储统计</h3>
+              <div class="storage-actions">
+                <span class="hint-inline">
+                  <template v-if="stats">{{ stats.cached ? "上次更新" : "已更新" }}：{{ fmtTime(stats.updated_at) }}</template>
+                  <template v-else>尚未扫描</template>
+                </span>
+                <button class="mini-btn" :disabled="loadingStats" @click="refreshStats">
+                  <IconRefresh class="btn-icon" />
+                  {{ loadingStats ? "扫描中…" : "更新" }}
+                </button>
+              </div>
+            </div>
+
+            <div v-if="stats && stats.total > 0" class="storage-body">
+              <div class="donut-wrap">
+                <svg viewBox="0 0 200 200" class="donut">
+                  <circle
+                    v-for="seg in donutSegs"
+                    :key="seg.key"
+                    cx="100"
+                    cy="100"
+                    r="74"
+                    fill="none"
+                    :stroke="seg.color"
+                    stroke-width="30"
+                    :stroke-dasharray="`${seg.dash} ${DONUT_C - seg.dash}`"
+                    :stroke-dashoffset="seg.offset"
+                    transform="rotate(-90 100 100)"
+                  />
+                </svg>
+                <div class="donut-center">
+                  <span class="donut-total">{{ fmtSize(stats.total) }}</span>
+                  <span class="donut-label">总占用</span>
+                </div>
+              </div>
+
+              <ul class="storage-legend">
+                <li v-for="cat in visibleCats" :key="cat.key">
+                  <span class="legend-dot" :style="{ background: DONUT_COLORS[cat.key] ?? '#64748b' }"></span>
+                  <span class="legend-name">{{ cat.label }}</span>
+                  <span class="legend-size">{{ fmtSize(cat.size) }}</span>
+                  <span class="legend-pct">{{ pct(cat.size) }}%</span>
+                </li>
+              </ul>
+            </div>
+
+            <div v-if="stats && stats.instances.length" class="instance-storage">
+              <h4 class="instance-storage-title">
+                每个实例
+                <span class="hint-inline">{{ stats.instances.length }} 个</span>
+              </h4>
+              <ul class="instance-storage-list">
+                <li v-for="inst in stats.instances" :key="inst.id">
+                  <span class="instance-name" :title="inst.name">{{ inst.name }}</span>
+                  <span class="legend-size">{{ fmtSize(inst.size) }}</span>
+                  <span class="legend-pct">{{ pct(inst.size) }}%</span>
+                </li>
+              </ul>
+            </div>
+            <p v-else class="hint">{{ stats ? "暂无可统计的数据" : "正在加载存储统计…" }}</p>
+          </div>
+
+          <div class="card glass">
+            <h3>清除缓存</h3>
+            <p class="hint">
+              清理 Java 下载临时文件、Java 检测缓存等可安全删除的缓存，不会影响任何实例、库、资源或版本文件。
+            </p>
+            <button class="mini-btn danger" :disabled="clearing" @click="confirmClear">
+              <IconTrash class="btn-icon" />
+              {{ clearing ? "清理中…" : "清除缓存" }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- 关于 -->
       <div v-show="tab === 'about'" class="settings-pane">
         <div class="grid about-grid">
@@ -598,7 +826,7 @@ onUnmounted(() => {
             <div class="about-logo">
               <img class="about-logo-img" :src="logoUrl" alt="QookiX" />
               <span class="about-name">QookiX Launcher</span>
-              <span class="about-ver">v0.3.7</span>
+              <span class="about-ver">v0.3.8</span>
             </div>
             <p class="about-desc">现代化、简洁、无广告的 Minecraft 启动器</p>
             <div class="about-features">
@@ -816,7 +1044,7 @@ onUnmounted(() => {
   transition: border-color 0.12s;
 }
 .text-input:focus {
-  border-color: rgba(232, 154, 75, 0.5);
+  border-color: var(--accent-05);
 }
 textarea.text-input {
   resize: vertical;
@@ -842,6 +1070,150 @@ textarea.text-input {
 }
 .mini-btn:disabled {
   opacity: 0.5;
+}
+.mini-btn.danger {
+  border-color: rgba(229, 83, 75, 0.35);
+  color: #e5534b;
+  background: rgba(229, 83, 75, 0.08);
+}
+.mini-btn.danger:hover {
+  background: rgba(229, 83, 75, 0.16);
+}
+.btn-icon {
+  width: 14px;
+  height: 14px;
+}
+.storage-grid {
+  grid-template-columns: 1.6fr 1fr;
+}
+.storage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.storage-header h3 {
+  margin: 0;
+}
+.storage-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.storage-body {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+}
+.donut-wrap {
+  position: relative;
+  flex: none;
+  width: 190px;
+  height: 190px;
+}
+.donut {
+  width: 100%;
+  height: 100%;
+}
+.donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.donut-total {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-1);
+  line-height: 1.2;
+}
+.donut-label {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+.storage-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+.storage-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.legend-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.legend-name {
+  color: var(--text-2);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.legend-size {
+  color: var(--text-1);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.legend-pct {
+  color: var(--text-3);
+  width: 48px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.instance-storage {
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.instance-storage-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.instance-storage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.instance-storage-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.instance-name {
+  color: var(--text-1);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .java-toolbar {
   display: flex;
@@ -1045,6 +1417,54 @@ textarea.text-input {
 }
 .seg button.active {
   color: var(--accent);
+}
+.theme-color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.color-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+.color-swatch:hover {
+  transform: scale(1.12);
+}
+.color-swatch.active {
+  border-color: var(--text-1);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.color-custom {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.color-custom-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+.color-custom input[type="color"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: none;
+  padding: 0;
 }
 .dir-row {
   display: flex;

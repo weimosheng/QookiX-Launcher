@@ -2,6 +2,7 @@ import { invoke as rawInvoke } from "@tauri-apps/api/core";
 import { trackStart, trackEnd, trackError } from "./loadingBar";
 import type {
   Account,
+  CacheClearResult,
   Instance,
   InstanceGroup,
   JavaInfo,
@@ -10,6 +11,7 @@ import type {
   ServerEntry,
   ServerStatus,
   Settings,
+  StorageStats,
 } from "./types";
 
 const SILENT_COMMANDS = new Set(["install_game", "install_content", "download_java", "mc_wiki_url", "project_dependencies", "launch_instance", "apply_update", "identify_content"]);
@@ -274,4 +276,9 @@ export const api = {
   listServers: (instanceId: string) =>
     invoke<{ servers: ServerEntry[] }>("list_servers", { instanceId }).then((r) => r.servers),
   pingServer: (address: string) => invoke<ServerStatus>("ping_mc_server", { address }),
+
+  // storage
+  getStorageStats: () => invoke<StorageStats>("get_storage_stats"),
+  refreshStorageStats: () => invoke<StorageStats>("refresh_storage_stats"),
+  clearCache: () => invoke<CacheClearResult>("clear_cache"),
 };

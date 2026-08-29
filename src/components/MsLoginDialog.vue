@@ -108,15 +108,15 @@ async function retry() {
   letter-spacing: 10px;
   text-align: center;
   color: #e89a4b;
-  background: rgba(232, 154, 75, 0.08);
-  border: 1px dashed rgba(232, 154, 75, 0.4);
+  background: var(--accent-08);
+  border: 1px dashed var(--accent-04);
   border-radius: 12px;
   padding: 14px 0;
   width: 100%;
 }
 .qkms-copy {
-  border: 1px solid rgba(232, 154, 75, 0.4);
-  background: rgba(232, 154, 75, 0.1);
+  border: 1px solid var(--accent-04);
+  background: var(--accent-01);
   color: #e89a4b;
   border-radius: 8px;
   padding: 6px 18px;
@@ -126,7 +126,7 @@ async function retry() {
   font-family: inherit;
 }
 .qkms-copy:hover {
-  background: rgba(232, 154, 75, 0.2);
+  background: var(--accent-02);
 }
 .qkms-hint {
   font-size: 12px;

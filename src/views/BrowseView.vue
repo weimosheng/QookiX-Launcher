@@ -795,7 +795,7 @@ onMounted(async () => {
   font-size: 12px;
   background: var(--accent-soft);
   color: var(--accent);
-  border: 1px solid rgba(232, 154, 75, 0.3);
+  border: 1px solid var(--accent-03);
   border-radius: 8px;
   padding: 3px 10px;
 }

@@ -364,7 +364,7 @@ onMounted(() => {
   height: 420px;
   right: -80px;
   top: -180px;
-  background: radial-gradient(circle, rgba(232, 154, 75, 0.25), transparent 65%);
+  background: radial-gradient(circle, var(--accent-25), transparent 65%);
   pointer-events: none;
 }
 .hero-text {
@@ -419,7 +419,7 @@ onMounted(() => {
 .btn.primary {
   background: linear-gradient(135deg, var(--accent), var(--accent-deep));
   color: #1a1208;
-  box-shadow: 0 6px 22px rgba(232, 154, 75, 0.35);
+  box-shadow: 0 6px 22px var(--accent-35);
 }
 .btn.primary:hover {
   filter: brightness(1.08);
@@ -476,7 +476,7 @@ onMounted(() => {
   transition: border-color 0.15s, transform 0.15s, background 0.15s;
 }
 .pin-card:hover {
-  border-color: rgba(232, 154, 75, 0.45);
+  border-color: var(--accent-45);
   background: rgba(255, 255, 255, 0.06);
   transform: translateY(-1px);
 }
@@ -485,7 +485,7 @@ onMounted(() => {
   height: 46px;
   border-radius: 12px;
   flex-shrink: 0;
-  background: linear-gradient(135deg, rgba(232, 154, 75, 0.22), rgba(232, 154, 75, 0.08));
+  background: linear-gradient(135deg, var(--accent-22), var(--accent-08));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -641,7 +641,7 @@ onMounted(() => {
   height: 64px;
   border-radius: 16px;
   overflow: hidden;
-  background: linear-gradient(135deg, rgba(232, 154, 75, 0.25), rgba(232, 154, 75, 0.08));
+  background: linear-gradient(135deg, var(--accent-25), var(--accent-08));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -666,7 +666,7 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 .badge {
-  background: rgba(232, 154, 75, 0.16);
+  background: var(--accent-16);
   color: var(--accent);
   border-radius: 6px;
   padding: 1px 7px;
@@ -733,14 +733,14 @@ onMounted(() => {
 .pick-card.active {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
-  background: rgba(232, 154, 75, 0.1);
+  background: var(--accent-01);
 }
 .pick-icon {
   width: 42px;
   height: 42px;
   border-radius: 11px;
   overflow: hidden;
-  background: linear-gradient(135deg, rgba(232, 154, 75, 0.25), rgba(232, 154, 75, 0.08));
+  background: linear-gradient(135deg, var(--accent-25), var(--accent-08));
   display: flex;
   align-items: center;
   justify-content: center;

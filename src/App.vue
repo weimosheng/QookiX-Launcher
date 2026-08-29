@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, computed, watch } from "vue";
+import { onMounted, computed, watch, ref, provide } from "vue";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { darkTheme, lightTheme, NConfigProvider, NDialogProvider, NLoadingBarProvider, NMessageProvider, NNotificationProvider } from "naive-ui";
 import TitleBar from "./components/TitleBar.vue";
@@ -12,7 +12,15 @@ import { useSettingsStore } from "./stores/settings";
 import { useAccountsStore } from "./stores/accounts";
 import { useInstancesStore } from "./stores/instances";
 import { useTasksStore } from "./stores/tasks";
-import { darkThemeOverrides, lightThemeOverrides } from "./theme";
+import {
+  buildDarkOverrides,
+  buildLightOverrides,
+  DEFAULT_ACCENT,
+  darken,
+  lighten,
+  rgba,
+  ACCENT_ALPHAS,
+} from "./theme";
 
 const settings = useSettingsStore();
 const accounts = useAccountsStore();
@@ -21,10 +29,26 @@ const tasks = useTasksStore();
 
 const isDark = computed(() => settings.settings?.theme !== "light");
 const activeTheme = computed(() => (isDark.value ? darkTheme : lightTheme));
-const themeOverrides = computed(() => (isDark.value ? darkThemeOverrides : lightThemeOverrides));
+
+const accentColor = computed(() => settings.settings?.theme_color || DEFAULT_ACCENT);
+const themeOverrides = computed(() =>
+  isDark.value ? buildDarkOverrides(accentColor.value) : buildLightOverrides(accentColor.value),
+);
 
 watch(isDark, () => {
   document.documentElement.classList.toggle("light", !isDark.value);
+}, { immediate: true });
+
+// 将主题色应用到 CSS 变量上（accent / accent-deep / accent-soft / 各级 alpha）
+watch(accentColor, (hex) => {
+  const root = document.documentElement;
+  root.style.setProperty("--accent", hex);
+  root.style.setProperty("--accent-deep", darken(hex));
+  root.style.setProperty("--accent-hover", lighten(hex));
+  root.style.setProperty("--accent-soft", rgba(hex, 0.14));
+  for (const a of ACCENT_ALPHAS) {
+    root.style.setProperty(`--accent-${String(Math.round(a * 100)).padStart(2, "0")}`, rgba(hex, a));
+  }
 }, { immediate: true });
 
 const bgStyle = computed(() => {
@@ -52,6 +76,10 @@ onMounted(() => {
   accounts.load();
   instances.load();
 });
+
+// 供 TitleBar 的“新建分组”按钮触发实例页的分组对话框
+const groupDialogRequest = ref(0);
+provide("groupDialogRequest", groupDialogRequest);
 </script>
 
 <template>
@@ -90,7 +118,7 @@ onMounted(() => {
   flex-direction: column;
 }
 .app.light {
-  background: radial-gradient(900px 480px at 85% -10%, rgba(232, 154, 75, 0.12), transparent 60%),
+  background: radial-gradient(900px 480px at 85% -10%, var(--accent-12), transparent 60%),
     linear-gradient(180deg, #f7f6f4, #eceef2);
 }
 .body {

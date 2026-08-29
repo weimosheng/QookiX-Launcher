@@ -17,7 +17,28 @@ body,
 :root {
   --accent: #e89a4b;
   --accent-deep: #d97f33;
+  --accent-hover: #f2a860;
   --accent-soft: rgba(232, 154, 75, 0.14);
+  --accent-01: rgba(232, 154, 75, 0.01);
+  --accent-02: rgba(232, 154, 75, 0.02);
+  --accent-03: rgba(232, 154, 75, 0.03);
+  --accent-04: rgba(232, 154, 75, 0.04);
+  --accent-05: rgba(232, 154, 75, 0.05);
+  --accent-06: rgba(232, 154, 75, 0.06);
+  --accent-08: rgba(232, 154, 75, 0.08);
+  --accent-10: rgba(232, 154, 75, 0.1);
+  --accent-12: rgba(232, 154, 75, 0.12);
+  --accent-14: rgba(232, 154, 75, 0.14);
+  --accent-16: rgba(232, 154, 75, 0.16);
+  --accent-20: rgba(232, 154, 75, 0.2);
+  --accent-22: rgba(232, 154, 75, 0.22);
+  --accent-25: rgba(232, 154, 75, 0.25);
+  --accent-30: rgba(232, 154, 75, 0.3);
+  --accent-35: rgba(232, 154, 75, 0.35);
+  --accent-40: rgba(232, 154, 75, 0.4);
+  --accent-45: rgba(232, 154, 75, 0.45);
+  --accent-50: rgba(232, 154, 75, 0.5);
+  --accent-60: rgba(232, 154, 75, 0.6);
   --bg-0: #0b0d12;
   --bg-1: #10131a;
   --bg-2: #151924;
@@ -36,7 +57,28 @@ body,
 :root.light {
   --accent: #ffa050;
   --accent-deep: #e8893c;
+  --accent-hover: #ffb978;
   --accent-soft: rgba(255, 160, 80, 0.12);
+  --accent-01: rgba(255, 160, 80, 0.01);
+  --accent-02: rgba(255, 160, 80, 0.02);
+  --accent-03: rgba(255, 160, 80, 0.03);
+  --accent-04: rgba(255, 160, 80, 0.04);
+  --accent-05: rgba(255, 160, 80, 0.05);
+  --accent-06: rgba(255, 160, 80, 0.06);
+  --accent-08: rgba(255, 160, 80, 0.08);
+  --accent-10: rgba(255, 160, 80, 0.1);
+  --accent-12: rgba(255, 160, 80, 0.12);
+  --accent-14: rgba(255, 160, 80, 0.14);
+  --accent-16: rgba(255, 160, 80, 0.16);
+  --accent-20: rgba(255, 160, 80, 0.2);
+  --accent-22: rgba(255, 160, 80, 0.22);
+  --accent-25: rgba(255, 160, 80, 0.25);
+  --accent-30: rgba(255, 160, 80, 0.3);
+  --accent-35: rgba(255, 160, 80, 0.35);
+  --accent-40: rgba(255, 160, 80, 0.4);
+  --accent-45: rgba(255, 160, 80, 0.45);
+  --accent-50: rgba(255, 160, 80, 0.5);
+  --accent-60: rgba(255, 160, 80, 0.6);
   --bg-0: #f7f6f4;
   --bg-1: #eceef2;
   --bg-2: #e2e4ea;
@@ -74,7 +116,7 @@ body,
 .app-bg {
   position: relative;
   background:
-    radial-gradient(900px 480px at 85% -10%, rgba(232, 154, 75, 0.12), transparent 60%),
+    radial-gradient(900px 480px at 85% -10%, var(--accent-12), transparent 60%),
     radial-gradient(700px 420px at -10% 110%, rgba(90, 162, 240, 0.08), transparent 55%),
     linear-gradient(180deg, var(--bg-0), var(--bg-1) 55%, #0d1016);
   color: var(--text-1);
@@ -137,7 +179,7 @@ body,
 }
 .clickable:hover {
   background: var(--panel-hover);
-  border-color: rgba(232, 154, 75, 0.35);
+  border-color: var(--accent-35);
 }
 .clickable:active {
   transform: scale(0.97);

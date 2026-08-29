@@ -15,6 +15,7 @@ mod modrinth;
 mod paths;
 mod settings;
 mod state;
+mod storage;
 mod util;
 
 use state::AppState;
@@ -135,6 +136,10 @@ pub fn run() {
             // multiplayer servers
             commands::list_servers,
             commands::ping_mc_server,
+            // storage
+            commands::get_storage_stats,
+            commands::refresh_storage_stats,
+            commands::clear_cache,
         ])
         .on_window_event(|window, event| {
             use tauri::WindowEvent;
