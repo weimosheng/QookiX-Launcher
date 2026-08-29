@@ -162,6 +162,12 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
     if let Some(v) = patch.get("glass_blur").and_then(|v| v.as_u64()) {
         settings.glass_blur = (v as u32).min(30);
     }
+    if let Some(v) = patch.get("show_home_hero").and_then(|v| v.as_bool()) {
+        settings.show_home_hero = v;
+    }
+    if let Some(v) = patch.get("show_sidebar_collapse_btn").and_then(|v| v.as_bool()) {
+        settings.show_sidebar_collapse_btn = v;
+    }
     let cloned = settings.clone();
     drop(settings);
     persist(state)?;

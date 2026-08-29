@@ -21,6 +21,8 @@ export interface Settings {
   background_blur: number;
   background_dim: number;
   glass_blur: number;
+  show_home_hero: boolean;
+  show_sidebar_collapse_btn: boolean;
 }
 
 export interface JavaInfo {

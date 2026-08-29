@@ -5,6 +5,7 @@ import AccountChip from "./AccountChip.vue";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import { useTasksStore } from "../stores/tasks";
 import { useInstancesStore } from "../stores/instances";
+import { useSettingsStore } from "../stores/settings";
 import { useMessage } from "naive-ui";
 import {
   IconChevronsLeft,
@@ -21,6 +22,7 @@ import {
 const route = useRoute();
 const tasks = useTasksStore();
 const instances = useInstancesStore();
+const settingsStore = useSettingsStore();
 const message = useMessage();
 
 const collapsed = ref(true);
@@ -93,7 +95,11 @@ async function stopAll() {
         <span v-if="!collapsed">关闭所有实例</span>
       </button>
       <AccountChip :collapsed="collapsed" />
-      <button class="collapse-btn" @click="collapsed = !collapsed">
+      <button
+        v-if="settingsStore.settings?.show_sidebar_collapse_btn ?? true"
+        class="collapse-btn"
+        @click="collapsed = !collapsed"
+      >
         <IconChevronsLeft v-if="!collapsed" />
         <IconList v-else />
       </button>

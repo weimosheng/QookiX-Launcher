@@ -328,6 +328,39 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="card glass">
+          <h3>界面</h3>
+          <div class="choice-row">
+            <div class="choice-info">
+              <span class="choice-label">首页主标题卡片</span>
+              <p class="choice-hint">控制首页顶部的主标题卡片是否显示，关闭后首页更加简洁。</p>
+            </div>
+            <button
+              class="toggle"
+              :class="{ on: settings.settings.show_home_hero }"
+              role="switch"
+              :aria-checked="settings.settings.show_home_hero"
+              @click="settings.patch({ show_home_hero: !settings.settings.show_home_hero })"
+            >
+              <span class="knob"></span>
+            </button>
+          </div>
+          <div class="choice-row">
+            <div class="choice-info">
+              <span class="choice-label">侧边栏折叠按钮</span>
+              <p class="choice-hint">控制侧边栏底部的展开/收缩按钮是否显示，关闭后可保持侧边栏固定。</p>
+            </div>
+            <button
+              class="toggle"
+              :class="{ on: settings.settings.show_sidebar_collapse_btn }"
+              role="switch"
+              :aria-checked="settings.settings.show_sidebar_collapse_btn"
+              @click="settings.patch({ show_sidebar_collapse_btn: !settings.settings.show_sidebar_collapse_btn })"
+            >
+              <span class="knob"></span>
+            </button>
+          </div>
+        </div>
+        <div class="card glass">
           <h3>背景图片</h3>
           <div v-if="settings.settings.background_image" class="bg-preview">
             <img :src="bgPreviewUrl" alt="背景预览" />
@@ -530,7 +563,7 @@ onUnmounted(() => {
             <div class="about-logo">
               <img class="about-logo-img" :src="logoUrl" alt="QookiX" />
               <span class="about-name">QookiX Launcher</span>
-              <span class="about-ver">v0.3.5</span>
+              <span class="about-ver">v0.3.6</span>
             </div>
             <p class="about-desc">现代化、简洁、无广告的 Minecraft 启动器</p>
             <div class="about-features">
@@ -909,9 +942,26 @@ textarea.text-input {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
   margin-bottom: 14px;
   font-size: 13px;
   color: var(--text-2);
+}
+.choice-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.choice-label {
+  color: var(--text-1);
+  font-weight: 500;
+}
+.choice-hint {
+  font-size: 12px;
+  color: var(--text-3);
+  margin: 0;
+  line-height: 1.5;
 }
 .seg {
   position: relative;
@@ -1174,5 +1224,34 @@ textarea.text-input {
   font-size: 12px;
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
+}
+.toggle {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s;
+  flex-shrink: 0;
+}
+.toggle .knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-3);
+  transition: transform 0.18s, background 0.18s;
+}
+.toggle.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.toggle.on .knob {
+  transform: translateX(18px);
+  background: #fff;
 }
 </style>

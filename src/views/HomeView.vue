@@ -1,18 +1,28 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { useInstancesStore } from "../stores/instances";
 import { useAccountsStore } from "../stores/accounts";
+import { usePinsStore, type PinItem } from "../stores/pins";
+import { useSettingsStore } from "../stores/settings";
+import { api } from "../api";
+import { supportsQuickPlay } from "../version";
 import { useMessage, NModal } from "naive-ui";
 import AppIcon from "../components/AppIcon.vue";
-import { IconCompass, IconPlay, IconRepeat, IconUser } from "../components/icons";
+import type { ServerStatus } from "../types";
+import { IconClose, IconCompass, IconFolder, IconGlobe, IconPlay, IconRepeat, IconUser } from "../components/icons";
 
 const router = useRouter();
 const instances = useInstancesStore();
 const accounts = useAccountsStore();
 const message = useMessage();
+const pinsStore = usePinsStore();
+const settingsStore = useSettingsStore();
 const launching = ref(false);
 const showPicker = ref(false);
+const pinLaunching = ref<string>("");
+const pinStatus = ref<Record<string, ServerStatus>>({});
 
 const STORAGE_KEY = "qookix.home.selected";
 
@@ -97,15 +107,87 @@ function openPicker() {
   showPicker.value = true;
 }
 
+// —— 固定快捷启动 ——
+// 仅展示仍存在的实例；实例被删除后自动隐藏对应固定项
+const validPins = computed(() =>
+  pinsStore.items.filter((p) => instances.get(p.instanceId))
+);
+
+function latencyInfo(latency: number | null | undefined): { count: number; tier: string } {
+  if (latency == null) return { count: 0, tier: "off" };
+  if (latency <= 50) return { count: 5, tier: "good" };
+  if (latency <= 100) return { count: 4, tier: "good" };
+  if (latency <= 200) return { count: 3, tier: "mid" };
+  if (latency <= 300) return { count: 2, tier: "bad" };
+  return { count: 1, tier: "bad" };
+}
+
+function pinIconSrc(p: PinItem): string | undefined {
+  if (p.type !== "server") return undefined;
+  const fav = pinStatus.value[p.id]?.favicon;
+  if (fav) return fav;
+  if (p.icon) return `data:image/png;base64,${p.icon}`;
+  return undefined;
+}
+
+function worldIconSrc(p: PinItem): string | undefined {
+  if (!p.icon) return undefined;
+  if (p.icon.startsWith("http://") || p.icon.startsWith("https://") || p.icon.startsWith("data:")) return p.icon;
+  return convertFileSrc(p.icon);
+}
+
+async function pingPin(p: PinItem) {
+  if (p.type !== "server" || !p.address) return;
+  try {
+    const st = await api.pingServer(p.address);
+    pinStatus.value = { ...pinStatus.value, [p.id]: st };
+  } catch {
+    pinStatus.value = {
+      ...pinStatus.value,
+      [p.id]: { online: false, address: p.address, name: null, version: null, players_online: null, players_max: null, motd: null, favicon: null, latency_ms: null, error: null },
+    };
+  }
+}
+
+async function launchPin(p: PinItem) {
+  if (!hasAccount.value) {
+    message.warning("请先在左下角账号栏添加账号（正版或离线）");
+    accounts.showManager = true;
+    return;
+  }
+  pinLaunching.value = p.id;
+  if (p.type === "world" && !supportsQuickPlay(p.mcVersion)) {
+    message.info(`此实例是 ${p.mcVersion}，不支持命令行直达存档，将启动游戏后手动进入存档`);
+  }
+  try {
+    await instances.launch(p.instanceId, p.world, p.address);
+    message.success(p.type === "server" ? `正在加入服务器「${p.name}」` : `正在进入世界「${p.name}」`);
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    pinLaunching.value = "";
+  }
+}
+
+function unpin(p: PinItem) {
+  pinsStore.remove(p.id);
+}
+
+function openInstance(p: PinItem) {
+  router.push({ path: `/instances/${p.instanceId}`, query: { tab: "saves" } });
+}
+
 onMounted(() => {
   instances.load();
   accounts.load();
+  settingsStore.load();
+  pinsStore.items.filter((p) => p.type === "server").forEach((p) => pingPin(p));
 });
 </script>
 
 <template>
   <div class="home">
-    <section class="hero glass">
+    <section v-if="settingsStore.settings?.show_home_hero" class="hero glass">
       <div class="hero-glow"></div>
       <div class="hero-text">
         <div class="greeting">{{ greeting }}</div>
@@ -122,6 +204,51 @@ onMounted(() => {
       </div>
       <div class="hero-logo">
         <img src="/app-icon.png" class="hero-logo-img" draggable="false" alt="" />
+      </div>
+    </section>
+
+    <section v-if="validPins.length" class="pin-block">
+      <div class="pin-grid">
+        <div v-for="p in validPins" :key="p.id" class="pin-card glass" @click="openInstance(p)">
+          <div class="pin-icon">
+            <template v-if="p.type === 'server'">
+              <img v-if="pinIconSrc(p)" :src="pinIconSrc(p)" class="pin-icon-img" alt="" />
+              <IconGlobe v-else />
+            </template>
+            <template v-else>
+              <img v-if="worldIconSrc(p)" :src="worldIconSrc(p)" class="pin-icon-img" alt="" />
+              <IconFolder v-else />
+            </template>
+          </div>
+          <div class="pin-info">
+            <div class="pin-title text-ellipsis">{{ p.name }}</div>
+            <div class="pin-meta">
+              <span class="pin-type" :class="p.type">{{ p.type === "server" ? "服务器" : "存档" }}</span>
+              <span class="pin-inst text-ellipsis">{{ p.instanceName }}</span>
+            </div>
+            <div v-if="p.type === 'server'" class="pin-status">
+              <span v-if="pinStatus[p.id]" :class="['latency', latencyInfo(pinStatus[p.id].latency_ms).tier]">
+                <span class="bars">
+                  <i v-for="n in 5" :key="n" :class="{ on: n <= latencyInfo(pinStatus[p.id].latency_ms).count }"></i>
+                </span>
+                <span v-if="pinStatus[p.id].latency_ms != null">{{ pinStatus[p.id].latency_ms }} ms</span>
+                <span v-else-if="!pinStatus[p.id].online">离线</span>
+                <span v-else>…</span>
+              </span>
+              <span v-if="pinStatus[p.id]?.players_online != null" class="players">
+                {{ pinStatus[p.id].players_online }} 人在线
+              </span>
+            </div>
+          </div>
+          <div class="pin-actions">
+            <button class="pin-unpin" title="取消固定" @click.stop="unpin(p)">
+              <IconClose />
+            </button>
+            <button class="btn primary" :disabled="pinLaunching === p.id" @click.stop="launchPin(p)">
+              <IconPlay /> {{ pinLaunching === p.id ? "启动中…" : "启动" }}
+            </button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -300,6 +427,148 @@ onMounted(() => {
 }
 .section {
   margin-top: auto;
+}
+/* 固定快捷启动 */
+.pin-block {
+  margin-top: 8px;
+}
+.pin-sub {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.pin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+.pin-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s, background 0.15s;
+}
+.pin-card:hover {
+  border-color: rgba(232, 154, 75, 0.45);
+  background: rgba(255, 255, 255, 0.06);
+  transform: translateY(-1px);
+}
+.pin-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, rgba(232, 154, 75, 0.22), rgba(232, 154, 75, 0.08));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: var(--accent);
+  overflow: hidden;
+}
+.pin-icon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.pin-info {
+  flex: 1;
+  min-width: 0;
+}
+.pin-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.pin-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.pin-type {
+  border-radius: 6px;
+  padding: 0 6px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.pin-type.server {
+  background: rgba(90, 176, 255, 0.15);
+  color: #5ab0ff;
+}
+.pin-type.world {
+  background: rgba(122, 208, 138, 0.15);
+  color: #7ad08a;
+}
+.pin-inst {
+  color: var(--text-3);
+}
+.pin-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+.pin-status .latency {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pin-status .bars {
+  display: inline-flex;
+  gap: 2px;
+}
+.pin-status .bars i {
+  width: 4px;
+  height: 10px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.15);
+}
+.pin-status .bars i.on {
+  background: currentColor;
+}
+.pin-status .latency.good {
+  color: #7ad08a;
+}
+.pin-status .latency.mid {
+  color: #ffc34d;
+}
+.pin-status .latency.bad {
+  color: #ff6b6b;
+}
+.pin-status .latency.off {
+  color: var(--text-3);
+}
+.pin-status .players {
+  color: var(--text-3);
+}
+.pin-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.pin-actions .btn {
+  padding: 8px 14px;
+  font-size: 13px;
+}
+.pin-unpin {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pin-unpin:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ff6b6b;
 }
 .section-head {
   display: flex;

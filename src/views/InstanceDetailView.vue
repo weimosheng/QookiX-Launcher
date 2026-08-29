@@ -4,7 +4,9 @@ import { useRoute, useRouter } from "vue-router";
 import { useInstancesStore } from "../stores/instances";
 import { useAccountsStore } from "../stores/accounts";
 import { useSettingsStore } from "../stores/settings";
+import { usePinsStore } from "../stores/pins";
 import { useMessage, NModal, NSelect, NButton } from "naive-ui";
+import { supportsQuickPlay } from "../version";
 import { api } from "../api";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -36,12 +38,14 @@ import {
   IconSearch,
   IconTrash,
   IconGlobe,
+  IconMapPin,
 } from "../components/icons";
 const route = useRoute();
 const router = useRouter();
 const instances = useInstancesStore();
 const accounts = useAccountsStore();
 const message = useMessage();
+const pins = usePinsStore();
 
 const confirmState = ref<{ title: string; content: string; positiveText: string; onOk: () => void | Promise<void> } | null>(null);
 function confirm(opts: { title: string; content: string; positiveText: string; onOk: () => void | Promise<void> }) {
@@ -304,6 +308,9 @@ async function launchWorld(name: string) {
     return;
   }
   launchingWorld.value = name;
+  if (!supportsQuickPlay(i.mc_version)) {
+    message.info(`此实例是 ${i.mc_version}，不支持命令行直达存档，将启动游戏后手动进入存档`);
+  }
   try {
     await instances.launch(i.id, name);
     message.success(`正在进入世界「${name}」`);
@@ -332,6 +339,46 @@ async function launchServer(entry: ServerEntry) {
   } finally {
     launchingServer.value = "";
   }
+}
+
+// —— 固定到首页 ——
+function worldPinId(name: string) {
+  return pins.makeId("world", instanceId, name);
+}
+function serverPinId(address: string) {
+  return pins.makeId("server", instanceId, address);
+}
+function toggleWorldPin(w: { name: string; icon: string | null }) {
+  const i = instance.value;
+  if (!i) return;
+  pins.toggle({
+    id: worldPinId(w.name),
+    type: "world",
+    instanceId,
+    instanceName: i.name,
+    instanceIcon: i.icon,
+    mcVersion: i.mc_version,
+    loader: i.loader,
+    name: w.name,
+    world: w.name,
+    icon: w.icon,
+  });
+}
+function toggleServerPin(entry: ServerEntry) {
+  const i = instance.value;
+  if (!i) return;
+  pins.toggle({
+    id: serverPinId(entry.address),
+    type: "server",
+    instanceId,
+    instanceName: i.name,
+    instanceIcon: i.icon,
+    mcVersion: i.mc_version,
+    loader: i.loader,
+    name: entry.name || entry.address,
+    address: entry.address,
+    icon: entry.icon,
+  });
 }
 
 // 把 MC 的 §x 颜色码解析为可渲染的片段，用于彩色显示服务器 MOTD
@@ -1129,6 +1176,14 @@ watch(
               </div>
               <div class="c-actions">
                 <button
+                  class="mini-btn pin"
+                  :class="{ active: pins.isPinned(worldPinId(f.name)) }"
+                  :title="pins.isPinned(worldPinId(f.name)) ? '取消固定' : '固定到首页'"
+                  @click="toggleWorldPin(f)"
+                >
+                  <IconMapPin />
+                </button>
+                <button
                   class="mini-btn play"
                   :disabled="!!launchingWorld"
                   @click="launchWorld(f.name)"
@@ -1182,6 +1237,14 @@ watch(
                 </div>
               </div>
               <div class="c-actions">
+                <button
+                  class="mini-btn pin"
+                  :class="{ active: pins.isPinned(serverPinId(s.address)) }"
+                  :title="pins.isPinned(serverPinId(s.address)) ? '取消固定' : '固定到首页'"
+                  @click="toggleServerPin(s)"
+                >
+                  <IconMapPin />
+                </button>
                 <button
                   class="mini-btn play"
                   :disabled="!!launchingServer || pinging.has(s.address)"
@@ -2048,6 +2111,18 @@ watch(
 .mini-btn.play:disabled {
   opacity: 0.5;
   cursor: default;
+}
+.mini-btn.pin {
+  padding: 7px 9px;
+}
+.mini-btn.pin svg {
+  width: 14px;
+  height: 14px;
+}
+.mini-btn.pin.active {
+  color: var(--accent);
+  border-color: rgba(232, 154, 75, 0.4);
+  background: var(--accent-soft);
 }
 .empty {
   padding: 40px;
