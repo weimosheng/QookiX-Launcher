@@ -95,8 +95,11 @@ if (old) {
   }
   console.log('Deleted old latest.json asset')
 }
+// IMPORTANT: release asset uploads MUST go to uploads.github.com, not
+// api.github.com (which returns 404 for asset uploads).
+const uploadsApi = 'https://uploads.github.com'
 const up = await fetch(
-  `${api}/repos/${repo}/releases/${release.id}/assets?name=latest.json`,
+  `${uploadsApi}/repos/${repo}/releases/${release.id}/assets?name=latest.json`,
   {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/octet-stream' },
