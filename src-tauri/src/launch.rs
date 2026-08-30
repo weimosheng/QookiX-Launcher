@@ -141,11 +141,32 @@ pub async fn launch_game(
 
     // ---- classpath ----
     let features = features_map(resolution.is_some());
-    let mut classpath: Vec<String> = Vec::new();
+
+    // 按 group:artifact 去重，保留最高版本（避免 duplicate ASM classes 等冲突）
+    let mut best_libs: std::collections::HashMap<String, &crate::models::Library> = HashMap::new();
     for lib in &version_json.libraries {
         if !rules_allow(lib.rules.as_deref().unwrap_or(&[]), &features) {
             continue;
         }
+        // 提取 group:artifact 作为去重键
+        let key = lib.name.split(':').take(2).collect::<Vec<_>>().join(":");
+        match best_libs.get(&key) {
+            Some(existing) => {
+                // 比较版本，保留更高的
+                let existing_ver = existing.name.split(':').nth(2).unwrap_or("0");
+                let new_ver = lib.name.split(':').nth(2).unwrap_or("0");
+                if compare_versions(new_ver, existing_ver) > 0 {
+                    best_libs.insert(key, lib);
+                }
+            }
+            None => {
+                best_libs.insert(key, lib);
+            }
+        }
+    }
+
+    let mut classpath: Vec<String> = Vec::new();
+    for lib in best_libs.values() {
         // NOTE: natives jars stay on the classpath — LWJGL 3.4 loads shared
         // libraries from the classpath (`LibraryResource` + SharedLibraryLoader),
         // which is how modern versions (26.x) provide lwjgl.dll etc.
@@ -705,6 +726,20 @@ fn features_map(custom_resolution: bool) -> HashMap<String, bool> {
     m.insert("is_demo_user".to_string(), false);
     m.insert("has_custom_resolution".to_string(), custom_resolution);
     m
+}
+
+/// 比较两个 Maven 版本号，返回 >0 表示 a 更新，<0 表示 b 更新，0 表示相等
+fn compare_versions(a: &str, b: &str) -> i32 {
+    let pa: Vec<u32> = a.split(|c: char| c == '.' || c == '-').filter_map(|s| s.parse().ok()).collect();
+    let pb: Vec<u32> = b.split(|c: char| c == '.' || c == '-').filter_map(|s| s.parse().ok()).collect();
+    for i in 0..pa.len().max(pb.len()) {
+        let va = pa.get(i).copied().unwrap_or(0);
+        let vb = pb.get(i).copied().unwrap_or(0);
+        if va != vb {
+            return if va > vb { 1 } else { -1 };
+        }
+    }
+    0
 }
 
 fn build_args(ctx: &LaunchContext) -> Vec<String> {

@@ -876,7 +876,7 @@ onUnmounted(() => {
             <div class="about-logo">
               <img class="about-logo-img" :src="logoUrl" alt="QookiX" />
               <span class="about-name">QookiX Launcher</span>
-              <span class="about-ver">v0.4.2</span>
+              <span class="about-ver">v0.4.3</span>
             </div>
             <p class="about-desc">现代化、简洁、无广告的 Minecraft 启动器</p>
             <div class="about-features">
@@ -1082,6 +1082,7 @@ onUnmounted(() => {
 }
 .text-input {
   flex: 1;
+  width: 100%;
   min-width: 0;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--border);
