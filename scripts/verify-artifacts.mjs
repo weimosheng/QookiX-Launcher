@@ -8,40 +8,42 @@
 //
 //  Usage:
 //    node scripts/verify-artifacts.mjs <artifacts-dir> <windows|macos|linux>
-//    env: TAURI_SIGNING_PRIVATE_KEY (set => every updater bundle needs a .sig)
+//    env: TAURI_SIGNING_PRIVATE_KEY (set => the updater bundle needs a .sig)
 // ============================================================================
 import fs from 'node:fs'
 import path from 'node:path'
+import { UPDATER_TARGETS } from './shared/updater-targets.mjs'
 
 const [dir, platform] = process.argv.slice(2)
 if (!dir || !platform) {
   throw new Error('Usage: verify-artifacts.mjs <artifacts-dir> <windows|macos|linux>')
 }
 
-// `updater`  = the bundle the Tauri updater downloads (must exist because
-//              bundle.createUpdaterArtifacts is enabled).
-// `installers` = anything a human can download and install by hand.
-const SPEC = {
-  windows: {
-    updater: /(\.nsis\.zip|_x64-setup\.exe)$/,
-    installers: /(_x64-setup\.exe|_x64\.msi|_x64_portable\.zip)$/,
-  },
-  macos: {
-    updater: /\.app\.tar\.gz$/,
-    installers: /\.dmg$/,
-  },
-  linux: {
-    updater: /\.AppImage\.tar\.gz$/,
-    installers: /\.(AppImage|deb|rpm)$/,
-  },
-}
+// CI matrix value -> Tauri target-triple prefix used by UPDATER_TARGETS.
+const TRIPLE_PREFIX = { windows: 'windows', macos: 'darwin', linux: 'linux' }
+const prefix = TRIPLE_PREFIX[platform]
+if (!prefix) throw new Error(`Unknown platform "${platform}" (expected windows|macos|linux)`)
 
-const spec = SPEC[platform]
-if (!spec) throw new Error(`Unknown platform "${platform}" (expected windows|macos|linux)`)
+// Updater bundles are derived from the SAME source of truth the manifest
+// generators use, so this check can never disagree with what the updater
+// actually needs.
+const updaterSuffixes = UPDATER_TARGETS.filter((t) =>
+  t.platforms.some((p) => p.startsWith(prefix)),
+).flatMap((t) => t.suffixes)
+
+// What a human can download and install by hand.
+// NOTE: Tauri inserts the NSIS language code into MSI names
+// (`QookiX.Launcher_0.4.3_x64_en-US.msi`), hence the wildcard before `.msi`.
+const INSTALLERS = {
+  windows: /(_x64-setup\.exe|_x64.*\.msi|_x64_portable\.zip)$/,
+  macos: /\.dmg$/,
+  linux: /\.(AppImage|deb|rpm)$/,
+}
 
 function fail(msg) {
   console.error(`verify-artifacts: ${msg}`)
   console.error(`  contents of ${dir}: ${fs.readdirSync(dir).join(', ') || '(empty)'}`)
+  console.error(`  accepted updater suffixes: ${updaterSuffixes.join(', ')}`)
   process.exit(1)
 }
 
@@ -49,13 +51,13 @@ if (!fs.existsSync(dir)) fail(`artifacts dir does not exist: ${dir}`)
 const files = fs.readdirSync(dir)
 
 // 1. There must be something a user can actually install.
-const installers = files.filter((f) => spec.installers.test(f))
+const installers = files.filter((f) => INSTALLERS[platform].test(f))
 if (installers.length === 0) {
   fail(`no installable artifact found for platform "${platform}"`)
 }
 
 // 2. createUpdaterArtifacts is enabled, so an updater bundle must exist.
-const updater = files.filter((f) => spec.updater.test(f))
+const updater = files.filter((f) => updaterSuffixes.some((s) => f.endsWith(s)))
 if (updater.length === 0) {
   fail(
     `no updater bundle found for platform "${platform}" — ` +
