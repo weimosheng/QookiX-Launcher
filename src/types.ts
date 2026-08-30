@@ -24,6 +24,7 @@ export interface Settings {
   jvm_args: string;
   game_args: string;
   download_threads: number;
+  download_chunk_threads: number;
   curseforge_api_key: string | null;
   theme: string;
   theme_color: string;
@@ -224,6 +225,12 @@ export interface InstallProgressEvent {
   ok?: boolean;
 }
 
+export interface ActiveFile {
+  name: string;
+  bytesDone: number;
+  bytesTotal: number;
+}
+
 export interface DownloadProgressEvent {
   taskId: number;
   phase: string;
@@ -233,6 +240,7 @@ export interface DownloadProgressEvent {
   ok: boolean;
   bytesDone?: number;
   bytesTotal?: number;
+  activeFiles?: ActiveFile[];
   ts?: number;
 }
 
@@ -342,4 +350,14 @@ export interface ServerConfig {
   java_path: string | null;
   jvm_args: string | null;
   stop_command: string | null;
+}
+
+export interface NewsItem {
+  title: string;
+  url: string;
+  description: string;
+  author: string;
+  image: string;
+  image_alt: string;
+  time: number;
 }

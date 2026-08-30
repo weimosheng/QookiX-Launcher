@@ -49,9 +49,9 @@ export function useSlidingIndicator(
 
   function setRect(rect: { top: number; height: number; left: number; width: number }, dur: string) {
     const base: Record<string, string> =
-      axis === "vertical"
-        ? { top: `${rect.top}px`, height: `${rect.height}px` }
-        : { left: `${rect.left}px`, width: `${rect.width}px` };
+    axis === "vertical"
+      ? { top: `${rect.top}px`, height: `${rect.height}px`, left: `${rect.left}px`, width: `${rect.width}px` }
+      : { left: `${rect.left}px`, width: `${rect.width}px` };
     indicatorStyle.value = {
       opacity: "1",
       ...base,

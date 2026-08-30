@@ -34,7 +34,10 @@ windows = { version = "0.52", features = [
 
 [profile.release]
 opt-level = "s"
-lto = true
-codegen-units = 1
+# Thin LTO + default codegen units instead of fat LTO + codegen-units = 1:
+# this crate is only the install wizard frontend, so the last few percent of
+# size/perf are not worth a single-threaded, 10+ minute link step in CI.
+lto = "thin"
+codegen-units = 16
 strip = true
 panic = "abort"

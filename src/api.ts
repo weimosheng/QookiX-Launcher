@@ -7,6 +7,7 @@ import type {
   Instance,
   InstanceGroup,
   JavaInfo,
+  NewsItem,
   ProjectHit,
   ProjectVersion,
   ServerConfig,
@@ -382,4 +383,7 @@ export const api = {
   getStorageStats: () => invoke<StorageStats>("get_storage_stats"),
   refreshStorageStats: () => invoke<StorageStats>("refresh_storage_stats"),
   clearCache: () => invoke<CacheClearResult>("clear_cache"),
+
+  // news
+  fetchNews: () => invoke<NewsItem[]>("fetch_news"),
 };

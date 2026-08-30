@@ -2664,3 +2664,57 @@ pub fn list_hosted_server_config_files(
 ) -> Result<Vec<crate::servers::ServerConfigFile>, String> {
     crate::servers::list_server_config_files(&state, &id)
 }
+
+// ---------------------------------------------------------------------------
+// News
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct NewsItem {
+    pub title: String,
+    pub url: String,
+    pub description: String,
+    pub author: String,
+    pub image: String,
+    pub image_alt: String,
+    pub time: u64,
+}
+
+#[tauri::command]
+pub async fn fetch_news(_state: State<'_, AppState>) -> Result<Vec<NewsItem>, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("构建客户端失败: {e}"))?;
+    let url = "https://net-secondary.web.minecraft-services.net/api/v1.0/zh-cn/search?pageSize=24&sortType=Recent&category=News&newsOnly=true&geography=CN";
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("请求新闻失败: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("新闻 API 返回 HTTP {status}"));
+    }
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析新闻失败: {e}"))?;
+    let results = json["result"]["results"]
+        .as_array()
+        .ok_or("新闻格式异常")?;
+    let news: Vec<NewsItem> = results
+        .iter()
+        .map(|r| NewsItem {
+            title: r["title"].as_str().unwrap_or("").to_string(),
+            url: r["url"].as_str().unwrap_or("").to_string(),
+            description: r["description"].as_str().unwrap_or("").to_string(),
+            author: r["author"].as_str().unwrap_or("").to_string(),
+            image: r["image"].as_str().unwrap_or("").to_string(),
+            image_alt: r["imageAltText"].as_str().unwrap_or("").to_string(),
+            time: r["time"].as_u64().unwrap_or(0),
+        })
+        .collect();
+    Ok(news)
+}

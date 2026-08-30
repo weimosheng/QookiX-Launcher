@@ -19,7 +19,16 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(__dirname, '..')
 const crateDir = path.join(projectRoot, 'src-tauri', 'installer-ui')
-const uiExe = path.join(crateDir, 'target', 'release', 'QookiXInstallerUI.exe')
+
+// Resolve cargo's real output directory. `CARGO_TARGET_DIR` (set on CI so both
+// crates share ONE target dir and tao/wry/windows-sys are compiled only once)
+// takes precedence over the default `<crate>/target`.
+function cargoTargetDir() {
+  const fromEnv = process.env.CARGO_TARGET_DIR
+  return fromEnv ? path.resolve(projectRoot, fromEnv) : path.join(crateDir, 'target')
+}
+
+const uiExe = path.join(cargoTargetDir(), 'release', 'QookiXInstallerUI.exe')
 const args = process.argv.slice(2)
 const isBuild = args.includes('build')
 const signScript = path.join(projectRoot, 'scripts', 'sign-windows.ps1')
@@ -75,7 +84,7 @@ const result = spawnSync('tauri', args, {
 // After a successful `tauri build`, sign the main binary, the NSIS installer(s)
 // and the MSI(s).
 if (result.status === 0 && isBuild && process.platform === 'win32') {
-  const releaseDir = path.join(projectRoot, 'src-tauri', 'target', 'release')
+  const releaseDir = path.join(cargoTargetDir(), 'release')
   const mainExe = path.join(releaseDir, 'qookix-launcher.exe')
   const nsisDir = path.join(releaseDir, 'bundle', 'nsis')
   const installers = existsSync(nsisDir)

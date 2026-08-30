@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { listen } from "@tauri-apps/api/event";
 import type {
+  ActiveFile,
   DownloadProgressEvent,
   InstallProgressEvent,
   LaunchLogEvent,
@@ -31,6 +32,7 @@ export interface TaskEntry {
   stepTotal: number;
   current?: string;
   lastCurrent?: string;
+  activeFiles: ActiveFile[];
   speed: number; // bytes/sec (average over a rolling window)
   samples: { ts: number; bytes: number }[];
   files: TaskFile[];
@@ -112,12 +114,12 @@ export const useTasksStore = defineStore("tasks", {
           t.bytesDone = Math.max(t.bytesDone, p.bytesDone ?? 0);
           if (p.bytesTotal && p.bytesTotal > 0) t.bytesTotal = Math.max(t.bytesTotal, p.bytesTotal);
           t.ok = p.ok;
+          if (p.activeFiles) {
+            t.activeFiles = p.activeFiles;
+          }
           if (p.current) {
-            if (t.lastCurrent && t.lastCurrent !== p.current) {
-              t.files.push({ name: t.lastCurrent, ok: t.ok ?? true });
-              if (t.files.length > 100) t.files.splice(0, t.files.length - 100);
-            }
-            t.lastCurrent = p.current;
+            t.files.push({ name: p.current, ok: p.ok ?? true });
+            if (t.files.length > 100) t.files.splice(0, t.files.length - 100);
             t.current = p.current;
           }
           // rolling average speed over the last ~5s with smoothing
@@ -167,6 +169,7 @@ export const useTasksStore = defineStore("tasks", {
           bytesTotal: 0,
           stepDone: 0,
           stepTotal: 0,
+          activeFiles: [],
           speed: 0,
           samples: [],
           files: [],

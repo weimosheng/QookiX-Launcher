@@ -80,3 +80,5 @@ export const IconUsers = make(`<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v
 export const IconServer = make(`<rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>`);
 export const IconDoorOpen = make(`<path d="M14 13v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-8"/><path d="M2 13h12"/><path d="M14 3v10"/><path d="M2 3h12"/><circle cx="11" cy="8" r="1"/>`);
 export const IconPower = make(`<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>`);
+export const IconSkin = make(`<path d="M5 5l-3 3v4l3-2v11h14v-11l3 2v-4l-3-3z"/><path d="M9 5c1 2 5 2 6 0"/>`);
+export const IconNewspaper = make(`<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 0 0 0-2 2v16a2 2 0 0 1-2 2z"/><path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8V6z"/>`);

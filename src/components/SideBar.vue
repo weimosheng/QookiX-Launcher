@@ -14,9 +14,10 @@ import {
   IconGrid,
   IconHome,
   IconList,
+  IconNewspaper,
   IconSettings,
+  IconSkin,
   IconStop,
-  IconUser,
   IconUsers,
 } from "./icons";
 
@@ -28,12 +29,14 @@ const message = useMessage();
 
 const collapsed = ref(true);
 
+const sidebarRef = ref<HTMLElement | null>(null);
+
 const nav = [
   { name: "home", label: "首页", icon: IconHome, to: "/" },
   { name: "browse", label: "内容", icon: IconCompass, to: "/browse" },
   { name: "instances", label: "实例", icon: IconGrid, to: "/instances" },
   { name: "multiplayer", label: "多人", icon: IconUsers, to: "/multiplayer" },
-  { name: "skins", label: "皮肤", icon: IconUser, to: "/skins" },
+  { name: "skins", label: "皮肤", icon: IconSkin, to: "/skins" },
   { name: "settings", label: "设置", icon: IconSettings, to: "/settings" },
   { name: "downloads", label: "下载", icon: IconDownload, to: "/downloads" },
 ];
@@ -48,9 +51,14 @@ function isActive(n: { to: string }) {
 // Sliding active-highlight indicator
 const navBox = ref<HTMLElement | null>(null);
 const { indicatorStyle, refresh, snap } = useSlidingIndicator(
-  navBox,
-  () => Array.from(navBox.value?.querySelectorAll<HTMLElement>(".nav-item") ?? []),
-  () => nav.findIndex((n) => isActive(n)),
+  sidebarRef,
+  () => Array.from(sidebarRef.value?.querySelectorAll<HTMLElement>(".nav-item") ?? []),
+  () => {
+    const idx = nav.findIndex((n) => isActive(n));
+    if (idx >= 0) return idx;
+    if (route.path.startsWith("/news")) return nav.length;
+    return -1;
+  },
   { axis: "vertical" }
 );
 watch(
@@ -70,9 +78,9 @@ async function stopAll() {
 </script>
 
 <template>
-  <aside class="sidebar" :class="{ collapsed }">
+  <aside ref="sidebarRef" class="sidebar" :class="{ collapsed }">
+    <div class="indicator" :style="indicatorStyle"></div>
     <nav ref="navBox" class="nav">
-      <div class="indicator" :style="indicatorStyle"></div>
       <router-link
         v-for="n in nav"
         :key="n.name"
@@ -96,6 +104,15 @@ async function stopAll() {
         <IconStop />
         <span v-if="!collapsed">关闭所有实例</span>
       </button>
+      <router-link
+        to="/news"
+        class="nav-item foot-nav"
+        :class="{ active: route.path.startsWith('/news') }"
+        :title="collapsed ? '新闻' : undefined"
+      >
+        <IconNewspaper class="nav-icon" />
+        <span v-if="!collapsed" class="nav-label">新闻</span>
+      </router-link>
       <AccountChip :collapsed="collapsed" />
       <button
         v-if="settingsStore.settings?.show_sidebar_collapse_btn ?? true"
@@ -111,6 +128,7 @@ async function stopAll() {
 
 <style scoped>
 .sidebar {
+  position: relative;
   width: 216px;
   flex-shrink: 0;
   display: flex;

@@ -40,8 +40,10 @@ pub struct Settings {
     pub jvm_args: String,
     /// Extra game arguments
     pub game_args: String,
-    /// Parallel download tasks
+    /// Parallel download tasks (how many files to download concurrently)
     pub download_threads: usize,
+    /// Threads per file for chunked (ranged) download
+    pub download_chunk_threads: usize,
     /// CurseForge API key (optional; required for CurseForge features)
     pub curseforge_api_key: Option<String>,
     /// "dark" | "light"
@@ -90,6 +92,7 @@ impl Default for Settings {
             jvm_args: String::new(),
             game_args: String::new(),
             download_threads: 8,
+            download_chunk_threads: 4,
             curseforge_api_key: None,
             theme: "dark".into(),
             theme_color: "#e89a4b".into(),

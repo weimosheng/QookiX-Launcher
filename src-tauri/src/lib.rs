@@ -181,6 +181,8 @@ pub fn run() {
             commands::get_storage_stats,
             commands::refresh_storage_stats,
             commands::clear_cache,
+            // news
+            commands::fetch_news,
         ])
         .on_window_event(|window, event| {
             use tauri::WindowEvent;
