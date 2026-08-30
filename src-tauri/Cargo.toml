@@ -1,6 +1,6 @@
 [package]
 name = "qookix-launcher"
-version = "0.4.3"
+version = "0.4.4"
 description = "QookiX Launcher - a modern, clean and ad-free Minecraft launcher"
 authors = ["QookiX"]
 edition = "2021"
@@ -50,3 +50,4 @@ strip = true
 panic = "abort"
 lto = "thin"
 codegen-units = 1
+incremental = false
