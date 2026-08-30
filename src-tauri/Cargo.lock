@@ -2962,7 +2962,7 @@ dependencies = [
 
 [[package]]
 name = "qookix-launcher"
-version = "0.3.8"
+version = "0.4.2"
 dependencies = [
  "base64 0.22.1",
  "directories",
@@ -2971,12 +2971,14 @@ dependencies = [
  "futures-util",
  "junction",
  "percent-encoding",
+ "png 0.17.16",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
  "sha1",
  "sha2",
  "sysinfo",
+ "tar",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -2985,6 +2987,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "uuid",
+ "windows-sys 0.59.0",
  "zip 2.4.2",
 ]
 

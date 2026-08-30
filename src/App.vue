@@ -94,8 +94,10 @@ provide("groupDialogRequest", groupDialogRequest);
                 <div class="body">
                   <SideBar />
                   <main class="content">
-                    <router-view v-slot="{ Component }">
-                      <component :is="Component" />
+                    <router-view v-slot="{ Component, route }">
+                      <Transition name="page-rise" mode="out-in">
+                        <component :is="Component" :key="route.path" />
+                      </Transition>
                     </router-view>
                   </main>
                 </div>

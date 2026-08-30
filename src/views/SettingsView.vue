@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { NModal, useMessage, useDialog } from "naive-ui";
+import { NButton, NModal, useMessage, useDialog } from "naive-ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -44,16 +44,25 @@ async function checkUpdate() {
       return;
     }
     updateVersion.value = update.version;
-    dialog.warning({
+    let dlg: { destroy: () => void } | null = null;
+    const close = () => { dlg?.destroy(); dlg = null; };
+    dlg = dialog.warning({
       title: "发现新版本",
       content: `QookiX Launcher 有新版本 v${update.version}，是否下载并安装？`,
-      positiveText: "下载并更新",
-      negativeText: "以后再说",
-      // 返回 true 让弹窗立即关闭；doInstall 在后台异步执行，避免等待下载完成才关闭。
-      onPositiveClick: () => {
-        doInstall();
-        return true;
-      },
+      action: () =>
+        h("div", { style: "display:flex; gap:8px; justify-content:flex-end;" }, [
+          h(NButton, { size: "small", ghost: true, onClick: close }, () => "以后再说"),
+          h(
+            NButton,
+            { size: "small", quaternary: true, onClick: () => { close(); void doInstall(); } },
+            { default: () => "下载并更新" },
+          ),
+          h(
+            NButton,
+            { size: "small", type: "primary", onClick: () => { close(); void doInstallAndRelaunch(); } },
+            { default: () => "重启以更新" },
+          ),
+        ]),
     });
   } catch {
     message.error("检查更新失败，请稍后重试");
@@ -85,6 +94,20 @@ async function doInstall() {
       negativeText: "稍后手动重启",
       onPositiveClick: () => relaunchApp(),
     });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    message.error(detail || "更新失败，请稍后重试或手动下载");
+    console.error("[updater] install error:", err);
+  }
+}
+
+/** 下载安装并自动重启，一步到位（「重启以更新」按钮）。 */
+async function doInstallAndRelaunch() {
+  router.push("/downloads");
+  try {
+    const installed = await downloadAndInstall();
+    if (!installed) return;
+    await relaunchApp();
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     message.error(detail || "更新失败，请稍后重试或手动下载");
@@ -301,6 +324,7 @@ const clearing = ref(false);
 
 const DONUT_COLORS: Record<string, string> = {
   instances: "var(--accent)",
+  servers: "#f59e0b",
   libraries: "#5aa2f0",
   assets: "#4ec9a0",
   versions: "#8b5cf6",
@@ -452,6 +476,21 @@ onUnmounted(() => {
                   退出程序
                 </button>
               </div>
+            </div>
+            <div class="choice-row">
+              <div class="choice-info">
+                <span class="choice-label">自动更新</span>
+                <p class="choice-hint">启动时检测到新版本自动下载安装，无需手动确认。</p>
+              </div>
+              <button
+                class="toggle"
+                :class="{ on: settings.settings.auto_update }"
+                role="switch"
+                :aria-checked="settings.settings.auto_update"
+                @click="settings.patch({ auto_update: !settings.settings.auto_update })"
+              >
+                <span class="knob"></span>
+              </button>
             </div>
           </div>
 
@@ -803,18 +842,29 @@ onUnmounted(() => {
                 </li>
               </ul>
             </div>
-            <p v-else class="hint">{{ stats ? "暂无可统计的数据" : "正在加载存储统计…" }}</p>
-          </div>
 
-          <div class="card glass">
-            <h3>清除缓存</h3>
-            <p class="hint">
-              清理 Java 下载临时文件、Java 检测缓存等可安全删除的缓存，不会影响任何实例、库、资源或版本文件。
-            </p>
-            <button class="mini-btn danger" :disabled="clearing" @click="confirmClear">
-              <IconTrash class="btn-icon" />
-              {{ clearing ? "清理中…" : "清除缓存" }}
-            </button>
+            <div v-if="stats && stats.servers.length" class="instance-storage">
+              <h4 class="instance-storage-title">
+                每个服务器
+                <span class="hint-inline">{{ stats.servers.length }} 个</span>
+              </h4>
+              <ul class="instance-storage-list">
+                <li v-for="srv in stats.servers" :key="srv.id">
+                  <span class="instance-name" :title="srv.name">{{ srv.name }}</span>
+                  <span class="legend-size">{{ fmtSize(srv.size) }}</span>
+                  <span class="legend-pct">{{ pct(srv.size) }}%</span>
+                </li>
+              </ul>
+            </div>
+            <p v-else-if="!stats?.instances.length" class="hint">{{ stats ? "暂无可统计的数据" : "正在加载存储统计…" }}</p>
+
+            <div class="storage-footer">
+              <button class="mini-btn danger" :disabled="clearing" @click="confirmClear">
+                <IconTrash class="btn-icon" />
+                {{ clearing ? "清理中…" : "清除缓存" }}
+              </button>
+              <span class="hint">清理 Java 下载临时文件、Java 检测缓存等可安全删除的缓存，不会影响实例、库、资源或版本文件。</span>
+            </div>
           </div>
         </div>
       </div>
@@ -826,7 +876,7 @@ onUnmounted(() => {
             <div class="about-logo">
               <img class="about-logo-img" :src="logoUrl" alt="QookiX" />
               <span class="about-name">QookiX Launcher</span>
-              <span class="about-ver">v0.3.8</span>
+              <span class="about-ver">v0.4.2</span>
             </div>
             <p class="about-desc">现代化、简洁、无广告的 Minecraft 启动器</p>
             <div class="about-features">
@@ -918,7 +968,7 @@ onUnmounted(() => {
 <style scoped>
 .settings-view {
   display: flex;
-  gap: 22px;
+  gap: 18px;
   align-items: flex-start;
 }
 .settings-nav {
@@ -979,7 +1029,7 @@ onUnmounted(() => {
 .settings-pane {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
 }
 .btn {
   display: inline-flex;
@@ -1010,7 +1060,7 @@ onUnmounted(() => {
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  gap: 16px;
   margin-top: 14px;
 }
 .card {
@@ -1084,7 +1134,7 @@ textarea.text-input {
   height: 14px;
 }
 .storage-grid {
-  grid-template-columns: 1.6fr 1fr;
+  grid-template-columns: 1fr;
 }
 .storage-header {
   display: flex;
@@ -1100,6 +1150,20 @@ textarea.text-input {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+.storage-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.storage-footer .hint {
+  margin: 0;
+  flex: 1;
+  min-width: 200px;
 }
 .storage-body {
   display: flex;

@@ -16,10 +16,12 @@ import {
   IconTrash,
 } from "./icons";
 import { useTasksStore } from "../stores/tasks";
+import { useServersStore } from "../stores/servers";
 
 const route = useRoute();
 const router = useRouter();
 const tasks = useTasksStore();
+const servers = useServersStore();
 
 const pageIcons: Record<string, any> = {
   home: IconHome,
@@ -83,6 +85,13 @@ onMounted(async () => {
           @click="requestCreateGroup"
         >
           <IconPlus class="tb-action-icon" /> 新建分组
+        </button>
+        <button
+          v-if="route.name === 'multiplayer' && servers.canCreate"
+          class="tb-action primary"
+          @click="servers.requestCreate()"
+        >
+          <IconPlus class="tb-action-icon" /> 创建服务器
         </button>
         <button
           v-if="pageAction?.to"

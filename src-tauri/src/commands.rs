@@ -389,6 +389,325 @@ pub async fn list_instance_files(
     Ok(json!({ "files": files }))
 }
 
+// ---------------------------------------------------------------------------
+// Instance file manager
+// ---------------------------------------------------------------------------
+
+/// Maximum file size (bytes) the built-in editor is willing to load.
+const MAX_EDIT_BYTES: u64 = 4 * 1024 * 1024;
+
+fn fmt_bytes(n: u64) -> String {
+    if n >= 1024 * 1024 {
+        format!("{:.1} MB", n as f64 / 1024.0 / 1024.0)
+    } else if n >= 1024 {
+        format!("{:.1} KB", n as f64 / 1024.0)
+    } else {
+        format!("{n} B")
+    }
+}
+
+fn modified_secs(meta: &std::fs::Metadata) -> u64 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn ext_of(name: &str) -> String {
+    std::path::Path::new(name)
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_lowercase()
+}
+
+/// Resolve an instance-relative path while guaranteeing the result never
+/// escapes the instance directory (blocks `..`, absolute paths and symlinks
+/// that point outside). Paths that do not exist yet (create / rename targets)
+/// are validated lexically instead.
+fn resolve_instance_path(
+    state: &AppState,
+    instance_id: &str,
+    rel: &str,
+) -> Result<std::path::PathBuf, String> {
+    if instance_id.is_empty()
+        || instance_id.contains("..")
+        || instance_id.contains('/')
+        || instance_id.contains('\\')
+    {
+        return Err("非法实例 ID".into());
+    }
+    let root = state
+        .instances_dir()
+        .join(instance_id)
+        .canonicalize()
+        .map_err(|e| format!("实例目录不可用: {e}"))?;
+    let cleaned = rel.replace('\\', "/");
+    let cleaned = cleaned.trim_start_matches('/');
+    let target = if cleaned.is_empty() {
+        root.clone()
+    } else {
+        root.join(cleaned)
+    };
+    match target.canonicalize() {
+        Ok(c) => {
+            if c != root && !c.starts_with(&root) {
+                return Err("路径超出实例目录范围".into());
+            }
+            Ok(c)
+        }
+        Err(_) => {
+            // Target does not exist yet: verify every component stays inside.
+            let mut depth = 0i32;
+            for part in std::path::Path::new(cleaned).components() {
+                match part {
+                    std::path::Component::Normal(_) => depth += 1,
+                    std::path::Component::ParentDir => depth -= 1,
+                    std::path::Component::CurDir => {}
+                    other => {
+                        return Err(format!("非法路径: {}", other.as_os_str().to_string_lossy()))
+                    }
+                }
+                if depth < 0 {
+                    return Err("路径超出实例目录范围".into());
+                }
+            }
+            Ok(target)
+        }
+    }
+}
+
+/// Reject names that would create nested paths or escape the parent folder.
+fn validate_name(name: &str) -> Result<(), String> {
+    let t = name.trim();
+    if t.is_empty() || t == "." || t == ".." {
+        return Err("名称不能为空".into());
+    }
+    if t.contains('/') || t.contains('\\') {
+        return Err("名称不能包含路径分隔符".into());
+    }
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+pub struct FsEntry {
+    pub name: String,
+    pub rel: String,
+    pub size: u64,
+    pub modified: u64,
+    pub is_dir: bool,
+    pub ext: String,
+}
+
+/// List the contents of any directory inside an instance folder.
+#[tauri::command]
+pub async fn list_instance_dir(
+    state: State<'_, AppState>,
+    instance_id: String,
+    rel: String,
+) -> Result<Value, String> {
+    let dir = resolve_instance_path(&state, &instance_id, &rel)?;
+    if !dir.is_dir() {
+        return Err("不是一个目录".into());
+    }
+    let base = rel.trim_end_matches('/').to_string();
+    let entries = tokio::task::spawn_blocking(move || {
+        let mut out: Vec<FsEntry> = Vec::new();
+        let rd = std::fs::read_dir(&dir).map_err(|e| format!("读取目录失败: {e}"))?;
+        for e in rd.flatten() {
+            let meta = match e.metadata() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            let name = e.file_name().to_string_lossy().to_string();
+            let is_dir = meta.is_dir();
+            let child_rel = if base.is_empty() {
+                name.clone()
+            } else {
+                format!("{base}/{name}")
+            };
+            out.push(FsEntry {
+                ext: if is_dir { String::new() } else { ext_of(&name) },
+                name,
+                rel: child_rel,
+                size: if is_dir { 0 } else { meta.len() },
+                modified: modified_secs(&meta),
+                is_dir,
+            });
+        }
+        out.sort_by(|a, b| {
+            b.is_dir
+                .cmp(&a.is_dir)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
+        Ok::<Vec<FsEntry>, String>(out)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(json!({ "rel": rel, "entries": entries }))
+}
+
+/// Read a text file inside an instance folder for the built-in editor.
+#[tauri::command]
+pub fn read_instance_file(
+    state: State<AppState>,
+    instance_id: String,
+    rel: String,
+) -> Result<Value, String> {
+    let path = resolve_instance_path(&state, &instance_id, &rel)?;
+    if !path.is_file() {
+        return Err("不是一个文件".into());
+    }
+    let meta = std::fs::metadata(&path).map_err(|e| format!("读取文件失败: {e}"))?;
+    if meta.len() > MAX_EDIT_BYTES {
+        return Err(format!(
+            "文件过大（{}），内置编辑器最多支持 {}",
+            fmt_bytes(meta.len()),
+            fmt_bytes(MAX_EDIT_BYTES)
+        ));
+    }
+    let bytes = std::fs::read(&path).map_err(|e| format!("读取文件失败: {e}"))?;
+    if bytes.iter().take(4096).any(|b| *b == 0) {
+        return Err("这是二进制文件，无法在内置编辑器中打开".into());
+    }
+    let content = String::from_utf8(bytes)
+        .map_err(|_| String::from("文件不是 UTF-8 编码，无法在内置编辑器中打开"))?;
+    let meta2 = std::fs::metadata(&path).ok();
+    Ok(json!({
+        "rel": rel,
+        "content": content,
+        "size": meta.len(),
+        "modified": meta2.as_ref().map(modified_secs).unwrap_or(0),
+    }))
+}
+
+/// Write text content back to a file inside an instance folder.
+#[tauri::command]
+pub fn write_instance_file(
+    state: State<AppState>,
+    instance_id: String,
+    rel: String,
+    content: String,
+) -> Result<Value, String> {
+    let path = resolve_instance_path(&state, &instance_id, &rel)?;
+    if path.is_dir() {
+        return Err("目标是一个目录".into());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
+    }
+    let len = content.len() as u64;
+    std::fs::write(&path, content).map_err(|e| format!("写入文件失败: {e}"))?;
+    let meta = std::fs::metadata(&path).ok();
+    Ok(json!({
+        "rel": rel,
+        "size": meta.as_ref().map(|m| m.len()).unwrap_or(len),
+        "modified": meta.as_ref().map(modified_secs).unwrap_or(0),
+    }))
+}
+
+/// Create a new empty file or a new folder inside an instance folder.
+#[tauri::command]
+pub fn create_instance_entry(
+    state: State<AppState>,
+    instance_id: String,
+    rel: String,
+    is_dir: bool,
+) -> Result<Value, String> {
+    let last = rel.rsplit('/').next().unwrap_or("");
+    validate_name(last)?;
+    let path = resolve_instance_path(&state, &instance_id, &rel)?;
+    if path.exists() {
+        return Err("已存在同名的文件或文件夹".into());
+    }
+    if is_dir {
+        std::fs::create_dir_all(&path).map_err(|e| format!("创建文件夹失败: {e}"))?;
+    } else {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
+        }
+        std::fs::write(&path, "").map_err(|e| format!("创建文件失败: {e}"))?;
+    }
+    Ok(json!({ "rel": rel, "is_dir": is_dir }))
+}
+
+/// Delete a file or a folder (recursively) inside an instance folder.
+#[tauri::command]
+pub fn delete_instance_path(
+    state: State<AppState>,
+    instance_id: String,
+    rel: String,
+) -> Result<(), String> {
+    if rel.trim().is_empty() {
+        return Err("不能删除实例根目录".into());
+    }
+    let path = resolve_instance_path(&state, &instance_id, &rel)?;
+    if !path.exists() {
+        return Err("文件或文件夹不存在".into());
+    }
+    if path.is_dir() {
+        std::fs::remove_dir_all(&path).map_err(|e| format!("删除文件夹失败: {e}"))?;
+    } else {
+        std::fs::remove_file(&path).map_err(|e| format!("删除文件失败: {e}"))?;
+    }
+    Ok(())
+}
+
+/// Rename a file or folder inside an instance folder.
+#[tauri::command]
+pub fn rename_instance_path(
+    state: State<AppState>,
+    instance_id: String,
+    rel: String,
+    new_name: String,
+) -> Result<Value, String> {
+    if rel.trim().is_empty() {
+        return Err("不能重命名实例根目录".into());
+    }
+    validate_name(&new_name)?;
+    let path = resolve_instance_path(&state, &instance_id, &rel)?;
+    if !path.exists() {
+        return Err("文件或文件夹不存在".into());
+    }
+    let parent = path.parent().ok_or("无法重命名该路径")?;
+    let target = parent.join(new_name.trim());
+    if target.exists() {
+        return Err("已存在同名的文件或文件夹".into());
+    }
+    std::fs::rename(&path, &target).map_err(|e| format!("重命名失败: {e}"))?;
+    let parent_rel = match rel.rfind('/') {
+        Some(i) => rel[..i].to_string(),
+        None => String::new(),
+    };
+    let new_rel = if parent_rel.is_empty() {
+        new_name.trim().to_string()
+    } else {
+        format!("{}/{}", parent_rel, new_name.trim())
+    };
+    Ok(json!({ "rel": new_rel, "name": new_name.trim().to_string() }))
+}
+
+/// Open the path (or its parent folder for files) in the system file manager.
+#[tauri::command]
+pub fn reveal_instance_path(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    instance_id: String,
+    rel: String,
+) -> Result<(), String> {
+    let path = resolve_instance_path(&state, &instance_id, &rel)?;
+    let open_target = if path.is_file() {
+        path.parent().map(|p| p.to_path_buf()).unwrap_or(path.clone())
+    } else {
+        path.clone()
+    };
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_path(open_target.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
 /// Import a local modpack (.mrpack / CurseForge zip): creates an instance
 /// with the pack's Minecraft version + loader and stages its files.
 #[tauri::command]
@@ -1579,6 +1898,26 @@ pub struct PlayerSkinResult {
 }
 
 #[tauri::command]
+pub async fn fetch_image_data_url(state: State<'_, AppState>, url: String) -> Result<String, String> {
+    let resp = state
+        .client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("请求失败: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("读取失败: {e}"))?;
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let b64 = STANDARD.encode(&bytes);
+    Ok(format!("data:image/png;base64,{}", b64))
+}
+
+#[tauri::command]
 pub async fn fetch_player_skin(state: State<'_, AppState>, username: String) -> Result<PlayerSkinResult, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
     let trimmed = username.trim();
@@ -2049,4 +2388,279 @@ pub fn refresh_storage_stats(state: State<AppState>) -> crate::storage::StorageS
 #[tauri::command]
 pub fn clear_cache(state: State<AppState>) -> Result<crate::storage::CacheClearResult, String> {
     crate::storage::clear_cache(&state)
+}
+
+// ---------------------------------------------------------------------------
+// Hosted game servers
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn list_hosted_servers(state: State<AppState>) -> Result<Vec<ServerConfig>, String> {
+    Ok(crate::servers::load_servers(&state))
+}
+
+#[tauri::command]
+pub fn get_hosted_server(state: State<AppState>, id: String) -> Result<ServerConfig, String> {
+    crate::servers::get_server(&state, &id)
+}
+
+#[tauri::command]
+pub fn create_hosted_server(
+    state: State<AppState>,
+    name: String,
+    core: ServerCore,
+    mc_version: String,
+) -> Result<ServerConfig, String> {
+    crate::servers::create_server(&state, name, core, mc_version)
+}
+
+#[tauri::command]
+pub fn update_hosted_server(
+    state: State<AppState>,
+    patch: Value,
+) -> Result<ServerConfig, String> {
+    crate::servers::update_server(&state, patch)
+}
+
+#[tauri::command]
+pub fn delete_hosted_server(state: State<AppState>, id: String) -> Result<(), String> {
+    crate::servers::delete_server(&state, &id)
+}
+
+#[tauri::command]
+pub async fn install_hosted_server_core(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    crate::servers::install_server_core(app, &state, &id).await
+}
+
+#[tauri::command]
+pub async fn start_hosted_server(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<u32, String> {
+    crate::servers::start_server(app, &state, &id).await
+}
+
+#[tauri::command]
+pub async fn stop_hosted_server(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    crate::servers::stop_server(&state, &id).await
+}
+
+#[tauri::command]
+pub fn is_hosted_server_running(state: State<AppState>, id: String) -> Result<bool, String> {
+    Ok(crate::servers::is_server_running(&state, &id))
+}
+
+#[tauri::command]
+pub fn read_hosted_server_log(state: State<AppState>, id: String) -> Result<Vec<String>, String> {
+    crate::servers::read_server_log(&state, &id)
+}
+
+#[tauri::command]
+pub fn open_hosted_server_folder(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    id: String,
+    sub: Option<String>,
+) -> Result<(), String> {
+    let mut dir = crate::servers::server_dir(&state, &id);
+    if let Some(s) = sub {
+        if !crate::servers::SERVER_SUBFOLDERS.contains(&s.as_str()) {
+            return Err("非法目录".into());
+        }
+        dir = dir.join(s);
+    }
+    if !dir.exists() {
+        return Err("目录不存在".into());
+    }
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+/// 在系统文件管理器中显示服务器目录下的任意文件/文件夹
+#[tauri::command]
+pub fn reveal_hosted_server_path(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    id: String,
+    rel: String,
+) -> Result<(), String> {
+    let path = crate::servers::resolve_server_path(&state, &id, &rel)?;
+    let open_target = if path.is_file() {
+        path.parent().map(|p| p.to_path_buf()).unwrap_or(path.clone())
+    } else {
+        path.clone()
+    };
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_path(open_target.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_hosted_server_folders(
+    state: State<AppState>,
+    id: String,
+) -> Result<Value, String> {
+    let folders = crate::servers::list_server_folders(&state, &id);
+    let arr: Vec<Value> = folders
+        .into_iter()
+        .map(|(name, exists)| json!({ "name": name, "exists": exists }))
+        .collect();
+    Ok(json!({ "folders": arr }))
+}
+
+#[tauri::command]
+pub async fn list_hosted_server_files(
+    state: State<'_, AppState>,
+    id: String,
+    sub: String,
+) -> Result<Value, String> {
+    if !crate::servers::SERVER_SUBFOLDERS.contains(&sub.as_str()) {
+        return Err("非法目录".into());
+    }
+    let dir = crate::servers::server_dir(&state, &id).join(&sub);
+    if !dir.exists() {
+        return Ok(json!({ "files": [] }));
+    }
+    let files = tokio::task::spawn_blocking(move || {
+        let mut files: Vec<Value> = Vec::new();
+        for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+            let e = entry.map_err(|e| e.to_string())?;
+            let meta = e.metadata().map_err(|e| e.to_string())?;
+            let path = e.path();
+            files.push(json!({
+                "name": e.file_name().to_string_lossy().to_string(),
+                "path": path.to_string_lossy().to_string(),
+                "size": meta.len(),
+                "modified": meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0),
+                "isDir": meta.is_dir(),
+                "icon": null,
+            }));
+        }
+        Ok::<Vec<Value>, String>(files)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(json!({ "files": files }))
+}
+
+/// 列出服务器目录下任意相对路径的条目（与游戏实例的文件管理器一致），用于内置文件管理器
+#[tauri::command]
+pub async fn list_hosted_server_dir(
+    state: State<'_, AppState>,
+    id: String,
+    rel: String,
+) -> Result<Value, String> {
+    let dir = crate::servers::resolve_server_path(&state, &id, &rel)?;
+    if !dir.is_dir() {
+        return Err("目标不是一个目录".into());
+    }
+    let rel_json = rel.clone();
+    let entries = tokio::task::spawn_blocking(move || {
+        let mut files: Vec<FsEntry> = Vec::new();
+        let mut dirs: Vec<FsEntry> = Vec::new();
+        for entry in std::fs::read_dir(&dir).map_err(|e| format!("读取目录失败: {e}"))? {
+            let e = entry.map_err(|e| format!("读取目录失败: {e}"))?;
+            let meta = e.metadata().map_err(|e| format!("读取元数据失败: {e}"))?;
+            let name = e.file_name().to_string_lossy().to_string();
+            let is_dir = meta.is_dir();
+            let child_rel = if rel.is_empty() {
+                name.clone()
+            } else {
+                format!("{}/{}", rel.trim_end_matches('/'), name)
+            };
+            let fs = FsEntry {
+                ext: if is_dir { String::new() } else { ext_of(&name) },
+                name,
+                rel: child_rel,
+                size: if is_dir { 0 } else { meta.len() },
+                modified: modified_secs(&meta),
+                is_dir,
+            };
+            if is_dir {
+                dirs.push(fs);
+            } else {
+                files.push(fs);
+            }
+        }
+        dirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        dirs.extend(files);
+        Ok::<Vec<FsEntry>, String>(dirs)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(json!({ "rel": rel_json, "entries": entries }))
+}
+
+#[tauri::command]
+pub fn read_hosted_server_file(
+    state: State<AppState>,
+    id: String,
+    rel: String,
+) -> Result<Value, String> {
+    let path = crate::servers::resolve_server_path(&state, &id, &rel)?;
+    if !path.is_file() {
+        return Err("不是一个文件".into());
+    }
+    let meta = std::fs::metadata(&path).map_err(|e| format!("读取文件失败: {e}"))?;
+    if meta.len() > MAX_EDIT_BYTES {
+        return Err(format!(
+            "文件过大（{}），内置编辑器最多支持 {}",
+            fmt_bytes(meta.len()),
+            fmt_bytes(MAX_EDIT_BYTES)
+        ));
+    }
+    let bytes = std::fs::read(&path).map_err(|e| format!("读取文件失败: {e}"))?;
+    if bytes.iter().take(4096).any(|b| *b == 0) {
+        return Err("这是二进制文件，无法在内置编辑器中打开".into());
+    }
+    let content = String::from_utf8(bytes)
+        .map_err(|_| String::from("文件不是 UTF-8 编码，无法在内置编辑器中打开"))?;
+    let meta2 = std::fs::metadata(&path).ok();
+    Ok(json!({
+        "rel": rel,
+        "content": content,
+        "size": meta.len(),
+        "modified": meta2.as_ref().map(modified_secs).unwrap_or(0),
+    }))
+}
+
+#[tauri::command]
+pub fn write_hosted_server_file(
+    state: State<AppState>,
+    id: String,
+    rel: String,
+    content: String,
+) -> Result<Value, String> {
+    let path = crate::servers::resolve_server_path(&state, &id, &rel)?;
+    if path.is_dir() {
+        return Err("目标是一个目录".into());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
+    }
+    let len = content.len() as u64;
+    std::fs::write(&path, content).map_err(|e| format!("写入文件失败: {e}"))?;
+    let meta = std::fs::metadata(&path).ok();
+    Ok(json!({
+        "rel": rel,
+        "size": meta.as_ref().map(|m| m.len()).unwrap_or(len),
+        "modified": meta.as_ref().map(modified_secs).unwrap_or(0),
+    }))
+}
+
+#[tauri::command]
+pub fn list_hosted_server_config_files(
+    state: State<AppState>,
+    id: String,
+) -> Result<Vec<crate::servers::ServerConfigFile>, String> {
+    crate::servers::list_server_config_files(&state, &id)
 }

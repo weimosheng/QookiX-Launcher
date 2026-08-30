@@ -14,6 +14,10 @@ pub struct AppState {
     pub semaphore: Arc<Semaphore>,
     /// Currently running game pids keyed by instance id
     pub game_pids: Arc<Mutex<HashMap<String, u32>>>,
+    /// Currently running hosted server pids keyed by server id
+    pub server_pids: Arc<Mutex<HashMap<String, u32>>>,
+    /// Stdin senders for running servers (to send stop commands)
+    pub server_senders: Arc<Mutex<HashMap<String, tokio::sync::mpsc::Sender<String>>>>,
     /// Monotonic task counter for event correlation
     pub task_counter: AtomicU64,
     /// Cancel flag for the active install task
@@ -22,6 +26,8 @@ pub struct AppState {
     pub ms_flow: Arc<Mutex<Option<crate::models::MsFlow>>>,
     /// Cached Java detection results (unix seconds, list)
     pub java_cache: Mutex<Option<(u64, Vec<crate::models::JavaInfo>)>>,
+    /// Currently running Terracotta (陶瓦联机) session, if any
+    pub terracotta: Mutex<Option<crate::terracotta::TerracottaSession>>,
 }
 
 impl AppState {
@@ -47,6 +53,9 @@ impl AppState {
     }
     pub fn logs_dir(&self) -> PathBuf {
         self.root.join("logs")
+    }
+    pub fn servers_dir(&self) -> PathBuf {
+        self.root.join("servers")
     }
     #[allow(dead_code)]
     pub fn settings_path(&self) -> PathBuf {

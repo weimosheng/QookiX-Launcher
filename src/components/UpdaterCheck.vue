@@ -34,6 +34,12 @@ async function runCheck() {
     // 用户此前点击过「忽略此版本」且仍是同一版本：不再弹窗，避免每次启动都打扰。
     if (settings.settings?.dismissed_update_version === update.version) return;
 
+    // 自动更新开启：检测到新版本直接下载安装，不弹窗询问
+    if (settings.settings?.auto_update) {
+      void doInstall();
+      return;
+    }
+
     // naive-ui 的对话框只内置 positive/negative 两个按钮，这里用 action 自定义
     // 三个按钮，额外提供「忽略此版本」。
     let dlg: { destroy: () => void } | null = null;

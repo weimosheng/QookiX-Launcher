@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from "vue";
 import { NButton, NInput, NModal, NPopover, useMessage } from "naive-ui";
 import { useAccountsStore } from "../stores/accounts";
 import { loadOfflineSkin } from "../composables/useOfflineSkin";
+import { api } from "../api";
 import MsLoginDialog from "./MsLoginDialog.vue";
 import { IconCheck, IconChevronDown, IconTrash, IconUser, IconPlus } from "./icons";
 import type { Account } from "../types";
@@ -18,6 +19,30 @@ const offlineName = ref("");
 const addingOffline = ref(false);
 
 const offlineAvatarCache = reactive<Record<string, string>>({});
+const onlineAvatarCache = reactive<Record<string, string>>({});
+
+const AVATAR_SOURCES: Array<(uuid: string) => string> = [
+  (u) => `https://mc-heads.net/avatar/${u}/96`,
+  (u) => `https://minotar.net/helm/${u}/96`,
+  (u) => `https://crafatar.com/avatars/${u}?size=96&overlay`,
+];
+
+function loadOnlineAvatarCache(uuid: string) {
+  const cached = localStorage.getItem(`qookix:avatar:${uuid}`);
+  if (cached) onlineAvatarCache[uuid] = cached;
+}
+
+async function refreshOnlineAvatar(uuid: string, url: string) {
+  try {
+    const dataUrl = await api.fetchImageDataURL(url);
+    if (dataUrl) {
+      onlineAvatarCache[uuid] = dataUrl;
+      localStorage.setItem(`qookix:avatar:${uuid}`, dataUrl);
+    }
+  } catch {
+    /* ignore */
+  }
+}
 
 function skinToAvatar(skinDataUrl: string): Promise<string> {
   return new Promise((resolve) => {
@@ -55,6 +80,10 @@ watch(
           if (avatar) offlineAvatarCache[acc.uuid] = avatar;
         }
       }
+      if (acc.type === "microsoft") {
+        if (!onlineAvatarCache[acc.uuid]) loadOnlineAvatarCache(acc.uuid);
+        refreshOnlineAvatar(acc.uuid, AVATAR_SOURCES[0](acc.uuid));
+      }
     }
   },
   { immediate: true },
@@ -70,6 +99,9 @@ watch(
         const avatar = await skinToAvatar(skin.src);
         if (avatar) offlineAvatarCache[cur.uuid] = avatar;
       }
+    }
+    if (cur && cur.type === "microsoft") {
+      refreshOnlineAvatar(cur.uuid, AVATAR_SOURCES[0](cur.uuid));
     }
   },
 );
@@ -108,19 +140,14 @@ watch(popoverShow, (v) => {
 
 const current = computed(() => accounts.current);
 
-/** Avatar providers tried in order; falls back to the local user icon when all fail. */
-const AVATAR_SOURCES: Array<(uuid: string) => string> = [
-  (u) => `https://mc-heads.net/avatar/${u}/96`,
-  (u) => `https://minotar.net/helm/${u}/96`,
-  (u) => `https://crafatar.com/avatars/${u}?size=96&overlay`,
-];
-
 /** Number of failed providers per account uuid (drives the fallback chain). */
 const avatarAttempt = reactive<Record<string, number>>({});
 
 function avatar(uuid: string): string {
   const offline = getOfflineAvatar(uuid);
   if (offline) return offline;
+  const cached = onlineAvatarCache[uuid];
+  if (cached) return cached;
   const i = avatarAttempt[uuid] ?? 0;
   if (i < AVATAR_SOURCES.length) {
     const base = AVATAR_SOURCES[i](uuid);

@@ -344,7 +344,7 @@ onMounted(() => {
 .home {
   display: flex;
   flex-direction: column;
-  gap: 26px;
+  gap: 18px;
   min-height: 100%;
   max-width: 1080px;
   margin: 0 auto;
@@ -352,11 +352,11 @@ onMounted(() => {
 .hero {
   position: relative;
   overflow: hidden;
-  padding: 22px 38px;
+  padding: 20px 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 24px;
+  gap: 16px;
 }
 .hero-glow {
   position: absolute;
@@ -465,13 +465,13 @@ onMounted(() => {
 .pin-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 14px;
+  gap: 16px;
 }
 .pin-card {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 14px 16px;
+  padding: 18px;
   cursor: pointer;
   transition: border-color 0.15s, transform 0.15s, background 0.15s;
 }
@@ -634,7 +634,7 @@ onMounted(() => {
   padding: 20px 24px;
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 16px;
 }
 .resident-icon {
   width: 64px;

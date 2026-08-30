@@ -26,8 +26,11 @@ pub struct StorageStats {
     pub categories: Vec<StorageCategory>,
     /// 每个游戏实例的单独大小
     pub instances: Vec<InstanceStorage>,
+    /// 每个托管服务器实例的单独大小
+    pub servers: Vec<InstanceStorage>,
     pub total: u64,
     pub instance_count: u64,
+    pub server_count: u64,
     /// 上次更新时间（unix 秒）
     pub updated_at: u64,
     /// 是否为磁盘缓存数据（而非本次实时扫描）
@@ -126,6 +129,38 @@ pub fn scan(state: &AppState) -> StorageStats {
     }
     instances.sort_by(|a, b| b.size.cmp(&a.size));
 
+    // 托管服务器实例（含每个服务器的单独大小）
+    let srv_dir = state.servers_dir();
+    let server_count = std::fs::read_dir(&srv_dir)
+        .map(|rd| rd.flatten().filter(|e| e.path().is_dir()).count() as u64)
+        .unwrap_or(0);
+    add_dir("servers", "服务器实例", srv_dir.clone(), &[]);
+
+    let mut servers: Vec<InstanceStorage> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&srv_dir) {
+        for entry in rd.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let id = entry
+                .file_name()
+                .into_string()
+                .unwrap_or_default();
+            // 优先从 server.json 读取名称，读不到时回退到目录名
+            let name = std::fs::read_to_string(path.join("server.json"))
+                .ok()
+                .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+                .and_then(|v| v.get("name").and_then(|n| n.as_str()).map(String::from))
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or_else(|| id.clone());
+            let mut files = 0u64;
+            let size = dir_size(&path, &mut files, &[]);
+            servers.push(InstanceStorage { id, name, size, files });
+        }
+    }
+    servers.sort_by(|a, b| b.size.cmp(&a.size));
+
     // 启动器共享数据
     add_dir("libraries", "库文件", state.libraries_dir(), &[]);
     add_dir("assets", "资源文件", state.assets_dir(), &[]);
@@ -170,6 +205,7 @@ pub fn scan(state: &AppState) -> StorageStats {
                 state.versions_dir(),
                 root.join("runtimes"),
                 state.logs_dir(),
+                state.servers_dir(),
             ]
             .iter()
             .any(|d| p.starts_with(d));
@@ -222,8 +258,10 @@ pub fn scan(state: &AppState) -> StorageStats {
     StorageStats {
         categories,
         instances,
+        servers,
         total,
         instance_count,
+        server_count,
         updated_at: now_secs(),
         cached: false,
     }

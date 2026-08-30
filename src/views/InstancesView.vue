@@ -480,7 +480,7 @@ async function moveTo(groupId: string | null) {
 .groups {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 18px;
 }
 .group-head {
   display: flex;

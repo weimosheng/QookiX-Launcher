@@ -11,6 +11,7 @@ import { api } from "../api";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import LogViewer from "../components/LogViewer.vue";
+import FileManager from "../components/FileManager.vue";
 import AppIcon from "../components/AppIcon.vue";
 import IconPickerDialog from "../components/IconPickerDialog.vue";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
@@ -39,6 +40,7 @@ import {
   IconTrash,
   IconGlobe,
   IconMapPin,
+  IconHardDrive,
 } from "../components/icons";
 const route = useRoute();
 const router = useRouter();
@@ -180,6 +182,7 @@ const ALL_TABS = [
   { key: "resourcepacks", label: "材质包", icon: IconImage, folder: "resourcepacks" },
   { key: "screenshots", label: "截图", icon: IconCamera, folder: "screenshots" },
   { key: "saves", label: "世界", icon: IconFolder, folder: "saves" },
+  { key: "files", label: "文件", icon: IconHardDrive },
   { key: "logs", label: "日志", icon: IconFile },
   { key: "settings", label: "设置", icon: IconExternal },
 ];
@@ -947,6 +950,8 @@ watch(
     } else if (t === "screenshots" || t === "saves") {
       loadFiles();
       if (t === "saves" && !loadingServers.value) loadServers();
+    } else if (t === "files") {
+      // 文件管理器内部自行加载目录内容
     } else {
       loadContent();
       updates.value = {};
@@ -966,14 +971,18 @@ watch(
     if (tab.value === "screenshots" || tab.value === "saves") {
       loadFiles();
       if (tab.value === "saves" && !loadingServers.value) loadServers();
-    } else loadContent();
+    } else if (tab.value !== "files") {
+      loadContent();
+    }
   },
   { immediate: true }
 );
 
 watch(
   () => instances.instances,
-  () => loadContent(),
+  () => {
+    if (tab.value !== "files") loadContent();
+  },
   { deep: true }
 );
 </script>
@@ -1262,6 +1271,11 @@ watch(
         </template>
       </template>
 
+      <!-- files -->
+      <template v-if="tab === 'files'">
+        <FileManager :instance-id="instanceId" />
+      </template>
+
       <!-- logs -->
       <template v-if="tab === 'logs'">
         <LogViewer :instance-id="instanceId" />
@@ -1511,7 +1525,7 @@ watch(
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 18px 20px;
+  padding: 20px 24px;
 }
 .symlink-notice {
   display: flex;
@@ -1630,7 +1644,7 @@ watch(
   cursor: default;
 }
 .not-installed {
-  padding: 18px 20px;
+  padding: 20px 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1746,7 +1760,7 @@ watch(
   gap: 4px;
 }
 .content-list {
-  padding: 6px 12px;
+  padding: 18px;
 }
 .c-row {
   display: flex;

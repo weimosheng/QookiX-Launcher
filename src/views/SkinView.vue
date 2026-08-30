@@ -929,14 +929,14 @@ onMounted(async () => {
 .skin-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
-  gap: 12px;
+  gap: 16px;
 }
 .skin-card {
   position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 8px;
+  padding: 12px;
   border-radius: 11px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.03);

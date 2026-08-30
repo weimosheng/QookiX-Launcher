@@ -52,6 +52,10 @@ body,
   --text-3: #8b8e9c;
   --scrollbar-thumb: rgba(255, 255, 255, 0.12);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
+  --pad-panel: 20px 24px;
+  --gap-panel: 16px;
+  --gap-grid: 16px;
+  --gap-page: 18px;
 }
 
 :root.light {
@@ -215,6 +219,20 @@ a:active {
 }
 .fade-enter-from,
 .fade-leave-to {
+  opacity: 0;
+}
+
+.page-rise-enter-active {
+  transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.page-rise-leave-active {
+  transition: opacity 0.15s ease;
+}
+.page-rise-enter-from {
+  opacity: 0;
+  transform: translateY(14px);
+}
+.page-rise-leave-to {
   opacity: 0;
 }
 

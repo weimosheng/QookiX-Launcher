@@ -1,6 +1,6 @@
 [package]
 name = "qookix-launcher"
-version = "0.3.8"
+version = "0.4.2"
 description = "QookiX Launcher - a modern, clean and ad-free Minecraft launcher"
 authors = ["QookiX"]
 edition = "2021"
@@ -34,8 +34,13 @@ sha2 = "0.10"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 fastnbt = "2"
 flate2 = "1"
+tar = "0.4"
 directories = "5"
 percent-encoding = "2"
 base64 = "0.22"
 sysinfo = "0.30"
 junction = "1"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell"] }
+png = "0.17"

@@ -75,6 +75,8 @@ pub struct Settings {
     /// 用户点击「忽略此版本」后记录的版本号。启动时若为同一版本则不再弹窗提示，
     /// 出现更新的版本时恢复提醒。
     pub dismissed_update_version: Option<String>,
+    /// 启动时自动检查并下载更新（检测到新版本直接下载安装，无需手动确认）
+    pub auto_update: bool,
 }
 
 impl Default for Settings {
@@ -104,6 +106,7 @@ impl Default for Settings {
             show_home_hero: false,
             show_sidebar_collapse_btn: false,
             dismissed_update_version: None,
+            auto_update: false,
         }
     }
 }
@@ -574,4 +577,72 @@ pub fn maven_to_path(name: &str) -> Option<PathBuf> {
     };
     p.push(file);
     Some(p)
+}
+
+// ---------------------------------------------------------------------------
+// Hosted game servers
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum ServerCore {
+    Vanilla,
+    Paper,
+    Spigot,
+    Purpur,
+    Forge,
+    Fabric,
+}
+
+impl ServerCore {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ServerCore::Vanilla => "vanilla",
+            ServerCore::Paper => "paper",
+            ServerCore::Spigot => "spigot",
+            ServerCore::Purpur => "purpur",
+            ServerCore::Forge => "forge",
+            ServerCore::Fabric => "fabric",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ServerConfig {
+    pub id: String,
+    pub name: String,
+    pub core: ServerCore,
+    pub mc_version: String,
+    #[serde(default = "default_server_port")]
+    pub port: u16,
+    #[serde(default = "default_server_max_mem")]
+    pub max_memory_mb: u32,
+    #[serde(default = "default_server_min_mem")]
+    pub min_memory_mb: u32,
+    #[serde(default = "default_server_motd")]
+    pub motd: String,
+    #[serde(default)]
+    pub eula: bool,
+    pub created: u64,
+    #[serde(default)]
+    pub last_started: Option<u64>,
+    #[serde(default)]
+    pub java_path: Option<String>,
+    #[serde(default)]
+    pub jvm_args: Option<String>,
+    #[serde(default)]
+    pub stop_command: Option<String>,
+}
+
+fn default_server_port() -> u16 {
+    25565
+}
+fn default_server_max_mem() -> u32 {
+    2048
+}
+fn default_server_min_mem() -> u32 {
+    1024
+}
+fn default_server_motd() -> String {
+    "A Minecraft Server".into()
 }

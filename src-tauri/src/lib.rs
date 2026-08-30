@@ -13,9 +13,11 @@ mod models;
 mod modpack;
 mod modrinth;
 mod paths;
+mod servers;
 mod settings;
 mod state;
 mod storage;
+mod terracotta;
 mod util;
 
 use state::AppState;
@@ -48,10 +50,13 @@ pub fn run() {
         client: settings::http_client(proxy.as_deref()),
         semaphore: Arc::new(tokio::sync::Semaphore::new(8)),
         game_pids: Arc::new(Mutex::new(HashMap::new())),
+        server_pids: Arc::new(Mutex::new(HashMap::new())),
+        server_senders: Arc::new(Mutex::new(HashMap::new())),
         task_counter: std::sync::atomic::AtomicU64::new(1),
         install_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         ms_flow: Arc::new(Mutex::new(None)),
         java_cache: Mutex::new(None),
+        terracotta: Mutex::new(None),
     };
 
     tauri::Builder::default()
@@ -91,6 +96,13 @@ pub fn run() {
             commands::open_instance_folder,
             commands::list_instance_folders,
             commands::list_instance_files,
+            commands::list_instance_dir,
+            commands::read_instance_file,
+            commands::write_instance_file,
+            commands::create_instance_entry,
+            commands::delete_instance_path,
+            commands::rename_instance_path,
+            commands::reveal_instance_path,
             commands::import_modpack,
             commands::import_instance_image,
             commands::import_background_image,
@@ -128,6 +140,7 @@ pub fn run() {
             commands::download_skin_from_url,
             commands::delete_skin,
             commands::fetch_player_skin,
+            commands::fetch_image_data_url,
             commands::fetch_player_capes,
             commands::apply_skin_to_account,
             commands::apply_cape_to_account,
@@ -136,6 +149,34 @@ pub fn run() {
             // multiplayer servers
             commands::list_servers,
             commands::ping_mc_server,
+            // hosted game servers
+            commands::list_hosted_servers,
+            commands::get_hosted_server,
+            commands::create_hosted_server,
+            commands::update_hosted_server,
+            commands::delete_hosted_server,
+            commands::install_hosted_server_core,
+            commands::start_hosted_server,
+            commands::stop_hosted_server,
+            commands::is_hosted_server_running,
+            commands::read_hosted_server_log,
+            commands::open_hosted_server_folder,
+            commands::reveal_hosted_server_path,
+            commands::list_hosted_server_folders,
+            commands::list_hosted_server_files,
+            commands::list_hosted_server_dir,
+            commands::read_hosted_server_file,
+            commands::write_hosted_server_file,
+            commands::list_hosted_server_config_files,
+            // terracotta (陶瓦联机)
+            terracotta::terracotta_detect,
+            terracotta::terracotta_download,
+            terracotta::terracotta_launch,
+            terracotta::terracotta_stop,
+            terracotta::terracotta_status,
+            terracotta::terracotta_create_room,
+            terracotta::terracotta_join_room,
+            terracotta::terracotta_leave,
             // storage
             commands::get_storage_stats,
             commands::refresh_storage_stats,
@@ -348,6 +389,8 @@ mod smoke {
             client: crate::settings::http_client(None),
             semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
             game_pids: Arc::new(Mutex::new(HashMap::new())),
+            server_pids: Arc::new(Mutex::new(HashMap::new())),
+        server_senders: Arc::new(Mutex::new(HashMap::new())),
             task_counter: std::sync::atomic::AtomicU64::new(1),
             install_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ms_flow: Arc::new(Mutex::new(None)),
@@ -398,6 +441,8 @@ mod smoke {
             client: crate::settings::http_client(None),
             semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
             game_pids: Arc::new(Mutex::new(HashMap::new())),
+            server_pids: Arc::new(Mutex::new(HashMap::new())),
+        server_senders: Arc::new(Mutex::new(HashMap::new())),
             task_counter: std::sync::atomic::AtomicU64::new(1),
             install_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ms_flow: Arc::new(Mutex::new(None)),

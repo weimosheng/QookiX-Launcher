@@ -3,18 +3,47 @@ import { trackStart, trackEnd, trackError } from "./loadingBar";
 import type {
   Account,
   CacheClearResult,
+  FsEntry,
   Instance,
   InstanceGroup,
   JavaInfo,
   ProjectHit,
   ProjectVersion,
+  ServerConfig,
   ServerEntry,
   ServerStatus,
   Settings,
   StorageStats,
+  TerracottaInfo,
+  TerracottaLaunch,
 } from "./types";
 
-const SILENT_COMMANDS = new Set(["install_game", "install_content", "download_java", "mc_wiki_url", "project_dependencies", "launch_instance", "apply_update", "identify_content"]);
+const SILENT_COMMANDS = new Set([
+  "install_game",
+  "install_content",
+  "download_java",
+  "mc_wiki_url",
+  "project_dependencies",
+  "launch_instance",
+  "apply_update",
+  "identify_content",
+  "read_instance_file",
+  "write_instance_file",
+  "list_instance_dir",
+  "install_hosted_server_core",
+  "start_hosted_server",
+  "read_hosted_server_file",
+  "write_hosted_server_file",
+  // 陶瓦联机：高频轮询与状态操作，页面内已有独立加载反馈，不触发顶部加载条
+  "terracotta_detect",
+  "terracotta_download",
+  "terracotta_launch",
+  "terracotta_stop",
+  "terracotta_status",
+  "terracotta_create_room",
+  "terracotta_join_room",
+  "terracotta_leave",
+]);
 
 function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const silent = SILENT_COMMANDS.has(cmd);
@@ -235,6 +264,29 @@ export const api = {
   importLocalFile: (instanceId: string, kind: string, sourcePath: string) =>
     invoke<{ ok: boolean }>("import_local_file", { instanceId, kind, sourcePath }),
   saveTextFile: (path: string, content: string) => invoke<void>("save_text_file", { path, content }),
+
+  // instance file manager
+  listInstanceDir: (instanceId: string, rel: string) =>
+    invoke<{ rel: string; entries: FsEntry[] }>("list_instance_dir", { instanceId, rel }),
+  readInstanceFile: (instanceId: string, rel: string) =>
+    invoke<{ rel: string; content: string; size: number; modified: number }>("read_instance_file", {
+      instanceId,
+      rel,
+    }),
+  writeInstanceFile: (instanceId: string, rel: string, content: string) =>
+    invoke<{ rel: string; size: number; modified: number }>("write_instance_file", {
+      instanceId,
+      rel,
+      content,
+    }),
+  createInstanceEntry: (instanceId: string, rel: string, isDir: boolean) =>
+    invoke<{ rel: string; is_dir: boolean }>("create_instance_entry", { instanceId, rel, isDir }),
+  deleteInstancePath: (instanceId: string, rel: string) =>
+    invoke<void>("delete_instance_path", { instanceId, rel }),
+  renameInstancePath: (instanceId: string, rel: string, newName: string) =>
+    invoke<{ rel: string; name: string }>("rename_instance_path", { instanceId, rel, newName }),
+  revealInstancePath: (instanceId: string, rel: string) =>
+    invoke<void>("reveal_instance_path", { instanceId, rel }),
   extractGameIcons: (instanceId?: string) =>
     invoke<{ name: string; label: string; path: string }[]>("extract_game_icons", {
       instanceId: instanceId ?? null,
@@ -257,6 +309,7 @@ export const api = {
   deleteSkin: (filename: string) => invoke<void>("delete_skin", { filename }),
   fetchPlayerSkin: (username: string) =>
     invoke<{ data_url: string; model: string; cape_data_url: string | null }>("fetch_player_skin", { username }),
+  fetchImageDataURL: (url: string) => invoke<string>("fetch_image_data_url", { url }),
   fetchPlayerCapes: (accountUuid: string) =>
     invoke<{ id: string; name: string; data_url: string; active: boolean }[]>("fetch_player_capes", {
       accountUuid,
@@ -276,6 +329,54 @@ export const api = {
   listServers: (instanceId: string) =>
     invoke<{ servers: ServerEntry[] }>("list_servers", { instanceId }).then((r) => r.servers),
   pingServer: (address: string) => invoke<ServerStatus>("ping_mc_server", { address }),
+
+  // hosted game servers
+  listHostedServers: () => invoke<ServerConfig[]>("list_hosted_servers"),
+  getHostedServer: (id: string) => invoke<ServerConfig>("get_hosted_server", { id }),
+  createHostedServer: (name: string, core: string, mcVersion: string) =>
+    invoke<ServerConfig>("create_hosted_server", { name, core, mcVersion }),
+  updateHostedServer: (patch: Record<string, unknown>) =>
+    invoke<ServerConfig>("update_hosted_server", { patch }),
+  deleteHostedServer: (id: string) => invoke<void>("delete_hosted_server", { id }),
+  installHostedServerCore: (id: string) =>
+    invoke<void>("install_hosted_server_core", { id }),
+  startHostedServer: (id: string) => invoke<{ pid: number }>("start_hosted_server", { id }),
+  stopHostedServer: (id: string) => invoke<void>("stop_hosted_server", { id }),
+  isHostedServerRunning: (id: string) => invoke<boolean>("is_hosted_server_running", { id }),
+  readHostedServerLog: (id: string) => invoke<string[]>("read_hosted_server_log", { id }),
+  openHostedServerFolder: (id: string, sub?: string) =>
+    invoke<void>("open_hosted_server_folder", { id, sub: sub ?? null }),
+  listHostedServerFolders: (id: string) =>
+    invoke<{ folders: { name: string; exists: boolean }[] }>("list_hosted_server_folders", { id }),
+  listHostedServerFiles: (id: string, sub: string) =>
+    invoke<{
+      files: { name: string; path: string; size: number; modified: number; isDir: boolean; icon: string | null }[];
+    }>("list_hosted_server_files", { id, sub }),
+  listHostedServerDir: (id: string, rel: string) =>
+    invoke<{ rel: string; entries: FsEntry[] }>("list_hosted_server_dir", { id, rel }),
+  revealHostedServerPath: (id: string, rel: string) =>
+    invoke<void>("reveal_hosted_server_path", { id, rel }),
+  readHostedServerFile: (id: string, rel: string) =>
+    invoke<{ rel: string; content: string; size: number; modified: number }>("read_hosted_server_file", { id, rel }),
+  writeHostedServerFile: (id: string, rel: string, content: string) =>
+    invoke<{ rel: string; size: number; modified: number }>("write_hosted_server_file", { id, rel, content }),
+  listHostedServerConfigFiles: (id: string) =>
+    invoke<{ name: string; rel: string; size: number; modified: number }[]>(
+      "list_hosted_server_config_files",
+      { id },
+    ),
+
+  // terracotta (陶瓦联机)
+  terracottaDetect: () => invoke<TerracottaInfo>("terracotta_detect"),
+  terracottaDownload: () => invoke<string>("terracotta_download"),
+  terracottaLaunch: () => invoke<TerracottaLaunch>("terracotta_launch"),
+  terracottaStop: () => invoke<void>("terracotta_stop"),
+  terracottaStatus: () => invoke<Record<string, unknown>>("terracotta_status"),
+  terracottaCreateRoom: (player?: string) =>
+    invoke<Record<string, unknown>>("terracotta_create_room", { player: player ?? null }),
+  terracottaJoinRoom: (room: string, player?: string) =>
+    invoke<Record<string, unknown>>("terracotta_join_room", { room, player: player ?? null }),
+  terracottaLeave: () => invoke<Record<string, unknown>>("terracotta_leave"),
 
   // storage
   getStorageStats: () => invoke<StorageStats>("get_storage_stats"),

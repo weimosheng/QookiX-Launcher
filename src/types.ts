@@ -1,4 +1,19 @@
+import type { Component } from "vue";
+
 export type Loader = "vanilla" | "fabric" | "quilt" | "forge" | "neoforge";
+
+/** 右键菜单项；`sep` 为真时渲染为分隔线，其余字段忽略 */
+export interface ContextMenuItem {
+  key: string;
+  label?: string;
+  icon?: Component;
+  /** 右侧显示的快捷键提示，仅作展示 */
+  shortcut?: string;
+  danger?: boolean;
+  disabled?: boolean;
+  sep?: boolean;
+  action?: () => void;
+}
 
 export interface Settings {
   data_dir: string;
@@ -25,6 +40,7 @@ export interface Settings {
   show_home_hero: boolean;
   show_sidebar_collapse_btn: boolean;
   dismissed_update_version: string | null;
+  auto_update: boolean;
 }
 
 export interface JavaInfo {
@@ -52,8 +68,10 @@ export interface InstanceStorage {
 export interface StorageStats {
   categories: StorageCategory[];
   instances: InstanceStorage[];
+  servers: InstanceStorage[];
   total: number;
   instance_count: number;
+  server_count: number;
   updated_at: number;
   cached: boolean;
 }
@@ -238,6 +256,18 @@ export interface ServerEntry {
   icon: string | null; // 原始 base64（无 data: 前缀）
 }
 
+/** 实例文件管理器中的一条目录项 */
+export interface FsEntry {
+  name: string;
+  /** 相对实例根目录的路径（用 / 分隔） */
+  rel: string;
+  size: number;
+  modified: number;
+  is_dir: boolean;
+  /** 小写扩展名，目录为空字符串 */
+  ext: string;
+}
+
 // 经 Server List Ping 获取的实时状态
 export interface ServerStatus {
   online: boolean;
@@ -250,4 +280,66 @@ export interface ServerStatus {
   favicon: string | null; // 完整 data:image/png;base64,...
   latency_ms: number | null;
   error: string | null;
+}
+
+// 本地托管的游戏服务器核心类型
+export type ServerCore =
+  | "vanilla"
+  | "paper"
+  | "spigot"
+  | "purpur"
+  | "forge"
+  | "fabric";
+
+// 陶瓦联机（Terracotta）
+export interface TerracottaInfo {
+  found: boolean;
+  path: string | null;
+  running: boolean;
+  port: number | null;
+  download_url: string;
+  icon: string | null;
+}
+
+export interface TerracottaLaunch {
+  port: number;
+  ui_url: string;
+  path: string;
+}
+
+// 陶瓦联机下载进度
+export interface TerracottaDownloadProgress {
+  downloaded: number;
+  total: number;
+  percent: number;
+  extracting?: boolean;
+  done?: boolean;
+}
+
+export type TerracottaRoomState =
+  | "waiting"
+  | "scanning"
+  | "host-starting"
+  | "host-ok"
+  | "guest-connecting"
+  | "guest-starting"
+  | "guest-ok"
+  | "exception";
+
+// 用户在"多人游戏 → 服务器"中创建的本地服务器配置
+export interface ServerConfig {
+  id: string;
+  name: string;
+  core: ServerCore;
+  mc_version: string;
+  port: number;
+  max_memory_mb: number;
+  min_memory_mb: number;
+  motd: string;
+  eula: boolean;
+  created: number;
+  last_started: number | null;
+  java_path: string | null;
+  jvm_args: string | null;
+  stop_command: string | null;
 }

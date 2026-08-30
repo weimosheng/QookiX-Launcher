@@ -123,7 +123,7 @@ function confirmDelete() {
 
 <style scoped>
 .inst-card {
-  padding: 16px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 14px;

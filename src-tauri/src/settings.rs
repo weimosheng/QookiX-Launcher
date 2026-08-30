@@ -177,6 +177,9 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
         settings.dismissed_update_version =
             v.as_str().map(|s| s.to_string()).filter(|s| !s.is_empty());
     }
+    if let Some(v) = patch.get("auto_update").and_then(|v| v.as_bool()) {
+        settings.auto_update = v;
+    }
     let cloned = settings.clone();
     drop(settings);
     persist(state)?;

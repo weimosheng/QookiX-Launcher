@@ -43,6 +43,14 @@
 - 微软账号登录仅在你本人打开的重定向页面或设备码流程中授权，令牌仅保存在你本地
 - 本启动器不采集、不上传任何个人数据或使用遥测
 
+### 第三方开源软件（陶瓦联机 / Terracotta）
+
+- 本启动器的「联机房间」功能通过 [Terracotta（陶瓦联机）](https://github.com/burningtnt/Terracotta)（Copyright © burningtnt，**AGPL-3.0-or-later**）实现 NAT 穿透联机
+- 陶瓦联机是一个**独立运行的第三方程序**：本启动器仅负责下载其**未修改的官方二进制**并作为独立进程启动，通过其本地 HTTP API 与之交互，**不将陶瓦联机静态或动态链接进本启动器**
+- 根据陶瓦联机许可证中附带的 **AGPL 例外条款**，上述「打包未修改二进制 + 通过进程间通信接口交互」的使用方式不会使本启动器被 AGPL 协议涵盖；但需在程序界面明显处标识陶瓦联机的版权信息，本启动器已在「联机房间」页面显著标注
+- 陶瓦联机的完整许可证文本见 [Terracotta 仓库 LICENSE](https://github.com/burningtnt/Terracotta/blob/master/LICENSE)，第三方组件清单见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+- 本启动器与 Terracotta 是两个相互独立、各自以自身许可证发布的开源项目，二者之间无任何隶属或背书关系
+
 ### 免责条款
 
 - 本项目按“原样”提供，不附带任何明示或默示担保
@@ -53,6 +61,7 @@
 
 - 界面图标改编自 [Feather Icons](https://feathericons.com/)（MIT License，Copyright (c) 2013-2017 Cole Bemis）
 - 本项目使用的 Feather Icons 遵循其 MIT 许可证要求，已保留其版权声明
+- [Terracotta（陶瓦联机）](https://github.com/burningtnt/Terracotta)（AGPL-3.0-or-later，Copyright © burningtnt）——「联机房间」功能依赖的第三方程序
 - Windows 徽标等品牌图标版权归其各自所有者，仅在本项目中用于兼容性展示
 
 ---
