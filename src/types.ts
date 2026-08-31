@@ -343,3 +343,15 @@ export interface ServerConfig {
   jvm_args: string | null;
   stop_command: string | null;
 }
+
+// 崩溃分析结果
+export interface CrashDiagnosis {
+  severity: "oom" | "jvm" | "lwjgl" | "java_ver" | "gl" | "mod" | "unknown";
+  title: string;
+  reason: string;
+  advice: string;
+  excerpt: string;
+  exit_code: number | null;
+  crash_report: string | null;
+  affected_mods: string[];
+}

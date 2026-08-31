@@ -181,6 +181,10 @@ pub fn run() {
             commands::get_storage_stats,
             commands::refresh_storage_stats,
             commands::clear_cache,
+            // crash analysis
+            commands::list_crash_logs,
+            commands::analyze_crash_log,
+            commands::get_crash_report_content,
         ])
         .on_window_event(|window, event| {
             use tauri::WindowEvent;

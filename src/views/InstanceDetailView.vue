@@ -12,6 +12,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import LogViewer from "../components/LogViewer.vue";
 import FileManager from "../components/FileManager.vue";
+import CrashAnalyzer from "../components/CrashAnalyzer.vue";
 import AppIcon from "../components/AppIcon.vue";
 import IconPickerDialog from "../components/IconPickerDialog.vue";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
@@ -41,6 +42,7 @@ import {
   IconGlobe,
   IconMapPin,
   IconHardDrive,
+  IconBug,
 } from "../components/icons";
 const route = useRoute();
 const router = useRouter();
@@ -146,7 +148,7 @@ function latencyInfo(latency: number | null | undefined): { count: number; tier:
 
 const instanceId = route.params.id as string;
 const tab = ref<string>(
-  (Array.isArray(route.query.tab) ? route.query.tab[0] : route.query.tab) ?? "mods"
+  (Array.isArray(route.query.tab) ? route.query.tab[0] : route.query.tab) ?? "files"
 );
 
 const instance = computed(() => instances.get(instanceId));
@@ -184,7 +186,7 @@ const ALL_TABS = [
   { key: "saves", label: "世界", icon: IconFolder, folder: "saves" },
   { key: "files", label: "文件", icon: IconHardDrive },
   { key: "logs", label: "日志", icon: IconFile },
-  { key: "settings", label: "设置", icon: IconExternal },
+  { key: "crash", label: "崩溃分析", icon: IconBug },
 ];
 
 // folder-backed tabs are only shown when the corresponding folder exists;
@@ -1279,6 +1281,11 @@ watch(
       <!-- logs -->
       <template v-if="tab === 'logs'">
         <LogViewer :instance-id="instanceId" />
+      </template>
+
+      <!-- crash analysis -->
+      <template v-if="tab === 'crash'">
+        <CrashAnalyzer :instance-id="instanceId" />
       </template>
 
       <!-- settings -->

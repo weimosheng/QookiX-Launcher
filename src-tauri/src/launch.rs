@@ -281,7 +281,7 @@ pub async fn launch_game(
             if let Some(diag) = diagnose_crash(&inst_dir, &logs_dir, &inst_id, outcome) {
                 let mut v = serde_json::to_value(&diag).unwrap_or_default();
                 v["instanceId"] = serde_json::json!(inst_id);
-                let _ = app2.emit("launch//crash", v);
+                let _ = app2.emit("launch://crash", v);
             }
         }
     });
@@ -1047,7 +1047,7 @@ const CRASH_RULES: &[CrashRule] = &[
         title: "内存不足",
         reason: "内存分配失败（包含 Java 堆与原生内存）",
         advice: "请进入实例设置调低已分配内存，或关闭其他占用内存的程序后重试。",
-        keys: &["outofmemoryerror", "could not reserve enough space", "not enough space", "java heap space", "native memory allocation (mmap) failed", "failed to allocate memory", "insufficient memory"],
+        keys: &["outofmemoryerror", "could not reserve enough space", "not enough space", "java heap space", "native memory allocation (mmap) failed", "failed to allocate memory", "insufficient memory", "the system is out of physical ram"],
     },
     CrashRule {
         severity: "lwjgl",
@@ -1058,17 +1058,24 @@ const CRASH_RULES: &[CrashRule] = &[
     },
     CrashRule {
         severity: "java_ver",
-        title: "Java 版本过旧",
+        title: "Java 版本不兼容",
         reason: "Java 运行库版本不满足启动要求",
-        advice: "请安装较新 JRE 后重试，可在「设置」中选择自动下载 JRE。",
-        keys: &["unsupportedclassversionerror", "unsupported major.minor", "class file version", "bad class file", "java version", "has been compiled by a more recent version"],
+        advice: "请安装正确版本的 Java 后重试，可在「设置」中选择自动下载 JRE。",
+        keys: &["unsupportedclassversionerror", "unsupported major.minor", "has been compiled by a more recent version", "unsupported class file major version", "level is not supported by the active jre"],
+    },
+    CrashRule {
+        severity: "java_ver",
+        title: "Java 版本过高",
+        reason: "当前 Java 版本过高，游戏不兼容",
+        advice: "请降级 Java 版本（如使用 Java 8 运行旧版游戏）后重试。",
+        keys: &["unable to make protected final java.lang.class java.lang.classloader.defineclass", "because module java.base does not export", "java.lang.nosuchfieldexception: ucp"],
     },
     CrashRule {
         severity: "gl",
         title: "显卡 / OpenGL 初始化失败",
         reason: "OpenGL / 显卡驱动初始化错误",
         advice: "请检查显卡驱动是否最新、是否满足 Minecraft 对 OpenGL 3.2 的要求，更新驱动后重试。",
-        keys: &["pixel format not accelerated", "failed to create gl context", "no matching pixel format", "opengl 32bit", "glfw error", "failed to initialize glfw", "could not create glfw", "probably the driver does not support opengl", "glx genesys"],
+        keys: &["pixel format not accelerated", "failed to create gl context", "no matching pixel format", "opengl 32bit", "glfw error", "failed to initialize glfw", "could not create glfw", "probably the driver does not support opengl", "glx genesys", "the driver does not appear to support opengl", "couldn't set pixel format"],
     },
     CrashRule {
         severity: "mod",
@@ -1089,6 +1096,55 @@ const CRASH_RULES: &[CrashRule] = &[
             "incompatible mod",
             "mod crashed",
         ],
+    },
+    CrashRule {
+        severity: "mod",
+        title: "Mod 文件被解压",
+        reason: "Mod 文件被解压到目录中而非以 .jar 形式加载",
+        advice: "请删除被解压的 Mod 文件夹，确保所有 Mod 以 .jar 格式放入 mods 目录。",
+        keys: &["the directories below appear to be extracted jar files", "extracted mod jars found, loading will not continue"],
+    },
+    CrashRule {
+        severity: "mod",
+        title: "Mixin 缺失",
+        reason: "缺少 MixinBootstrap 或 Mixin 相关依赖",
+        advice: "请安装 MixinBootstrap 或更新 Mod 加载器后重试。",
+        keys: &["classnotfoundexception: org.spongepowered.asm.launch.mixintweaker", "mixin prepare failed", "mixinapplyerror", "mixintransformererror"],
+    },
+    CrashRule {
+        severity: "mod",
+        title: "Mod 重复安装",
+        reason: "检测到重复安装的 Mod",
+        advice: "请检查 mods 目录，删除重复的 Mod 文件后重试。",
+        keys: &["duplicatemodsfoundexception", "found a duplicate mod", "found duplicate mods", "modresolutionexception: duplicate"],
+    },
+    CrashRule {
+        severity: "mod",
+        title: "Mod 互不兼容",
+        reason: "多个 Mod 之间存在兼容性问题",
+        advice: "请移除冲突的 Mod 或更新到兼容版本后重试。",
+        keys: &["incompatible mods found!", "missing or unsupported mandatory dependencies:"],
+    },
+    CrashRule {
+        severity: "mod",
+        title: "ShadersMod 与 OptiFine 冲突",
+        reason: "ShadersMod 与 OptiFine 同时安装导致冲突",
+        advice: "请只保留其中一个（建议保留 OptiFine）后重试。",
+        keys: &["shaders mod detected"],
+    },
+    CrashRule {
+        severity: "java_ver",
+        title: "使用了 OpenJ9",
+        reason: "OpenJ9 虚拟机不被 Minecraft 支持",
+        advice: "请使用 HotSpot JVM（Oracle/OpenJDK）而非 OpenJ9 后重试。",
+        keys: &["open j9 is not supported", "openj9 is incompatible", ".j9vminternals."],
+    },
+    CrashRule {
+        severity: "java_ver",
+        title: "使用了 JDK",
+        reason: "游戏检测到使用了 JDK 而非 JRE",
+        advice: "建议使用 JRE 而非 JDK 运行游戏，可在「设置」中切换。",
+        keys: &["classcastexception: java.base/jdk", "class jdk."],
     },
 ];
 
@@ -1127,15 +1183,15 @@ fn diagnose_crash(instance_dir: &std::path::Path, logs_dir: &std::path::Path, in
     // ---- 日志文本缓冲（用于关键词匹配与摘录） ----
     let mut buf = String::new();
     if let Some(p) = &crash_report {
-        if let Ok(t) = fs::read_to_string(p) { buf.push_str(&t); }
+        if let Ok(t) = fs::read(p) { buf.push_str(&String::from_utf8_lossy(&t)); }
     }
     if let Some(p) = &hs_err {
-        if let Ok(t) = fs::read_to_string(p) { buf.push_str(&t); }
+        if let Ok(t) = fs::read(p) { buf.push_str(&String::from_utf8_lossy(&t)); }
     }
     let live_log = logs_dir.join(format!("{}-live.log", instance_id));
-    if let Ok(t) = fs::read_to_string(&live_log) { buf.push_str(&tail(&t, 200)); }
+    if let Ok(t) = fs::read(&live_log) { buf.push_str(&tail(&String::from_utf8_lossy(&t), 200)); }
     let latest_log = instance_dir.join("logs").join("latest.log");
-    if let Ok(t) = fs::read_to_string(&latest_log) { buf.push_str(&tail(&t, 300)); }
+    if let Ok(t) = fs::read(&latest_log) { buf.push_str(&tail(&String::from_utf8_lossy(&t), 300)); }
     let lower = buf.to_lowercase();
     // PCL2 风格：预先解析崩溃报告中涉及的模组列表，供各类诊断使用
     let involved_mods = extract_affected_mods(&buf);
@@ -1144,7 +1200,8 @@ fn diagnose_crash(instance_dir: &std::path::Path, logs_dir: &std::path::Path, in
     let mut excerpt = String::new();
     let mut fabric_note = String::new();
     if let Some(p) = &crash_report {
-        if let Ok(t) = fs::read_to_string(p) {
+        if let Ok(t) = fs::read(p) {
+            let t = String::from_utf8_lossy(&t);
             if let Some(line) = t.lines().find(|l| l.trim_start().starts_with("Description:")) {
                 let d = line.trim_start().strip_prefix("Description:").unwrap_or("").trim().replace('\u{a0}', " ");
                 // Fabric 崩溃时 Description 常为「Loading library...」这类无用阶段信息
@@ -1166,6 +1223,20 @@ fn diagnose_crash(instance_dir: &std::path::Path, logs_dir: &std::path::Path, in
             // Fabric 官方自带解决建议（mod 依赖缺失）
             fabric_note = extract_fabric_solution(&t);
         }
+    }
+
+    // 高优先级：玩家手动触发调试崩溃（F3+C），并非真正的游戏问题
+    if lower.contains("manually triggered debug crash") {
+        return Some(CrashDiagnosis {
+            severity: "unknown".into(),
+            title: "手动触发的调试崩溃".into(),
+            reason: "这是你在游戏中按 F3+C 手动触发的调试崩溃，游戏本身没有问题。".into(),
+            advice: "你的游戏运行正常，无需任何修复。".into(),
+            excerpt: excerpt.clone(),
+            exit_code: code,
+            crash_report: crash_report.map(|p| p.to_string_lossy().to_string()),
+            affected_mods: Vec::new(),
+        });
     }
 
     // Description 描述本身已明确是 Mod 阶段问题时，优先判定为“模组问题”，

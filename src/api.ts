@@ -16,6 +16,7 @@ import type {
   StorageStats,
   TerracottaInfo,
   TerracottaLaunch,
+  CrashDiagnosis,
 } from "./types";
 
 const SILENT_COMMANDS = new Set([
@@ -382,4 +383,12 @@ export const api = {
   getStorageStats: () => invoke<StorageStats>("get_storage_stats"),
   refreshStorageStats: () => invoke<StorageStats>("refresh_storage_stats"),
   clearCache: () => invoke<CacheClearResult>("clear_cache"),
+
+  // crash analysis
+  crashAnalysis: (instanceId: string) =>
+    invoke<{ filename: string; modified: number; size: number; kind: string }[]>("list_crash_logs", { id: instanceId }),
+  analyzeCrash: (instanceId: string, filename: string) =>
+    invoke<CrashDiagnosis>("analyze_crash_log", { id: instanceId, filename }),
+  getCrashReportContent: (instanceId: string, filename: string) =>
+    invoke<string>("get_crash_report_content", { id: instanceId, filename }),
 };

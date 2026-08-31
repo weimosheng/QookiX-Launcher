@@ -80,3 +80,5 @@ export const IconUsers = make(`<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v
 export const IconServer = make(`<rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>`);
 export const IconDoorOpen = make(`<path d="M14 13v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-8"/><path d="M2 13h12"/><path d="M14 3v10"/><path d="M2 3h12"/><circle cx="11" cy="8" r="1"/>`);
 export const IconPower = make(`<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>`);
+export const IconBug = make(`<circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 2v10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>`);
+export const IconAlertCircle = make(`<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>`);

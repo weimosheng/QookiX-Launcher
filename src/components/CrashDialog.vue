@@ -24,7 +24,7 @@ const router = useRouter();
 function openLogs() {
   if (info.value?.instanceId) {
     show.value = false;
-    router.push(`/instance/${info.value.instanceId}?tab=logs`);
+    router.push(`/instance/${info.value.instanceId}?tab=crash`);
   }
 }
 

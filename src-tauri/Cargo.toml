@@ -44,3 +44,9 @@ junction = "1"
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell"] }
 png = "0.17"
+
+[profile.release]
+strip = true
+panic = "abort"
+lto = "thin"
+codegen-units = 1
