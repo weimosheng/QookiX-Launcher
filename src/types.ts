@@ -34,6 +34,10 @@ export interface Settings {
   ms_client_id: string;
   selected_account: string | null;
   proxy: string | null;
+  /** 下载镜像源 id："official" | "bmclapi" | "custom" */
+  mirror: string;
+  /** 自定义镜像根地址（mirror === "custom" 时生效） */
+  mirror_custom: string;
   background_image: string | null;
   background_blur: number;
   background_dim: number;
@@ -42,6 +46,21 @@ export interface Settings {
   show_sidebar_collapse_btn: boolean;
   dismissed_update_version: string | null;
   auto_update: boolean;
+}
+
+/** 下载镜像源预设 */
+export interface MirrorPreset {
+  id: string;
+  label: string;
+  /** 镜像站根地址，官方源为空串 */
+  base: string;
+  desc: string;
+}
+
+export interface MirrorTestResult {
+  ok: boolean;
+  ms: number;
+  url: string;
 }
 
 export interface JavaInfo {

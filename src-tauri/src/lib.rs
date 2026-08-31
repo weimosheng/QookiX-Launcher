@@ -9,6 +9,7 @@ mod launch;
 mod mcmeta;
 mod mcping;
 mod mcmod;
+mod mirror;
 mod models;
 mod modpack;
 mod modrinth;
@@ -84,6 +85,8 @@ pub fn run() {
             // settings & java
             commands::get_settings,
             commands::set_settings,
+            commands::list_mirrors,
+            commands::test_mirror,
             commands::change_data_dir,
             commands::auto_detect_memory,
             commands::detect_java,
@@ -200,6 +203,8 @@ pub fn run() {
             commands::list_crash_logs,
             commands::analyze_crash_log,
             commands::get_crash_report_content,
+            // news
+            commands::fetch_news,
         ])
         .on_window_event(|window, event| {
             use tauri::WindowEvent;

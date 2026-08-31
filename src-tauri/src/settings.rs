@@ -158,6 +158,12 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
         let p = v.as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
         settings.proxy = p;
     }
+    if let Some(v) = patch.get("mirror").and_then(|v| v.as_str()) {
+        settings.mirror = v.trim().to_string();
+    }
+    if let Some(v) = patch.get("mirror_custom").and_then(|v| v.as_str()) {
+        settings.mirror_custom = v.trim().to_string();
+    }
     if let Some(v) = patch.get("background_image") {
         settings.background_image = v.as_str().map(|s| s.to_string()).filter(|s| !s.is_empty());
     }
