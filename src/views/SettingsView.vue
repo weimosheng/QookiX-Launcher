@@ -1034,4 +1034,4 @@ onUnmounted(() => {
             <div class="about-logo">
               <img class="about-logo-img" :src="logoUrl" alt="QookiX" />
               <span class="about-name">QookiX Launcher</span>
-              <span class="about-ver">v0.4.62</span>
+              <span class="about-ver">v0.4.63</span>
