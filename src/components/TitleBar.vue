@@ -14,9 +14,16 @@ import {
   IconSettings,
   IconUser,
   IconTrash,
+  IconRefresh,
 } from "./icons";
 import { useTasksStore } from "../stores/tasks";
 import { useServersStore } from "../stores/servers";
+import {
+  updateReady,
+  updateReadyVersion,
+  updateInstalling,
+  applyUpdateNow,
+} from "../updater";
 
 const route = useRoute();
 const router = useRouter();
@@ -51,6 +58,16 @@ const finishedCount = computed(() => tasks.taskList.filter((t) => t.finished).le
 const win = getCurrentWindow();
 const maximized = ref(false);
 
+/**
+ * 安装已下载的更新包并重启。Windows 上 NSIS 会强制结束当前进程并自行拉起
+ * 新进程，所以调用后通常不会再返回。
+ */
+function doApplyUpdate() {
+  void applyUpdateNow().catch((err) => {
+    console.error("[updater] apply failed:", err);
+  });
+}
+
 async function toggleMax() {
   if (await win.isMaximized()) {
     await win.unmaximize();
@@ -79,6 +96,16 @@ onMounted(async () => {
     </div>
     <div class="tb-right" data-tauri-drag-region>
       <div class="tb-actions">
+        <button
+          v-if="updateReady"
+          class="tb-action primary"
+          :disabled="updateInstalling"
+          :title="updateReadyVersion ? `已下载 v${updateReadyVersion}，点击安装并重启` : '已下载更新，点击安装并重启'"
+          @click="doApplyUpdate()"
+        >
+          <IconRefresh class="tb-action-icon" />
+          {{ updateInstalling ? "正在安装…" : "重启以更新" }}
+        </button>
         <button
           v-if="route.name === 'instances'"
           class="tb-action"
@@ -216,6 +243,7 @@ onMounted(async () => {
 .tb-action.primary:hover:not(:disabled) {
   filter: brightness(1.08);
 }
+
 .tb-action-icon {
   width: 14px;
   height: 14px;

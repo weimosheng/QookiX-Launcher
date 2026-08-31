@@ -2,7 +2,7 @@
 import { h, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { NButton, useDialog, useMessage } from "naive-ui";
-import { peekUpdate, downloadAndInstall, relaunchApp } from "../updater";
+import { peekUpdate, downloadUpdate, updateReady } from "../updater";
 import { useSettingsStore } from "../stores/settings";
 
 const dialog = useDialog();
@@ -20,6 +20,8 @@ onMounted(() => {
 
 async function runCheck() {
   if (checking.value) return;
+  // 已经下载好、只等重启：别再重复下载同一版本
+  if (updateReady.value) return;
   checking.value = true;
   try {
     if (!settings.settings) {
@@ -34,9 +36,10 @@ async function runCheck() {
     // 用户此前点击过「忽略此版本」且仍是同一版本：不再弹窗，避免每次启动都打扰。
     if (settings.settings?.dismissed_update_version === update.version) return;
 
-    // 自动更新开启：检测到新版本直接下载安装，不弹窗询问
+    // 自动更新开启：后台静默下载安装，不弹窗、不打断当前页面。
+    // 下载完也只是点亮标题栏的「重启以更新」，绝不自动重启。
     if (settings.settings?.auto_update) {
-      void doInstall();
+      void doInstall(true);
       return;
     }
 
@@ -93,19 +96,17 @@ async function dismiss(version: string) {
   }
 }
 
-async function doInstall() {
-  // Jump to the Download Center so the user can watch the progress live.
-  router.push("/downloads");
+/**
+ * @param auto 自动更新路径：后台下载，不跳转页面、不弹窗询问。
+ */
+async function doInstall(auto = false) {
+  // 手动触发时才跳转到下载中心看进度；自动更新在后台跑，不打断用户。
+  if (!auto) router.push("/downloads");
   try {
-    const installed = await downloadAndInstall();
-    if (!installed) return;
-    dialog.success({
-      title: "更新完成",
-      content: "需要重启启动器才能生效，是否立即重启？",
-      positiveText: "立即重启",
-      negativeText: "稍后手动重启",
-      onPositiveClick: () => relaunchApp(),
-    });
+    const downloaded = await downloadUpdate();
+    if (!downloaded) return;
+    // 只下载不安装：安装与重启由标题栏「重启以更新」按钮触发。
+    message.success("更新已下载，点击标题栏的「重启以更新」安装");
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     message.error(detail || "更新失败，请稍后重试或手动下载");

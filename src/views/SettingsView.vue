@@ -21,7 +21,7 @@ import {
   IconSliders,
   IconTrash,
 } from "../components/icons";
-import { peekUpdate, downloadAndInstall, relaunchApp } from "../updater";
+import { peekUpdate, downloadUpdate, updateReady, updateReadyVersion } from "../updater";
 import type { JavaInfo, StorageStats } from "../types";
 import logoUrl from "../assets/logo.png";
 
@@ -44,6 +44,11 @@ async function checkUpdate() {
       return;
     }
     updateVersion.value = update.version;
+    // 该版本已经下载好、只等重启：不必再弹一次下载确认框
+    if (updateReady.value && updateReadyVersion.value === update.version) {
+      message.info(`v${update.version} 已下载，点击标题栏的「重启以更新」即可生效`);
+      return;
+    }
     let dlg: { destroy: () => void } | null = null;
     const close = () => { dlg?.destroy(); dlg = null; };
     dlg = dialog.warning({
@@ -54,13 +59,13 @@ async function checkUpdate() {
           h(NButton, { size: "small", ghost: true, onClick: close }, () => "以后再说"),
           h(
             NButton,
-            { size: "small", quaternary: true, onClick: () => { close(); void doInstall(); } },
-            { default: () => "下载并更新" },
-          ),
-          h(
-            NButton,
-            { size: "small", type: "primary", onClick: () => { close(); void doInstallAndRelaunch(); } },
-            { default: () => "重启以更新" },
+            {
+              size: "small",
+              type: "primary",
+              disabled: updateReady.value,
+              onClick: () => { close(); void doInstall(); },
+            },
+            { default: () => (updateReady.value ? "已下载，待重启" : "下载并更新") },
           ),
         ]),
     });
@@ -85,29 +90,10 @@ async function doInstall() {
   // Jump to the Download Center so the user can watch the progress live.
   router.push("/downloads");
   try {
-    const installed = await downloadAndInstall();
-    if (!installed) return;
-    dialog.success({
-      title: "更新完成",
-      content: "需要重启启动器才能生效，是否立即重启？",
-      positiveText: "立即重启",
-      negativeText: "稍后手动重启",
-      onPositiveClick: () => relaunchApp(),
-    });
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    message.error(detail || "更新失败，请稍后重试或手动下载");
-    console.error("[updater] install error:", err);
-  }
-}
-
-/** 下载安装并自动重启，一步到位（「重启以更新」按钮）。 */
-async function doInstallAndRelaunch() {
-  router.push("/downloads");
-  try {
-    const installed = await downloadAndInstall();
-    if (!installed) return;
-    await relaunchApp();
+    const downloaded = await downloadUpdate();
+    if (!downloaded) return;
+    // 只下载不安装：安装与重启由标题栏「重启以更新」按钮触发。
+    message.success("更新已下载，点击标题栏的「重启以更新」安装");
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     message.error(detail || "更新失败，请稍后重试或手动下载");
@@ -480,7 +466,7 @@ onUnmounted(() => {
             <div class="choice-row">
               <div class="choice-info">
                 <span class="choice-label">自动更新</span>
-                <p class="choice-hint">启动时检测到新版本自动下载安装，无需手动确认。</p>
+                <p class="choice-hint">启动时检测到新版本自动后台下载，但不会自动重启——下载完成后在标题栏点击「重启以更新」生效。</p>
               </div>
               <button
                 class="toggle"
@@ -888,7 +874,7 @@ onUnmounted(() => {
             <div class="about-logo">
               <img class="about-logo-img" :src="logoUrl" alt="QookiX" />
               <span class="about-name">QookiX Launcher</span>
-              <span class="about-ver">v0.4.5</span>
+              <span class="about-ver">v0.4.6</span>
             </div>
             <p class="about-desc">现代化、简洁、无广告的 Minecraft 启动器</p>
             <div class="about-features">

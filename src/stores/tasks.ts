@@ -127,19 +127,7 @@ export const useTasksStore = defineStore("tasks", {
             t.current = p.current;
           }
           // rolling average speed over the last ~5s with smoothing
-          const ts = nowMs();
-          t.samples.push({ ts, bytes: p.bytesDone ?? 0 });
-          t.samples = t.samples.filter((s) => ts - s.ts <= 5000);
-          if (t.samples.length >= 3) {
-            const first = t.samples[0];
-            const last = t.samples[t.samples.length - 1];
-            const dt = (last.ts - first.ts) / 1000;
-            if (dt > 0.5) {
-              const newSpeed = Math.max(0, (last.bytes - first.bytes) / dt);
-              t.speed = t.speed > 0 ? t.speed * 0.7 + newSpeed * 0.3 : newSpeed;
-            }
-          }
-          if (t.samples.length > 60) t.samples.splice(0, t.samples.length - 60);
+          this.sampleSpeed(t, p.bytesDone ?? 0);
         });
       });
       listen<LaunchLogEvent>("launch://log", (e) => {
@@ -160,6 +148,26 @@ export const useTasksStore = defineStore("tasks", {
           this.lastExit = { instanceId: p.instanceId, code: p.code };
         }
       });
+    },
+    /**
+     * Record a byte-counter sample and refresh the rolling-window average speed
+     * (bytes/sec). Shared by the backend downloader and the in-frontend app
+     * updater, which keeps its own byte counters.
+     */
+    sampleSpeed(t: TaskEntry, bytesDone: number) {
+      const ts = nowMs();
+      t.samples.push({ ts, bytes: bytesDone });
+      t.samples = t.samples.filter((s) => ts - s.ts <= 5000);
+      if (t.samples.length >= 3) {
+        const first = t.samples[0];
+        const last = t.samples[t.samples.length - 1];
+        const dt = (last.ts - first.ts) / 1000;
+        if (dt > 0.5) {
+          const newSpeed = Math.max(0, (last.bytes - first.bytes) / dt);
+          t.speed = t.speed > 0 ? t.speed * 0.7 + newSpeed * 0.3 : newSpeed;
+        }
+      }
+      if (t.samples.length > 60) t.samples.splice(0, t.samples.length - 60);
     },
     upsert(id: number, patch: (t: TaskEntry) => void) {
       if (!this.tasks[id]) {
