@@ -379,7 +379,7 @@ function handleSelect(filename: string) {
 
         <!-- 尚未分析：显示「分析此崩溃报告」按钮（selected 为真但还没出结果） -->
         <div v-else class="crash-prompt">
-          <NButton type="primary" size="small" :disabled="analyzing || !selected" @click="analyze">
+          <NButton type="primary" size="small" :disabled="analyzing || !selected" @click="analyze()">
             分析此崩溃报告
           </NButton>
         </div>
