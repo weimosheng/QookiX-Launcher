@@ -60,7 +60,9 @@ pub struct Settings {
     pub ms_client_id: String,
     /// Currently selected account (uuid) used when an instance has no override
     pub selected_account: Option<String>,
-    /// HTTP/SOCKS proxy URL for downloads (e.g. "http://127.0.0.1:7890")
+    /// 下载代理模式："system"（系统代理，默认）| "direct"（直连）| "custom"（自定义）
+    pub proxy_mode: String,
+    /// HTTP/SOCKS proxy URL for downloads（`proxy_mode == "custom"` 时生效，如 "http://127.0.0.1:7890"）
     pub proxy: Option<String>,
     /// 下载镜像源 id："official" | "bmclapi" | "custom"
     pub mirror: String,
@@ -83,6 +85,8 @@ pub struct Settings {
     pub dismissed_update_version: Option<String>,
     /// 启动时自动检查并下载更新（检测到新版本直接下载安装，无需手动确认）
     pub auto_update: bool,
+    /// 应用自更新源："bucket"（对象存储，默认） | "github"（GitHub Releases 官方源）
+    pub update_source: String,
 }
 
 impl Default for Settings {
@@ -105,6 +109,7 @@ impl Default for Settings {
             keep_open: true,
             ms_client_id: "00000000-0000-0000-0000-000000000000".into(),
             selected_account: None,
+            proxy_mode: "system".into(),
             proxy: None,
             mirror: "official".into(),
             mirror_custom: String::new(),
@@ -116,6 +121,7 @@ impl Default for Settings {
             show_sidebar_collapse_btn: false,
             dismissed_update_version: None,
             auto_update: false,
+            update_source: "bucket".into(),
         }
     }
 }

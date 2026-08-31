@@ -1,9 +1,22 @@
 import { ref } from "vue";
-import { check } from "@tauri-apps/plugin-updater";
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { useTasksStore } from "./stores/tasks";
 
-type UpdateInfo = Awaited<ReturnType<typeof check>>;
+/**
+ * 应用自更新检查结果（由 Rust 端 `updater::check_for_update` 返回）。
+ * `available` 为 `false` 表示当前所选更新源没有新版本。
+ */
+export interface UpdateInfo {
+  available: boolean;
+  version: string | null;
+  currentVersion: string | null;
+  body: string | null;
+  downloadUrl: string | null;
+  /** 实际使用的更新源："bucket" | "github" */
+  source: "bucket" | "github";
+}
 
 /**
  * `true` once an update has been downloaded + installed and is only waiting for
@@ -15,12 +28,6 @@ export const updateReady = ref(false);
 export const updateReadyVersion = ref<string | null>(null);
 /** `true` while `install()` is running (guards double clicks on the button). */
 export const updateInstalling = ref(false);
-/**
- * The update whose package has been downloaded and is waiting for the user to
- * confirm the install. Kept as module state because `Update` is a Tauri
- * resource — dropping it would release the downloaded bytes.
- */
-let pending: UpdateInfo | null = null;
 
 export interface UpdateProgress {
   message: string;
@@ -34,37 +41,42 @@ export interface UpdateProgress {
 type ProgressFn = (p: UpdateProgress) => void;
 
 /**
- * Check whether an update is available (best-effort). Returns the update info,
- * or `null` when there is nothing to update or the updater is not configured
- * (e.g. a dev build without a signing key — errors are swallowed silently).
+ * Check whether an update is available on the **currently selected update
+ * source** (存储桶 / GitHub). Returns the update info, or `null` when there is
+ * nothing to update or the updater is not configured (errors are swallowed
+ * silently so a network blip never blocks the launcher).
  */
-export async function peekUpdate(): Promise<UpdateInfo | null> {
+export async function peekUpdate(strict = false): Promise<UpdateInfo | null> {
   try {
-    return await check();
-  } catch {
+    const info = await invoke<UpdateInfo>("check_for_update");
+    return info.available ? info : null;
+  } catch (err) {
+    // 默认吞掉错误：启动时的静默检查不希望网络抖动阻塞启动。
+    // strict（如用户手动点「检查更新」）时把真实错误抛给调用方，
+    // 以便区分「确实没有新版本」和「更新源不可用」，避免误报已是最新。
+    if (strict) throw err;
     return null;
   }
 }
 
 /**
- * Download the pending update (if any) **without installing it**.
+ * Download the pending update from the selected source **without installing
+ * it**. The download+signature-check happen on the Rust side, which streams
+ * progress back through the `update://progress` event.
  *
  * Important: on Windows, installing means running the NSIS installer, which
- * forcibly kills the running process (`taskkill` in `hooks.nsi`) and then
- * relaunches the app because the updater passes `/R`. So the install step must
- * NOT happen right after the download — otherwise the launcher silently
- * restarts itself and the user never gets a say. `Update` conveniently splits
- * `download()` and `install()`, so we only do the former here and let
- * `applyUpdateNow()` do the latter once the user clicks「重启以更新」.
+ * forcibly kills the running process and then relaunches the app (`/R`). So the
+ * install step must NOT happen right after the download — `applyUpdateNow()`
+ * does that only once the user clicks「重启以更新」.
  *
- * Reports progress through `onStatus` and ALSO registers a task in the Download
+ * Reports progress through `onStatus` AND registers a task in the Download
  * Center (`tasks` store). Returns `true` when an update was downloaded.
  */
 export async function downloadUpdate(onStatus?: ProgressFn): Promise<boolean> {
   const tasks = useTasksStore();
   const taskId = Date.now();
   let registered = false;
-  // The updater fires a Progress event for *every* network chunk, which can be
+  // The updater emits a progress event for *every* network chunk, which can be
   // hundreds per second — throttle the store writes (and the resulting UI
   // re-renders) to ~4/s so the Download Center stays responsive.
   let lastPush = 0;
@@ -91,36 +103,14 @@ export async function downloadUpdate(onStatus?: ProgressFn): Promise<boolean> {
     });
   };
 
+  let unlisten: UnlistenFn | undefined;
+  let version: string | null = null;
   try {
-    const update = await check();
-    if (!update) return false;
-
-    registered = true;
-    tasks.upsert(taskId, (t) => {
-      t.activity = "download";
-      t.source = "启动器更新";
-      t.stage = "download";
-      t.message = `准备下载 v${update.version}…`;
-    });
-
-    // The plugin's Progress event only carries `chunkLength` (bytes of the
-    // current callback), NOT a `progress` field — so accumulate the bytes and
-    // derive the fraction from `contentLength` ourselves.
-    // Hold on to the resource: `install()` (called from `applyUpdateNow`)
-    // needs this exact instance to find the downloaded package.
-    pending = update;
-
-    let downloaded = 0;
-    let total = 0;
-    await update.download((event) => {
-      const ev = event.event;
-      if (ev === "Started") {
-        total = event.data.contentLength ?? 0;
-        downloaded = 0;
-        emit({ message: "开始下载…", bytesDone: 0, bytesTotal: total }, true);
-      } else if (ev === "Progress") {
-        downloaded += event.data.chunkLength;
-        const fraction = total > 0 ? downloaded / total : undefined;
+    unlisten = await listen<{ downloaded: number; total: number | null }>(
+      "app-update-progress",
+      (event) => {
+        const { downloaded, total } = event.payload;
+        const fraction = total && total > 0 ? downloaded / total : undefined;
         emit({
           message:
             fraction != null
@@ -128,15 +118,24 @@ export async function downloadUpdate(onStatus?: ProgressFn): Promise<boolean> {
               : "下载中…",
           fraction,
           bytesDone: downloaded,
-          bytesTotal: total,
+          bytesTotal: total ?? undefined,
         });
-      } else if (ev === "Finished") {
-        emit(
-          { message: "下载完成，等待重启后安装…", fraction: 1, bytesDone: downloaded, bytesTotal: total },
-          true
-        );
       }
+    );
+
+    registered = true;
+    tasks.upsert(taskId, (t) => {
+      t.activity = "download";
+      t.source = "启动器更新";
+      t.stage = "download";
+      t.message = "准备下载更新…";
     });
+
+    const ok = await invoke<boolean>("download_update");
+    if (!ok) return false;
+
+    const info = await peekUpdate();
+    version = info?.version ?? null;
 
     tasks.upsert(taskId, (t) => {
       t.stage = "done";
@@ -145,19 +144,17 @@ export async function downloadUpdate(onStatus?: ProgressFn): Promise<boolean> {
       t.fraction = 1;
       t.speed = 0;
       t.samples = [];
-      t.message = `v${update.version} 已下载，点击标题栏「重启以更新」安装`;
+      t.message = `v${version ?? ""} 已下载，点击标题栏「重启以更新」安装`;
     });
     // Downloaded, not installed: the user decides when to restart.
-    updateReadyVersion.value = update.version;
+    updateReadyVersion.value = version;
     updateReady.value = true;
     return true;
   } catch (err) {
     // Surface the real reason (404, signature mismatch, permissions...) so the
     // UI can show something actionable instead of a generic "update failed".
     console.error("[updater] downloadUpdate failed:", err);
-    const detail =
-      err instanceof Error && err.message ? err.message : String(err);
-    pending = null;
+    const detail = err instanceof Error && err.message ? err.message : String(err);
     if (registered) {
       tasks.upsert(taskId, (t) => {
         t.finished = true;
@@ -169,6 +166,8 @@ export async function downloadUpdate(onStatus?: ProgressFn): Promise<boolean> {
       });
     }
     throw new Error(`更新失败：${detail}`);
+  } finally {
+    unlisten?.();
   }
 }
 
@@ -183,15 +182,12 @@ export async function downloadUpdate(onStatus?: ProgressFn): Promise<boolean> {
  */
 export async function applyUpdateNow(): Promise<void> {
   if (updateInstalling.value) return;
-  if (!pending) {
-    // Nothing downloaded in this session — just restart.
-    await relaunchApp();
-    return;
-  }
   updateInstalling.value = true;
   try {
-    await pending.install();
-    pending = null;
+    await invoke("apply_app_update");
+  } catch (err) {
+    // 没有已下载的更新（或安装失败）→ 兜底直接重启，避免卡在旧版本
+    console.error("[updater] apply_update failed:", err);
   } finally {
     updateInstalling.value = false;
   }

@@ -171,6 +171,10 @@ onMounted(async () => {
   flex-shrink: 0;
   -webkit-app-region: drag;
 }
+/* 背景图片模式下与卡片一致：用半透明面板色 + 模糊，透出背景图 */
+:global(.has-bg) .titlebar {
+  background: var(--panel);
+}
 .tb-left {
   display: flex;
   align-items: center;

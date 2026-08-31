@@ -62,7 +62,7 @@ async function runCheck() {
               quaternary: true,
               onClick: () => {
                 close();
-                void dismiss(update.version);
+                void dismiss(update.version ?? "");
               },
             },
             { default: () => "忽略此版本" }

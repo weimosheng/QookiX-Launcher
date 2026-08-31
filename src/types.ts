@@ -33,6 +33,9 @@ export interface Settings {
   keep_open: boolean;
   ms_client_id: string;
   selected_account: string | null;
+  /** 下载代理模式："system"（系统代理）| "direct"（直连）| "custom"（自定义） */
+  proxy_mode: string;
+  /** 自定义代理地址（proxy_mode === "custom" 时生效） */
   proxy: string | null;
   /** 下载镜像源 id："official" | "bmclapi" | "custom" */
   mirror: string;
@@ -46,6 +49,8 @@ export interface Settings {
   show_sidebar_collapse_btn: boolean;
   dismissed_update_version: string | null;
   auto_update: boolean;
+  /** 应用自更新源："bucket"（对象存储，默认） | "github"（GitHub Releases 官方源） */
+  update_source: "bucket" | "github";
 }
 
 /** 下载镜像源预设 */

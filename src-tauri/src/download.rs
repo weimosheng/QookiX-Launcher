@@ -272,6 +272,36 @@ async fn probe_range_support(client: &reqwest::Client, url: &str) -> bool {
     }
 }
 
+/// Path of the chunk-completion sidecar for a `.part` file.
+/// Tracks which byte ranges are already written, enabling resume for chunked downloads.
+fn chunk_state_path(part: &Path) -> PathBuf {
+    let mut p = part.as_os_str().to_owned();
+    p.push(".chunks");
+    PathBuf::from(p)
+}
+
+/// Load which chunks (by index) have already been completed, if any.
+fn load_chunk_state(part: &Path, chunk_count: usize) -> Vec<bool> {
+    std::fs::read(chunk_state_path(part))
+        .map(|bytes| {
+            (0..chunk_count)
+                .map(|i| bytes.get(i).copied().unwrap_or(0) != 0)
+                .collect()
+        })
+        .unwrap_or_else(|_| vec![false; chunk_count])
+}
+
+/// Persist which chunks are complete (one byte per chunk).
+fn save_chunk_state(part: &Path, done: &[bool]) {
+    let bytes: Vec<u8> = done.iter().map(|&b| if b { 1 } else { 0 }).collect();
+    let _ = std::fs::write(chunk_state_path(part), bytes);
+}
+
+/// Remove the chunk-completion sidecar (used when switching sources / restarting clean).
+fn remove_chunk_state(part: &Path) {
+    let _ = std::fs::remove_file(chunk_state_path(part));
+}
+
 /// Download a single file (streamed, with `.part` staging), verify sha1 when given.
 /// Uses parallel chunked download when the server supports ranges and the file is large enough.
 async fn download_one(
@@ -310,7 +340,8 @@ async fn download_one(
     }
 
     let part = item.dest.with_extension("part");
-    let _ = std::fs::remove_file(&part);
+    // 支持断点续传：保留已有的 .part，由 fetch_and_verify 检测大小并从断点继续。
+    // 仅当换源（镜像→官方）时才清空，避免不同来源的数据拼接错位。
 
     // 优先走镜像地址；镜像拉取/校验失败时回退到原始官方地址，
     // 这样即使镜像站缺失某个文件，安装也不会整体失败。
@@ -319,6 +350,7 @@ async fn download_one(
         fetch_and_verify(client, item, &target, &part, on_progress, chunk_threads).await;
     if result.is_err() && target != item.url {
         let _ = std::fs::remove_file(&part);
+        remove_chunk_state(&part);
         result =
             fetch_and_verify(client, item, &item.url, &part, on_progress, chunk_threads).await;
     }
@@ -353,6 +385,7 @@ async fn fetch_and_verify(
             Err(_) => {
                 // Fallback: some CDNs claim range support but 404 on actual Range requests.
                 let _ = std::fs::remove_file(part);
+                remove_chunk_state(part);
                 download_streamed(client, url, part, on_progress).await?;
             }
         }
@@ -384,45 +417,71 @@ async fn fetch_and_verify(
 }
 
 /// Stream download (single connection, no chunking).
+/// Resumes from an existing `.part` file when the server supports Range requests.
 async fn download_streamed(
     client: &reqwest::Client,
     url: &str,
     part: &Path,
     on_progress: &(dyn Fn(u64, u64) + Send + Sync),
 ) -> Result<(), String> {
-    let resp = client
+    // 断点续传：看已有 .part 写到哪了
+    let existing = std::fs::metadata(part).map(|m| m.len()).unwrap_or(0);
+
+    let mut req = client
         .get(url)
         .header("Accept-Encoding", "identity")
-        .timeout(std::time::Duration::from_secs(300))
-        .send()
-        .await
-        .map_err(|e| format!("请求失败: {e}"))?;
+        .timeout(std::time::Duration::from_secs(300));
+    if existing > 0 {
+        req = req.header("Range", format!("bytes={existing}-"));
+    }
+    let resp = req.send().await.map_err(|e| format!("请求失败: {e}"))?;
     let status = resp.status();
-    if !status.is_success() {
+
+    // 206 = 服务器支持 Range，续传；200 = 不支持，从头再来
+    let resume = existing > 0 && status.as_u16() == 206;
+    let write_offset = if resume { existing } else { 0 };
+    if !resume && !status.is_success() {
         return Err(format!("HTTP {status}"));
     }
+    // 服务器忽略 Range 返回 200：需覆盖已有部分，从头写
     let content_length = resp
         .headers()
         .get("content-length")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(0);
-    let mut file = tokio::fs::File::create(part)
-        .await
-        .map_err(|e| format!("写入失败: {e}"))?;
+    // 续传时 content-length 是剩余字节；完整总大小 = 已有 + 剩余
+    let total = if resume {
+        existing.saturating_add(content_length)
+    } else {
+        content_length
+    };
+
+    let mut file = if resume {
+        tokio::fs::OpenOptions::new()
+            .append(true)
+            .open(part)
+            .await
+            .map_err(|e| format!("写入失败: {e}"))?
+    } else {
+        tokio::fs::File::create(part)
+            .await
+            .map_err(|e| format!("写入失败: {e}"))?
+    };
     let mut stream = resp.bytes_stream();
-    let mut written = 0u64;
+    let mut written = write_offset;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("读取失败: {e}"))?;
         file.write_all(&chunk).await.map_err(|e| format!("写入失败: {e}"))?;
         written += chunk.len() as u64;
-        on_progress(written, content_length);
+        on_progress(written, total);
     }
     file.flush().await.map_err(|e| format!("写入失败: {e}"))?;
     Ok(())
 }
 
 /// Parallel chunked download using HTTP Range requests.
+/// Resumes by skipping chunks already recorded as complete in the sidecar.
 async fn download_chunked(
     client: &reqwest::Client,
     url: &str,
@@ -431,16 +490,50 @@ async fn download_chunked(
     chunk_count: usize,
     on_progress: &(dyn Fn(u64, u64) + Send + Sync),
 ) -> Result<(), String> {
-    // Pre-allocate the file
-    let file = std::fs::File::create(part).map_err(|e| format!("写入失败: {e}"))?;
-    file.set_len(total_size).map_err(|e| format!("预分配失败: {e}"))?;
-    drop(file);
-
     let chunk_size = total_size / chunk_count as u64;
+
+    // 断点续传：若 .part 已预分配且大小正确，复用 sidecar 里的完成位图，
+    // 只下载尚未完成的分片；否则重新预分配。
+    let existing_size = std::fs::metadata(part).map(|m| m.len()).unwrap_or(0);
+    let done: Arc<std::sync::Mutex<Vec<bool>>> = if existing_size == total_size {
+        Arc::new(std::sync::Mutex::new(load_chunk_state(part, chunk_count)))
+    } else {
+        let file = std::fs::File::create(part).map_err(|e| format!("写入失败: {e}"))?;
+        file.set_len(total_size).map_err(|e| format!("预分配失败: {e}"))?;
+        drop(file);
+        let d = vec![false; chunk_count];
+        save_chunk_state(part, &d);
+        Arc::new(std::sync::Mutex::new(d))
+    };
+
+    // 已完成的字节数（用于进度显示）
     let written = Arc::new(AtomicU64::new(0));
+    {
+        let guard = done.lock().unwrap();
+        for (i, &ok) in guard.iter().enumerate() {
+            if ok {
+                let start = i as u64 * chunk_size;
+                let end = if i == chunk_count - 1 {
+                    total_size - 1
+                } else {
+                    (i as u64 + 1) * chunk_size - 1
+                };
+                written.fetch_add(end - start + 1, Ordering::Relaxed);
+            }
+        }
+    }
+
     let mut handles = Vec::new();
 
     for i in 0..chunk_count {
+        // 已完成的片直接跳过
+        {
+            let guard = done.lock().unwrap();
+            if guard[i] {
+                continue;
+            }
+        }
+
         let start = i as u64 * chunk_size;
         let end = if i == chunk_count - 1 {
             total_size - 1
@@ -453,6 +546,7 @@ async fn download_chunked(
         let url_c = url.to_string();
         let part_c = part.to_path_buf();
         let written_c = written.clone();
+        let done_c = done.clone();
 
         handles.push(tokio::spawn(async move {
             let resp = client_c
@@ -491,6 +585,10 @@ async fn download_chunked(
                     "分片 {i} 大小不匹配 (期望 {len}, 实际 {chunk_written})"
                 ));
             }
+            // 标记本分片完成并持久化 sidecar，支持断点续传
+            done_c.lock().unwrap()[i] = true;
+            let state = done_c.lock().unwrap().clone();
+            save_chunk_state(&part_c, &state);
             Ok(())
         }));
     }
@@ -522,9 +620,11 @@ async fn download_chunked(
     on_progress(written.load(Ordering::Relaxed), total_size);
 
     if !errors.is_empty() {
-        let _ = tokio::fs::remove_file(part).await;
+        // 保留 .part 与 sidecar，供断点续传重试时跳过已完成分片
         return Err(format!("分片下载失败: {}", errors.join("; ")));
     }
+    // 全部完成：移除 sidecar
+    remove_chunk_state(part);
     Ok(())
 }
 

@@ -19,6 +19,7 @@ mod settings;
 mod state;
 mod storage;
 mod terracotta;
+mod updater;
 mod util;
 
 use state::AppState;
@@ -59,11 +60,12 @@ pub fn run() {
     let _ = settings::ensure_layout(&root);
     let loaded = settings::load_settings(&root);
 
+    let proxy_mode = loaded.proxy_mode.clone();
     let proxy = loaded.proxy.clone();
     let app_state = AppState {
         root,
         settings: RwLock::new(loaded),
-        client: settings::http_client(proxy.as_deref()),
+        client: settings::http_client(&proxy_mode, proxy.as_deref()),
         semaphore: Arc::new(tokio::sync::Semaphore::new(8)),
         game_pids: Arc::new(Mutex::new(HashMap::new())),
         server_pids: Arc::new(Mutex::new(HashMap::new())),
@@ -73,6 +75,7 @@ pub fn run() {
         ms_flow: Arc::new(Mutex::new(None)),
         java_cache: Mutex::new(None),
         terracotta: Mutex::new(None),
+        pending_update: Mutex::new(None),
     };
 
     tauri::Builder::default()
@@ -87,6 +90,7 @@ pub fn run() {
             commands::set_settings,
             commands::list_mirrors,
             commands::test_mirror,
+            commands::test_proxy,
             commands::change_data_dir,
             commands::auto_detect_memory,
             commands::detect_java,
@@ -205,6 +209,10 @@ pub fn run() {
             commands::get_crash_report_content,
             // news
             commands::fetch_news,
+            // app self-update (dynamic update source)
+            updater::check_for_update,
+            updater::download_update,
+            updater::apply_app_update,
         ])
         .on_window_event(|window, event| {
             use tauri::WindowEvent;
@@ -297,7 +305,7 @@ mod smoke {
 
     #[tokio::test]
     async fn mojang_manifest_and_version_json_parse() {
-        let client = crate::settings::http_client(None);
+        let client = crate::settings::http_client("system", None);
         let url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
         let text = crate::download::get_text(&client, url).await.unwrap_or_else(|e| {
             panic!("fetch failed: {e}");
@@ -326,7 +334,7 @@ mod smoke {
 
     #[tokio::test]
     async fn fabric_meta_parses() {
-        let client = crate::settings::http_client(None);
+        let client = crate::settings::http_client("system", None);
         let entry: LoaderMetaEntry = crate::download::get_json(
             &client,
             "https://meta.fabricmc.net/v2/versions/loader/1.20.1/0.15.11",
@@ -444,7 +452,7 @@ mod smoke {
         let state = crate::state::AppState {
             root: root.clone(),
             settings: RwLock::new(Default::default()),
-            client: crate::settings::http_client(None),
+            client: crate::settings::http_client("system", None),
             semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
             game_pids: Arc::new(Mutex::new(HashMap::new())),
             server_pids: Arc::new(Mutex::new(HashMap::new())),
@@ -454,6 +462,7 @@ mod smoke {
             ms_flow: Arc::new(Mutex::new(None)),
             java_cache: Mutex::new(None),
             terracotta: Mutex::new(None),
+            pending_update: Mutex::new(None),
         };
         let instance = Instance {
             id: "test-fabric".into(),
@@ -497,7 +506,7 @@ mod smoke {
         let state = crate::state::AppState {
             root: root.clone(),
             settings: RwLock::new(Default::default()),
-            client: crate::settings::http_client(None),
+            client: crate::settings::http_client("system", None),
             semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
             game_pids: Arc::new(Mutex::new(HashMap::new())),
             server_pids: Arc::new(Mutex::new(HashMap::new())),
@@ -507,6 +516,7 @@ mod smoke {
             ms_flow: Arc::new(Mutex::new(None)),
             java_cache: Mutex::new(None),
             terracotta: Mutex::new(None),
+            pending_update: Mutex::new(None),
         };
         // modpack type + empty query (regression for the 400 bug)
         let res = crate::modrinth::search(&state, "", "modpack", "", "relevance", 0, 20, "", "")

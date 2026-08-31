@@ -60,6 +60,28 @@ pub async fn test_mirror(state: State<'_, AppState>, base: String) -> Result<Val
     Ok(json!({ "ok": true, "ms": ms, "url": url }))
 }
 
+/// 测试下载代理配置是否可用。
+/// 用传入的 `proxy_mode`/`proxy` 临时构建客户端访问官方 manifest，
+/// 返回首字节耗时（毫秒）。`proxy` 仅在 `proxy_mode == "custom"` 时生效。
+#[tauri::command]
+pub async fn test_proxy(proxy_mode: String, proxy: Option<String>) -> Result<Value, String> {
+    let client = settings::http_client(&proxy_mode, proxy.as_deref());
+    let url = crate::mirror::OFFICIAL_MANIFEST.to_string();
+    let start = std::time::Instant::now();
+    let resp = client
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| format!("连接失败: {e}"))?;
+    let ms = start.elapsed().as_millis() as u64;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("HTTP {status}"));
+    }
+    Ok(json!({ "ok": true, "ms": ms, "url": url }))
+}
+
 /// Move/copy the launcher data root to a new directory.
 /// `mode`: "move" | "copy" | "pointer". Returns the new data dir; the caller
 /// should restart for the change to fully take effect.
@@ -1082,7 +1104,6 @@ pub async fn browse(
                     }
                 }
                 Err(e) => {
-                    eprintln!("[browse] curseforge search failed: {e}");
                     if page == 0 {
                         cf_error = Some(e);
                     }
