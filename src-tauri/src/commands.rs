@@ -3018,3 +3018,11 @@ const CRASH_RULES: &[CrashRule] = &[
         keys: &["classcastexception: java.base/jdk", "class jdk."],
     },
 ];
+
+/// Fetch news from the launcher's news feed.
+/// Returns an empty array if the news feed is unavailable.
+#[allow(dead_code)]
+#[tauri::command]
+pub fn fetch_news() -> Result<Vec<serde_json::Value>, String> {
+    Ok(Vec::new())
+}

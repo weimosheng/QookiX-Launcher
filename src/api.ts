@@ -3,10 +3,12 @@ import { trackStart, trackEnd, trackError } from "./loadingBar";
 import type {
   Account,
   CacheClearResult,
+  CrashDiagnosis,
   FsEntry,
   Instance,
   InstanceGroup,
   JavaInfo,
+  NewsItem,
   ProjectHit,
   ProjectVersion,
   ServerConfig,
@@ -16,7 +18,6 @@ import type {
   StorageStats,
   TerracottaInfo,
   TerracottaLaunch,
-  CrashDiagnosis,
 } from "./types";
 
 const SILENT_COMMANDS = new Set([
@@ -391,4 +392,7 @@ export const api = {
     invoke<CrashDiagnosis>("analyze_crash_log", { id: instanceId, filename }),
   getCrashReportContent: (instanceId: string, filename: string) =>
     invoke<string>("get_crash_report_content", { id: instanceId, filename }),
+
+  // news
+  fetchNews: () => invoke<NewsItem[]>("fetch_news"),
 };
