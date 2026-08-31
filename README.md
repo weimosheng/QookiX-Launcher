@@ -82,3 +82,17 @@ npm run tauri build
 ```
 
 产物位于 `src-tauri/target/release/bundle/`。
+
+### 应用自更新（双更新源）
+
+启动器支持在「设置 → 更新源」里切换下载更新的来源，默认使用**对象存储**，也可切到 **GitHub Releases 官方源**：
+
+- **对象存储（默认）**：CI 会把安装包、`.sig` 签名和存储桶版 `latest.json` 自动推送到存储桶。需要配置以下 secrets（未配置则跳过推送，应用内该源会回退到占位地址）：
+  - `QOOKIX_BUCKET_UPDATE_URL`：存储桶更新目录的**公开根 URL**，编译时注入 Rust 端，作为「对象存储」源的清单地址（如 `https://cdn.example.com/qookix`，与 `updater.rs` 中 `option_env!("QOOKIX_BUCKET_UPDATE_URL")` 对应）
+  - `QOOKIX_S3_ENDPOINT`：兼容 S3 的端点（AWS / Cloudflare R2 / MinIO 等）
+  - `QOOKIX_S3_BUCKET`：存储桶名
+  - `QOOKIX_S3_ACCESS_KEY` / `QOOKIX_S3_SECRET_KEY`
+  - 产物同步到存储桶根目录，`latest.json` 中每个平台的 URL 都指向存储桶上的安装包。
+- **GitHub 官方源**：随现有 GitHub Release 发布流程自动生成，无需额外配置。
+
+发布（打 tag）流程不变，见 `.github/workflows/build.yml`。

@@ -83,6 +83,8 @@ pub struct Settings {
     pub dismissed_update_version: Option<String>,
     /// 启动时自动检查并下载更新（检测到新版本直接下载安装，无需手动确认）
     pub auto_update: bool,
+    /// 应用自更新源："bucket"（对象存储，默认） | "github"（GitHub Releases 官方源）
+    pub update_source: String,
 }
 
 impl Default for Settings {
@@ -116,6 +118,7 @@ impl Default for Settings {
             show_sidebar_collapse_btn: false,
             dismissed_update_version: None,
             auto_update: false,
+            update_source: "bucket".into(),
         }
     }
 }

@@ -46,6 +46,8 @@ export interface Settings {
   show_sidebar_collapse_btn: boolean;
   dismissed_update_version: string | null;
   auto_update: boolean;
+  /** 应用自更新源："bucket"（对象存储，默认） | "github"（GitHub Releases 官方源） */
+  update_source: "bucket" | "github";
 }
 
 /** 下载镜像源预设 */

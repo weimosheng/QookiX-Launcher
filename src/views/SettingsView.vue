@@ -38,7 +38,7 @@ async function checkUpdate() {
   checking.value = true;
   updateVersion.value = null;
   try {
-    const update = await peekUpdate();
+    const update = await peekUpdate(true);
     if (!update) {
       message.success("已是最新版本");
       return;
@@ -70,7 +70,13 @@ async function checkUpdate() {
         ]),
     });
   } catch {
-    message.error("检查更新失败，请稍后重试");
+    // 国内镜像不可用时给出明确提示，而不是误报「已是最新版本」
+    const isBucket = settings.settings?.update_source !== "github";
+    message.error(
+      isBucket
+        ? "国内镜像暂时不可用，请检查网络，或切换到 GitHub 官方源后重试"
+        : "检查更新失败，请稍后重试"
+    );
   } finally {
     checking.value = false;
   }
@@ -138,6 +144,17 @@ const { indicatorStyle: closeSegStyle, refresh: refreshCloseSeg } = useSlidingIn
 );
 watch(() => settings.settings?.close_behavior, () => nextTick(() => refreshCloseSeg()));
 
+// 更新源 seg 滑动高亮（国内镜像 / GitHub 官方）
+const updateSourceSegRef = ref<HTMLElement | null>(null);
+const { indicatorStyle: updateSourceSegStyle, refresh: refreshUpdateSourceSeg } =
+  useSlidingIndicator(
+    updateSourceSegRef,
+    () => Array.from(updateSourceSegRef.value?.querySelectorAll<HTMLElement>(".seg button") ?? []),
+    () => (settings.settings?.update_source === "github" ? 1 : 0),
+    { axis: "horizontal" }
+  );
+watch(() => settings.settings?.update_source, () => nextTick(() => refreshUpdateSourceSeg()));
+
 // 下载镜像源
 const mirrors = ref<MirrorPreset[]>([]);
 /** 每个镜像最近一次测速结果（毫秒）；null 表示不可用 */
@@ -185,6 +202,10 @@ const javaCandidates = ref<JavaInfo[]>([]);
 const detecting = ref(false);
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 const tab = ref("general");
+// 更新源位于「关于」页，面板用 v-show 隐藏时矩形为 0，需在切换到该页时刷新指示器
+watch(tab, (val) => {
+  if (val === "about") nextTick(() => refreshUpdateSourceSeg());
+});
 
 const tabs = [
   { key: "general", label: "常规", icon: IconSliders },
@@ -984,7 +1005,7 @@ onUnmounted(() => {
             <div class="about-logo">
               <img class="about-logo-img" :src="logoUrl" alt="QookiX" />
               <span class="about-name">QookiX Launcher</span>
-              <span class="about-ver">v0.4.54</span>
+              <span class="about-ver">v0.4.55</span>
             </div>
             <p class="about-desc">现代化、简洁、无广告的 Minecraft 启动器</p>
             <div class="about-features">
@@ -1008,6 +1029,27 @@ onUnmounted(() => {
               >
                 恢复 v{{ settings.settings.dismissed_update_version }} 更新提醒
               </button>
+            </div>
+            <div class="update-source">
+              <div class="choice-info">
+                <span class="choice-label">更新源</span>
+                <p class="choice-hint">选择从哪个渠道下载启动器更新。默认使用国内镜像（更快），也可切换到 GitHub 官方源（最新），切换后点「检查更新」立即生效。</p>
+              </div>
+              <div ref="updateSourceSegRef" class="seg">
+                <div class="indicator" :style="updateSourceSegStyle"></div>
+                <button
+                  :class="{ active: settings.settings.update_source !== 'github' }"
+                  @click="settings.patch({ update_source: 'bucket' })"
+                >
+                  国内镜像
+                </button>
+                <button
+                  :class="{ active: settings.settings.update_source === 'github' }"
+                  @click="settings.patch({ update_source: 'github' })"
+                >
+                  GitHub 官方
+                </button>
+              </div>
             </div>
           </div>
           <div class="card glass about-links">
@@ -1731,6 +1773,22 @@ textarea.text-input {
   align-items: center;
   gap: 12px;
   margin-top: 14px;
+}
+.update-source {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.update-source .seg {
+  width: 100%;
+  max-width: 280px;
+  align-self: flex-start;
+}
+.update-source .seg button {
+  flex: 1;
 }
 .about-grid {
   grid-template-columns: 1fr 1fr;
