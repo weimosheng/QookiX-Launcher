@@ -122,6 +122,9 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
     if let Some(v) = patch.get("download_threads").and_then(|v| v.as_u64()) {
         settings.download_threads = (v as usize).clamp(1, 64);
     }
+    if let Some(v) = patch.get("download_chunk_threads").and_then(|v| v.as_u64()) {
+        settings.download_chunk_threads = (v as usize).clamp(1, 16);
+    }
     if let Some(v) = patch.get("curseforge_api_key") {
         let k = v.as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
         settings.curseforge_api_key = k;

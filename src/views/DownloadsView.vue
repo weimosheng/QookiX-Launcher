@@ -204,19 +204,25 @@ function isModpackTask(t: TaskEntry) {
         <!-- details -->
         <div v-if="expanded.has(t.id)" class="task-detail">
           <div class="detail-row">
-            <span class="dl-label">当前文件</span>
-            <span class="dl-value mono text-ellipsis">{{ t.current || t.message || "—" }}</span>
+            <span class="dl-label">正在下载</span>
+            <span class="dl-value">{{ t.activeFiles.length }} 个文件</span>
           </div>
           <div class="detail-row">
             <span class="dl-label">平均速度</span>
             <span class="dl-value">{{ fmtSpeed(t.speed) }}</span>
           </div>
-          <div v-if="t.files.length || t.current" class="detail-row files">
+          <div v-if="t.files.length || t.activeFiles.length" class="detail-row files">
             <span class="dl-label">文件明细</span>
             <div class="dl-files">
-              <div v-if="t.current && !t.finished" class="file-row active">
-                <span class="file-status">→</span>
-                <span class="file-name text-ellipsis">{{ t.current }}</span>
+              <div v-for="(f, i) in t.activeFiles" :key="'a'+i" class="file-current">
+                <div class="file-current-row">
+                  <span class="file-status">→</span>
+                  <span class="file-name text-ellipsis">{{ f.name }}</span>
+                  <span v-if="f.bytesTotal" class="file-progress">{{ pct(f.bytesDone, f.bytesTotal) }}%</span>
+                </div>
+                <div v-if="f.bytesTotal" class="file-mini-bar">
+                  <div class="file-mini-fill" :style="{ width: pct(f.bytesDone, f.bytesTotal) + '%' }"></div>
+                </div>
               </div>
               <div
                 v-for="(f, i) in t.files.slice(-30).reverse()"
@@ -506,6 +512,32 @@ function isModpackTask(t: TaskEntry) {
 }
 .file-row.active {
   background: var(--accent-08);
+}
+.file-current {
+  padding: 5px 10px 6px;
+  border-radius: 6px;
+  background: var(--accent-08);
+  font-size: 12px;
+  font-family: "Consolas", "Segoe UI Mono", monospace;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.file-current-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.file-mini-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.file-mini-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent-deep, var(--accent)), var(--accent));
+  transition: width 0.2s ease;
 }
 .file-status {
   font-weight: 700;

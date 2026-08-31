@@ -13,6 +13,21 @@ concurrency:
   group: qookix-release-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # ---------------------------------------------------------------------------
+  # ONE cargo target dir shared by BOTH crates (the main app + installer-ui).
+  # They depend on identical versions of tao / wry / windows, so without this
+  # the whole GUI/webview block is compiled twice on Windows.
+  #
+  # NOTE: scripts/run-tauri.mjs and the steps below resolve paths through
+  # $CARGO_TARGET_DIR, so changing this path requires no other edit.
+  # ---------------------------------------------------------------------------
+  CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target-shared
+  # Release builds are incremental=false by default; make it explicit so the
+  # shared target dir is not polluted with incremental state.
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
 jobs:
   build:
     strategy:
@@ -38,12 +53,29 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # sccache caches individual crate compilations keyed by their content.
+      # Unlike Swatinem/rust-cache it is NOT scoped to the git ref, so a new
+      # release tag can still reuse the compilation results of the previous one
+      # (rust-cache cannot, which made every release a cold build).
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.10
+
+      # Still worth keeping for the cargo registry/git checkouts (~500MB,
+      # restored in seconds) so we never re-download 880 crates.
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            src-tauri -> target
-            src-tauri/installer-ui -> target
+          workspaces: src-tauri -> target-shared
+
+      - name: Cache apt packages (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: |
+            /var/cache/apt/archives
+            /var/lib/apt/lists
+          key: apt-webkit-ubuntu2204-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: apt-webkit-ubuntu2204-
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
@@ -51,13 +83,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libssl-dev
 
+      # The windows-latest image already ships NSIS; only install it when the
+      # binary is genuinely missing.
       - name: Install NSIS (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: choco install nsis -y --no-progress
+        run: |
+          if (Get-Command makensis -ErrorAction SilentlyContinue) {
+            Write-Host "NSIS already present: $((Get-Command makensis).Source)"
+          } else {
+            choco install nsis -y --no-progress
+          }
 
+      # `npm ci` instead of `npm install`: reproducible and ~2x faster.
       - name: Install frontend dependencies
-        run: npm install
+        run: npm ci
 
       # Decode the Authenticode certificate (base64 -> .pfx). Skipped when the
       # secret is empty; code signing is then a no-op.
@@ -75,6 +115,9 @@ jobs:
       # installer / MSI. When TAURI_SIGNING_PRIVATE_KEY is set, the bundler
       # ALSO emits minisign `.sig` files for the updater artifacts, which the
       # publish job turns into latest.json.
+      #
+      # Per-platform bundle targets live in src-tauri/tauri.<os>.conf.json and
+      # are merged automatically by the CLI.
       - name: Build Tauri app
         env:
           MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
@@ -85,19 +128,24 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build
 
+      - name: sccache stats
+        if: always()
+        shell: bash
+        run: sccache --show-stats || true
+
       # Extra Windows asset: a portable zip (the standalone exe) for users who
       # prefer not to run an installer.
       - name: Create portable zip (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $exe = "src-tauri/target/release/qookix-launcher.exe"
+          $exe = Join-Path $env:CARGO_TARGET_DIR "release/qookix-launcher.exe"
           if (-not (Test-Path $exe)) { throw "Binary not found: $exe" }
           $ver = "${{ github.ref_name }}" -replace '^v', ''
           $stage = Join-Path $env:RUNNER_TEMP "portable"
           New-Item -ItemType Directory -Force -Path (Join-Path $stage "QookiX Launcher") | Out-Null
           Copy-Item $exe (Join-Path $stage "QookiX Launcher\") -Force
-          $outDir = "src-tauri/target/release/bundle/portable"
+          $outDir = Join-Path $env:CARGO_TARGET_DIR "release/bundle/portable"
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
           $zip = Join-Path $outDir "QookiX_${ver}_x64_portable.zip"
           Compress-Archive -Path (Join-Path $stage "QookiX Launcher") -DestinationPath $zip -Force
@@ -112,7 +160,7 @@ jobs:
           # (lib*.so, im-*.so, .desktop, copyright, data.tar.gz, the bare
           # binary, icon.icns, ...) which must NOT be published.
           mkdir -p dist-artifacts
-          find src-tauri/target/release/bundle -maxdepth 5 -type f \( \
+          find "$CARGO_TARGET_DIR/release/bundle" -maxdepth 5 -type f \( \
             -name '*.AppImage' -o -name '*.AppImage.tar.gz' \
             -o -name '*.app.tar.gz' -o -name '*.deb' \
             -o -name '*.rpm' -o -name '*.dmg' -o -name '*.msi' \
@@ -120,6 +168,13 @@ jobs:
             -exec cp -n {} dist-artifacts/ \;
           echo "--- collected artifacts ---"
           ls -la dist-artifacts
+
+      # Guard rail: if a bundle-target change ever drops the updater bundle or
+      # every installer, fail HERE rather than publishing a broken release.
+      - name: Verify artifacts
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: node scripts/verify-artifacts.mjs dist-artifacts ${{ matrix.artifact }}
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -188,5 +243,3 @@ jobs:
           GITHUB_TAG: ${{ github.ref_name }}
         run: |
           node scripts/fix-update-manifest.mjs
-
-

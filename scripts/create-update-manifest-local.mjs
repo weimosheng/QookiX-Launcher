@@ -14,6 +14,7 @@
 // ============================================================================
 import fs from 'node:fs'
 import path from 'node:path'
+import { UPDATER_TARGETS } from './shared/updater-targets.mjs'
 
 const [dir, tag, outputPath] = process.argv.slice(2)
 if (!dir || !tag || !outputPath) {
@@ -24,12 +25,9 @@ if (!dir || !tag || !outputPath) {
 const repo = process.env.GITHUB_REPOSITORY
 if (!repo) throw new Error('GITHUB_REPOSITORY is not set')
 
-const targets = [
-  { platforms: ['windows-x86_64'], suffixes: ['_x64-setup.exe', '.nsis.zip'] },
-  { platforms: ['darwin-aarch64', 'darwin-x86_64'], suffixes: ['.app.tar.gz'] },
-  { platforms: ['linux-x86_64'], suffixes: ['_amd64.AppImage', '_amd64.AppImage.tar.gz'] },
-  { platforms: ['linux-aarch64'], suffixes: ['_aarch64.AppImage', '_aarch64.AppImage.tar.gz'] },
-]
+// Shared with verify-artifacts.mjs and fix-update-manifest.mjs so all three
+// always agree on what counts as an updater bundle.
+const targets = UPDATER_TARGETS
 
 function filesEndingWith(dir, suffix) {
   try {

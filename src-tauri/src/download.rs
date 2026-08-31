@@ -2,7 +2,7 @@ use crate::state::AppState;
 use crate::util::{file_sha1, file_sha512};
 use futures_util::StreamExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::Emitter;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
@@ -25,6 +25,14 @@ pub struct DownloadStats {
     pub total: usize,
     pub bytes_done: u64,
     pub bytes_total: u64,
+}
+
+/// Per-file progress slot shared between the download task and the periodic emitter.
+#[derive(Clone)]
+struct ActiveSlot {
+    bytes_done: Arc<AtomicU64>,
+    bytes_total: Arc<AtomicU64>,
+    active: Arc<AtomicBool>,
 }
 
 fn now_ms() -> u64 {
@@ -52,12 +60,28 @@ pub async fn download_many(
     let current_total = Arc::new(AtomicU64::new(0));
     let cancel_flag = state.install_cancel.clone();
 
-    let threads = {
+    let (file_threads, chunk_threads) = {
         let s = state.settings.read().unwrap();
-        s.download_threads.max(1)
+        (s.download_threads.max(1), s.download_chunk_threads.max(1))
     };
-    let sem = Arc::new(Semaphore::new(threads));
+    let sem = Arc::new(Semaphore::new(file_threads));
     let client = state.client.clone();
+
+    // Per-file progress slots for all items (read by the periodic emitter).
+    let active_files: Vec<(String, ActiveSlot)> = items
+        .iter()
+        .map(|item| {
+            (
+                item.label.clone(),
+                ActiveSlot {
+                    bytes_done: Arc::new(AtomicU64::new(0)),
+                    bytes_total: Arc::new(AtomicU64::new(0)),
+                    active: Arc::new(AtomicBool::new(true)),
+                },
+            )
+        })
+        .collect();
+    let active_files = Arc::new(active_files);
 
     // periodic emitter (drives smooth speed display)
     let phase_owned = phase.to_string();
@@ -65,9 +89,9 @@ pub async fn download_many(
     let app2 = app.clone();
     let done_e = done.clone();
     let bc_e = bytes_completed.clone();
-    let cur_e = current_bytes.clone();
     let bt_e = bytes_total.clone();
     let cancel_e = cancel_flag.clone();
+    let af_e = active_files.clone();
     let emitter = tauri::async_runtime::spawn(async move {
         loop {
             if cancel_e.load(Ordering::Relaxed) {
@@ -77,8 +101,24 @@ pub async fn download_many(
             if d >= total as u64 {
                 break;
             }
-            let bd = bc_e.load(Ordering::Relaxed) + cur_e.load(Ordering::Relaxed);
+            let bd = bc_e.load(Ordering::Relaxed)
+                + af_e
+                    .iter()
+                    .filter(|(_, s)| s.active.load(Ordering::Relaxed))
+                    .map(|(_, s)| s.bytes_done.load(Ordering::Relaxed))
+                    .sum::<u64>();
             let bt = bt_e.load(Ordering::Relaxed);
+            let active: Vec<_> = af_e
+                .iter()
+                .filter(|(_, s)| s.active.load(Ordering::Relaxed))
+                .map(|(label, s)| {
+                    serde_json::json!({
+                        "name": label,
+                        "bytesDone": s.bytes_done.load(Ordering::Relaxed),
+                        "bytesTotal": s.bytes_total.load(Ordering::Relaxed),
+                    })
+                })
+                .collect();
             let _ = app2.emit(
                 "download://progress",
                 serde_json::json!({
@@ -90,6 +130,7 @@ pub async fn download_many(
                     "ok": true,
                     "bytesDone": bd,
                     "bytesTotal": bt,
+                    "activeFiles": active,
                     "ts": now_ms(),
                 }),
             );
@@ -98,7 +139,7 @@ pub async fn download_many(
     });
 
     let mut handles = Vec::new();
-    for item in items {
+    for (i, item) in items.into_iter().enumerate() {
         let permit = sem.clone().acquire_owned().await.map_err(|e| e.to_string())?;
         let client = client.clone();
         let app = app.clone();
@@ -109,10 +150,12 @@ pub async fn download_many(
         let cancel = cancel_flag.clone();
         let phase = phase_owned.clone();
         let bytes_total_h = bytes_total.clone();
+        let my_done = active_files[i].1.bytes_done.clone();
+        let my_total = active_files[i].1.bytes_total.clone();
+        let my_active = active_files[i].1.active.clone();
         handles.push(tauri::async_runtime::spawn(async move {
             let _permit = permit;
             let mut result = Err(format!("not attempted: {}", item.label));
-            let last_emit = Arc::new(AtomicU64::new(0));
             let bt_outer = bytes_total_h.clone();
             for attempt in 0..3 {
                 if cancel.load(Ordering::Relaxed) {
@@ -121,41 +164,23 @@ pub async fn download_many(
                 }
                 let cur = current_bytes.clone();
                 let ct = current_total.clone();
-                let app_p = app.clone();
-                let done_p = done.clone();
                 let bc_p = bytes_completed.clone();
                 let bt_p = bt_outer.clone();
-                let _last_p = last_emit.clone();
-                let phase_p = phase.clone();
-                let label_p = item.label.clone();
+                let md = my_done.clone();
+                let mt = my_total.clone();
                 let on_progress = move |written: u64, cl: u64| {
                     cur.store(written, Ordering::Relaxed);
                     if cl > 0 {
                         ct.store(cl, Ordering::Relaxed);
-                        // Grow bytes_total to account for this file
                         let needed = bc_p.load(Ordering::Relaxed) + cl;
                         bt_p.fetch_max(needed, Ordering::Relaxed);
                     }
-                    let now = now_ms();
-                    let d = done_p.load(Ordering::Relaxed);
-                    let bd = bc_p.load(Ordering::Relaxed) + written;
-                    let bt = bt_p.load(Ordering::Relaxed);
-                    let _ = app_p.emit(
-                        "download://progress",
-                        serde_json::json!({
-                            "taskId": task_id,
-                            "phase": phase_p,
-                            "done": d,
-                            "total": total,
-                            "current": label_p,
-                            "ok": true,
-                            "bytesDone": bd,
-                            "bytesTotal": bt,
-                            "ts": now,
-                        }),
-                    );
+                    md.store(written, Ordering::Relaxed);
+                    if cl > 0 {
+                        mt.store(cl, Ordering::Relaxed);
+                    }
                 };
-                match download_one(&client, &item, &on_progress, threads).await {
+                match download_one(&client, &item, &on_progress, chunk_threads).await {
                     Ok(()) => {
                         result = Ok(());
                         break;
@@ -170,11 +195,11 @@ pub async fn download_many(
                     }
                 }
             }
+            my_active.store(false, Ordering::Relaxed);
             current_bytes.store(0, Ordering::Relaxed);
             let d = done.fetch_add(1, Ordering::Relaxed) + 1;
             let actual_size = item.size.unwrap_or_else(|| current_total.load(Ordering::Relaxed));
             let bd = bytes_completed.fetch_add(actual_size, Ordering::Relaxed) + actual_size;
-            // Grow bytes_total to account for this completed file
             bt_outer.fetch_max(bd, Ordering::Relaxed);
             let bt = bt_outer.load(Ordering::Relaxed);
             let _ = app.emit(
@@ -221,13 +246,34 @@ pub async fn download_many(
     })
 }
 
+/// Files at least this large are eligible for parallel chunked download (8 MB).
+const CHUNK_THRESHOLD: u64 = 8 * 1024 * 1024;
+
+/// Probe whether the server supports HTTP Range requests via a lightweight HEAD.
+async fn probe_range_support(client: &reqwest::Client, url: &str) -> bool {
+    match client
+        .head(url)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => resp
+            .headers()
+            .get("accept-ranges")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.eq_ignore_ascii_case("bytes"))
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
 /// Download a single file (streamed, with `.part` staging), verify sha1 when given.
 /// Uses parallel chunked download when the server supports ranges and the file is large enough.
 async fn download_one(
     client: &reqwest::Client,
     item: &DownloadItem,
     on_progress: &(dyn Fn(u64, u64) + Send + Sync),
-    threads: usize,
+    chunk_threads: usize,
 ) -> Result<(), String> {
     if let Some(parent) = item.dest.parent() {
         tokio::fs::create_dir_all(parent)
@@ -260,9 +306,26 @@ async fn download_one(
     let part = item.dest.with_extension("part");
     let _ = std::fs::remove_file(&part);
 
-    // Streamed download only — some CDNs (e.g. edge.forgecdn.net) 404 on Range requests.
-    let _ = threads;
-    download_streamed(client, &item.url, &part, on_progress).await?;
+    // Decide whether to attempt parallel chunked download:
+    //   - chunk_threads > 1
+    //   - file size known and >= CHUNK_THRESHOLD
+    //   - server advertises Accept-Ranges: bytes
+    let can_chunk =
+        chunk_threads > 1 && item.size.map(|s| s >= CHUNK_THRESHOLD).unwrap_or(false);
+
+    if can_chunk && probe_range_support(client, &item.url).await {
+        let size = item.size.unwrap();
+        match download_chunked(client, &item.url, &part, size, chunk_threads, on_progress).await {
+            Ok(()) => {}
+            Err(_) => {
+                // Fallback: some CDNs claim range support but 404 on actual Range requests.
+                let _ = std::fs::remove_file(&part);
+                download_streamed(client, &item.url, &part, on_progress).await?;
+            }
+        }
+    } else {
+        download_streamed(client, &item.url, &part, on_progress).await?;
+    }
 
     if let Some(sha) = &item.sha512 {
         let actual = file_sha512(&part).ok_or("校验失败: 无法读取")?;
@@ -330,7 +393,6 @@ async fn download_streamed(
 }
 
 /// Parallel chunked download using HTTP Range requests.
-#[allow(dead_code)]
 async fn download_chunked(
     client: &reqwest::Client,
     url: &str,
@@ -372,8 +434,8 @@ async fn download_chunked(
                 .await
                 .map_err(|e| format!("分片请求失败: {e}"))?;
             let status = resp.status();
-            if status.as_u16() != 206 && !status.is_success() {
-                return Err(format!("分片 HTTP {status}"));
+            if status.as_u16() != 206 {
+                return Err(format!("分片 HTTP {status} (期望 206)"));
             }
 
             let mut file = tokio::fs::OpenOptions::new()

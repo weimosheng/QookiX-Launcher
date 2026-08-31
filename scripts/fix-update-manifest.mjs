@@ -20,6 +20,7 @@
 //    GITHUB_TAG        e.g. "v0.3.1"
 // ============================================================================
 import fs from 'node:fs'
+import { UPDATER_TARGETS } from './shared/updater-targets.mjs'
 
 const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
 const repo = process.env.GITHUB_REPOSITORY
@@ -42,18 +43,27 @@ const assets = release.assets
 console.log(`Loaded release ${tag} with ${assets.length} asset(s)`)
 
 // Updater bundle matchers. Order matters; first match per platform wins.
-const targets = [
-  { platforms: ['windows-x86_64'], re: /_x64-setup\.exe$/ },
-  { platforms: ['darwin-aarch64', 'darwin-x86_64'], re: /\.app\.tar\.gz$/ },
-  { platforms: ['linux-x86_64'], re: /_amd64\.AppImage$/ },
-  { platforms: ['linux-aarch64'], re: /_aarch64\.AppImage$/ },
-]
+// Shared with verify-artifacts.mjs / create-update-manifest-local.mjs so all
+// three always agree on what counts as an updater bundle.
+const targets = UPDATER_TARGETS.map((t) => ({
+  platforms: t.platforms,
+  suffixes: t.suffixes,
+}))
 
 const platforms = {}
 for (const t of targets) {
-  const asset = assets.find((a) => t.re.test(a.name))
+  // Prefer the FIRST matching suffix, mirroring create-update-manifest-local.
+  let asset
+  let usedSuffix
+  for (const suffix of t.suffixes) {
+    asset = assets.find((a) => a.name.endsWith(suffix))
+    if (asset) {
+      usedSuffix = suffix
+      break
+    }
+  }
   if (!asset) {
-    console.log(`  - skip ${t.platforms.join('/')}: no asset matching ${t.re}`)
+    console.log(`  - skip ${t.platforms.join('/')}: no asset matching ${t.suffixes.join(' or ')}`)
     continue
   }
   const sigAsset = assets.find((a) => a.name === `${asset.name}.sig`)
@@ -70,7 +80,7 @@ for (const t of targets) {
   for (const p of t.platforms) {
     platforms[p] = { signature, url: asset.browser_download_url }
   }
-  console.log(`  - ok ${t.platforms.join('/')}: ${asset.name}`)
+  console.log(`  - ok ${t.platforms.join('/')}: ${asset.name} (matched "${usedSuffix}")`)
 }
 
 if (Object.keys(platforms).length === 0) {

@@ -735,7 +735,7 @@ onUnmounted(() => {
           <div class="card glass">
             <h3>并行下载</h3>
             <label class="row-label">
-              并行下载线程数：{{ settings.settings.download_threads }}
+              同时下载文件数：{{ settings.settings.download_threads }}
               <input
                 v-model.number="settings.settings.download_threads"
                 type="range"
@@ -745,7 +745,19 @@ onUnmounted(() => {
                 class="range"
               />
             </label>
-            <p class="hint">更高的线程数可加快游戏文件、模组与整合包下载速度。</p>
+            <p class="hint">同时从服务器下载的文件数量。值越大并发越高，但对服务器压力也越大。</p>
+            <label class="row-label" style="margin-top: 16px;">
+              单文件分片线程数：{{ settings.settings.download_chunk_threads }}
+              <input
+                v-model.number="settings.settings.download_chunk_threads"
+                type="range"
+                min="1"
+                max="16"
+                step="1"
+                class="range"
+              />
+            </label>
+            <p class="hint">对单个大文件使用 HTTP Range 分片并行下载的线程数。仅对支持断点续传的服务器生效，小文件始终单线程。</p>
           </div>
           <div class="card glass">
             <h3>下载中心</h3>
@@ -876,7 +888,7 @@ onUnmounted(() => {
             <div class="about-logo">
               <img class="about-logo-img" :src="logoUrl" alt="QookiX" />
               <span class="about-name">QookiX Launcher</span>
-              <span class="about-ver">v0.4.3</span>
+              <span class="about-ver">v0.4.41</span>
             </div>
             <p class="about-desc">现代化、简洁、无广告的 Minecraft 启动器</p>
             <div class="about-features">
