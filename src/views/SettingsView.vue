@@ -155,6 +155,55 @@ const { indicatorStyle: updateSourceSegStyle, refresh: refreshUpdateSourceSeg } 
   );
 watch(() => settings.settings?.update_source, () => nextTick(() => refreshUpdateSourceSeg()));
 
+// 下载代理 seg 滑动高亮（系统代理 / 直连 / 自定义）
+const proxyModeSegRef = ref<HTMLElement | null>(null);
+const proxyModes = [
+  { id: "system", label: "系统代理" },
+  { id: "direct", label: "直连" },
+  { id: "custom", label: "自定义" },
+];
+const { indicatorStyle: proxyModeSegStyle, refresh: refreshProxyModeSeg } = useSlidingIndicator(
+  proxyModeSegRef,
+  () => Array.from(proxyModeSegRef.value?.querySelectorAll<HTMLElement>(".seg button") ?? []),
+  () => Math.max(0, proxyModes.findIndex((m) => m.id === settings.settings?.proxy_mode)),
+  { axis: "horizontal" }
+);
+watch(() => settings.settings?.proxy_mode, () => nextTick(() => refreshProxyModeSeg()));
+
+async function selectProxyMode(id: string) {
+  if (settings.settings?.proxy_mode === id) return;
+  try {
+    await settings.patch({ proxy_mode: id });
+  } catch (e) {
+    message.error(String(e));
+  }
+}
+
+function onCustomProxyInput() {
+  if (settings.settings && settings.settings.proxy_mode !== "custom") {
+    settings.settings.proxy_mode = "custom";
+  }
+}
+
+// 测试代理连接
+const testingProxy = ref(false);
+async function testProxy() {
+  if (testingProxy.value || !settings.settings) return;
+  testingProxy.value = true;
+  try {
+    const { proxy_mode, proxy } = settings.settings;
+    const res = await api.testProxy(
+      proxy_mode,
+      proxy_mode === "custom" ? proxy : null
+    );
+    message.success(`连接成功 ${res.ms} ms`);
+  } catch (e) {
+    message.error(`连接失败: ${e}`);
+  } finally {
+    testingProxy.value = false;
+  }
+}
+
 // 下载镜像源
 const mirrors = ref<MirrorPreset[]>([]);
 /** 每个镜像最近一次测速结果（毫秒）；null 表示不可用 */
@@ -204,7 +253,10 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null;
 const tab = ref("general");
 // 更新源位于「关于」页，面板用 v-show 隐藏时矩形为 0，需在切换到该页时刷新指示器
 watch(tab, (val) => {
+  // 这些面板用 v-show 隐藏时矩形为 0，需在切换到对应页时刷新滑动指示器
+  if (val === "appearance") nextTick(() => refreshThemeSeg());
   if (val === "about") nextTick(() => refreshUpdateSourceSeg());
+  if (val === "download") nextTick(() => refreshProxyModeSeg());
 });
 
 const tabs = [
@@ -893,16 +945,46 @@ onUnmounted(() => {
               class="text-input mono"
               placeholder="在 console.curseforge.com 免费申请"
             />
-            <p class="hint">可选。不填则 CurseForge 内容中心不可用，Modrinth 不受影响。</p>
+            <p class="hint">可选。不填使用默认key 可能会导致 CurseForge 内容中心不可用，Modrinth 不受影响。</p>
           </div>
           <div class="card glass">
             <h3>下载代理</h3>
+            <div class="proxy-row">
+              <div ref="proxyModeSegRef" class="seg">
+                <div class="indicator" :style="proxyModeSegStyle"></div>
+                <button
+                  v-for="m in proxyModes"
+                  :key="m.id"
+                  :class="{ active: settings.settings.proxy_mode === m.id }"
+                  @click="selectProxyMode(m.id)"
+                >
+                  {{ m.label }}
+                </button>
+              </div>
+              <button
+                class="mirror-btn"
+                :class="{ disabled: testingProxy }"
+                @click="testProxy"
+              >
+                {{ testingProxy ? "测试中…" : "测试连接" }}
+              </button>
+            </div>
             <input
+              v-if="settings.settings.proxy_mode === 'custom'"
               v-model="settings.settings.proxy"
               class="text-input mono"
               placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080"
+              @input="onCustomProxyInput"
             />
-            <p class="hint">可选。用于绕过 CDN 下载失败（404/连接失败）。修改后需重启启动器生效。</p>
+            <p class="hint">
+              {{
+                settings.settings.proxy_mode === "system"
+                  ? "使用系统网络代理设置（默认）。"
+                  : settings.settings.proxy_mode === "direct"
+                    ? "直连，不经过任何代理。"
+                    : "自定义代理。用于绕过 CDN 下载失败（404/连接失败）。修改后需重启启动器生效。"
+              }}
+            </p>
           </div>
         </div>
       </div>
@@ -1005,7 +1087,7 @@ onUnmounted(() => {
             <div class="about-logo">
               <img class="about-logo-img" :src="logoUrl" alt="QookiX" />
               <span class="about-name">QookiX Launcher</span>
-              <span class="about-ver">v0.4.56</span>
+              <span class="about-ver">v0.4.57</span>
             </div>
             <p class="about-desc">现代化、简洁、无广告的 Minecraft 启动器</p>
             <div class="about-features">
@@ -1054,6 +1136,10 @@ onUnmounted(() => {
           </div>
           <div class="card glass about-links">
             <h3>链接</h3>
+            <button class="about-link" @click="openUrl('https://qookix.swkj1.cn/')">
+              <span>官方网站</span>
+              <span class="link-arrow">→</span>
+            </button>
             <button class="about-link" @click="openUrl('https://github.com/weimosheng/QookiX-Launcher')">
               <span>GitHub 仓库</span>
               <span class="link-arrow">→</span>
@@ -2038,6 +2124,15 @@ textarea.text-input {
 .mirror-btn.disabled {
   opacity: 0.5;
   pointer-events: none;
+}
+.proxy-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.proxy-row .seg {
+  flex: 1;
+  min-width: 0;
 }
 .mirror-custom {
   flex-wrap: wrap;

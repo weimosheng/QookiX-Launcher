@@ -76,6 +76,8 @@ export const api = {
   setSettings: (patch: Record<string, unknown>) => invoke<Settings>("set_settings", { patch }),
   listMirrors: () => invoke<MirrorPreset[]>("list_mirrors"),
   testMirror: (base: string) => invoke<MirrorTestResult>("test_mirror", { base }),
+  testProxy: (proxyMode: string, proxy: string | null) =>
+    invoke<MirrorTestResult>("test_proxy", { proxyMode, proxy }),
   changeDataDir: (newDir: string, mode: "move" | "copy" | "pointer") =>
     invoke<{ ok: boolean; new_dir: string; need_restart: boolean }>("change_data_dir", {
       newDir,

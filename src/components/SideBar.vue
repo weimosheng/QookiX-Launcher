@@ -140,6 +140,10 @@ async function stopAll() {
   -webkit-backdrop-filter: blur(var(--glass-blur, 8px));
   transition: width 0.2s ease, padding 0.2s ease;
 }
+/* 背景图片模式下与卡片一致：用半透明面板色 + 模糊，透出背景图 */
+:global(.has-bg) .sidebar {
+  background: var(--panel);
+}
 .sidebar.collapsed {
   width: 60px;
   padding: 18px 6px 12px;

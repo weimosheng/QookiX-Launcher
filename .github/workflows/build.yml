@@ -271,5 +271,7 @@ jobs:
           # 把安装包、.sig 签名与 latest.json 一起同步到存储桶根目录
           ENDPOINT_ARGS=""
           if [ -n "${AWS_ENDPOINT_URL}" ]; then ENDPOINT_ARGS="--endpoint-url ${AWS_ENDPOINT_URL}"; fi
-          aws $ENDPOINT_ARGS s3 sync release/ "s3://${QOOKIX_S3_BUCKET}" --delete --no-progress
+          # 兼容端点（R2/MinIO 等）不支持 AWS CLI 新版默认的 CRC64NVME 校验和，
+          # 显式用 CRC32，否则大文件（AppImage）分片上传会报 invalid checksum
+          aws $ENDPOINT_ARGS s3 sync release/ "s3://${QOOKIX_S3_BUCKET}" --delete --no-progress --checksum-algorithm CRC32
           echo "Uploaded update artifacts to ${QOOKIX_BUCKET_UPDATE_URL}"
