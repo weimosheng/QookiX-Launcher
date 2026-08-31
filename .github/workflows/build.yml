@@ -126,9 +126,6 @@ jobs:
           QOOKIX_CERT_PASSWORD: ${{ secrets.QOOKIX_CERT_PASSWORD }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # 编译期注入存储桶更新源的公开根 URL（Rust 端 option_env! 读取）。
-          # 未配置该 secret 时，应用内「对象存储」源会回退到占位地址。
-          QOOKIX_BUCKET_UPDATE_URL: ${{ secrets.QOOKIX_BUCKET_UPDATE_URL }}
         run: npm run tauri build
 
       - name: sccache stats
@@ -246,38 +243,3 @@ jobs:
           GITHUB_TAG: ${{ github.ref_name }}
         run: |
           node scripts/fix-update-manifest.mjs
-
-      # -----------------------------------------------------------------------
-      # 推送更新产物到对象存储桶（「设置 → 更新源 → 对象存储」默认源）。
-      #
-      # 依赖 secrets（不配置则跳过上传，应用内对象存储源暂不可用）：
-      #   QOOKIX_BUCKET_UPDATE_URL  更新目录的公开根 URL，如 https://cdn.example.com/qookix
-      #   QOOKIX_S3_ENDPOINT         兼容 S3 的端点（AWS、Cloudflare R2、MinIO 等）
-      #   QOOKIX_S3_BUCKET           存储桶名
-      #   QOOKIX_S3_ACCESS_KEY / QOOKIX_S3_SECRET_KEY
-      # -----------------------------------------------------------------------
-      - name: Push update artifacts to object storage bucket
-        if: env.QOOKIX_BUCKET_UPDATE_URL != ''
-        env:
-          QOOKIX_BUCKET_UPDATE_URL: ${{ secrets.QOOKIX_BUCKET_UPDATE_URL }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.QOOKIX_S3_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.QOOKIX_S3_SECRET_KEY }}
-          AWS_ENDPOINT_URL: ${{ secrets.QOOKIX_S3_ENDPOINT }}
-          QOOKIX_S3_BUCKET: ${{ secrets.QOOKIX_S3_BUCKET }}
-          GH_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_TAG: ${{ github.ref_name }}
-        run: |
-          # 生成存储桶版 latest.json（每个平台 url 指向存储桶上的安装包）
-          node scripts/create-bucket-manifest.mjs release "${GITHUB_REF_NAME}" bucket-latest.json
-          cp bucket-latest.json release/latest.json
-          # 镜像站 JSON：抓取 GitHub Release API 的完整响应（含全部 assets + 大小），
-          # 让镜像站能展示该版本的所有安装包与大小。
-          node scripts/fetch-release-json.mjs release/release.json
-          # 把安装包、.sig 签名、latest.json 与 release.json 一起同步到存储桶根目录
-          ENDPOINT_ARGS=""
-          if [ -n "${AWS_ENDPOINT_URL}" ]; then ENDPOINT_ARGS="--endpoint-url ${AWS_ENDPOINT_URL}"; fi
-          # 兼容端点（R2/MinIO 等）不支持 AWS CLI 新版默认的 CRC64NVME 校验和，
-          # 显式用 CRC32，否则大文件（AppImage）分片上传会报 invalid checksum
-          aws $ENDPOINT_ARGS s3 sync release/ "s3://${QOOKIX_S3_BUCKET}" --delete --no-progress --checksum-algorithm CRC32
-          echo "Uploaded update artifacts to ${QOOKIX_BUCKET_UPDATE_URL}"

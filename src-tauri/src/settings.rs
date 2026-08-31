@@ -189,6 +189,13 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
     if let Some(v) = patch.get("auto_update").and_then(|v| v.as_bool()) {
         settings.auto_update = v;
     }
+    if let Some(v) = patch.get("update_source").and_then(|v| v.as_str()) {
+        settings.update_source = if v.trim() == "github" {
+            "github".into()
+        } else {
+            "bucket".into()
+        };
+    }
     let cloned = settings.clone();
     drop(settings);
     persist(state)?;

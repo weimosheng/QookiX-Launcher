@@ -28,6 +28,8 @@ pub struct AppState {
     pub java_cache: Mutex<Option<(u64, Vec<crate::models::JavaInfo>)>>,
     /// Currently running Terracotta (陶瓦联机) session, if any
     pub terracotta: Mutex<Option<crate::terracotta::TerracottaSession>>,
+    /// 已下载待安装的应用更新（Update + 安装包字节），供「重启以更新」使用
+    pub pending_update: Mutex<Option<(tauri_plugin_updater::Update, Vec<u8>)>>,
 }
 
 impl AppState {

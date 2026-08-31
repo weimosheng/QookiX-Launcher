@@ -21,8 +21,8 @@ import {
   IconSliders,
   IconTrash,
 } from "../components/icons";
-import { peekUpdate, downloadUpdate, updateReady, updateReadyVersion } from "../updater";
-import type { JavaInfo, MirrorPreset, StorageStats } from "../types";
+import { peekUpdate, downloadAndInstall, relaunchApp } from "../updater";
+import type { JavaInfo, StorageStats } from "../types";
 import logoUrl from "../assets/logo.png";
 
 const settings = useSettingsStore();
@@ -44,11 +44,6 @@ async function checkUpdate() {
       return;
     }
     updateVersion.value = update.version;
-    // 该版本已经下载好、只等重启：不必再弹一次下载确认框
-    if (updateReady.value && updateReadyVersion.value === update.version) {
-      message.info(`v${update.version} 已下载，点击标题栏的「重启以更新」即可生效`);
-      return;
-    }
     let dlg: { destroy: () => void } | null = null;
     const close = () => { dlg?.destroy(); dlg = null; };
     dlg = dialog.warning({
@@ -59,13 +54,13 @@ async function checkUpdate() {
           h(NButton, { size: "small", ghost: true, onClick: close }, () => "以后再说"),
           h(
             NButton,
-            {
-              size: "small",
-              type: "primary",
-              disabled: updateReady.value,
-              onClick: () => { close(); void doInstall(); },
-            },
-            { default: () => (updateReady.value ? "已下载，待重启" : "下载并更新") },
+            { size: "small", quaternary: true, onClick: () => { close(); void doInstall(); } },
+            { default: () => "下载并更新" },
+          ),
+          h(
+            NButton,
+            { size: "small", type: "primary", onClick: () => { close(); void doInstallAndRelaunch(); } },
+            { default: () => "重启以更新" },
           ),
         ]),
     });
@@ -90,10 +85,29 @@ async function doInstall() {
   // Jump to the Download Center so the user can watch the progress live.
   router.push("/downloads");
   try {
-    const downloaded = await downloadUpdate();
-    if (!downloaded) return;
-    // 只下载不安装：安装与重启由标题栏「重启以更新」按钮触发。
-    message.success("更新已下载，点击标题栏的「重启以更新」安装");
+    const installed = await downloadAndInstall();
+    if (!installed) return;
+    dialog.success({
+      title: "更新完成",
+      content: "需要重启启动器才能生效，是否立即重启？",
+      positiveText: "立即重启",
+      negativeText: "稍后手动重启",
+      onPositiveClick: () => relaunchApp(),
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    message.error(detail || "更新失败，请稍后重试或手动下载");
+    console.error("[updater] install error:", err);
+  }
+}
+
+/** 下载安装并自动重启，一步到位（「重启以更新」按钮）。 */
+async function doInstallAndRelaunch() {
+  router.push("/downloads");
+  try {
+    const installed = await downloadAndInstall();
+    if (!installed) return;
+    await relaunchApp();
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     message.error(detail || "更新失败，请稍后重试或手动下载");
@@ -137,49 +151,6 @@ const { indicatorStyle: closeSegStyle, refresh: refreshCloseSeg } = useSlidingIn
   { axis: "horizontal" }
 );
 watch(() => settings.settings?.close_behavior, () => nextTick(() => refreshCloseSeg()));
-
-// 下载镜像源
-const mirrors = ref<MirrorPreset[]>([]);
-/** 每个镜像最近一次测速结果（毫秒）；null 表示不可用 */
-const mirrorLatency = ref<Record<string, number | null>>({});
-const testingMirror = ref("");
-
-async function loadMirrors() {
-  try {
-    mirrors.value = await api.listMirrors();
-  } catch {
-    mirrors.value = [];
-  }
-}
-
-async function selectMirror(id: string) {
-  if (settings.settings?.mirror === id) return;
-  try {
-    await settings.patch({ mirror: id });
-  } catch (e) {
-    message.error(String(e));
-  }
-}
-
-async function testMirror(id: string, base: string) {
-  if (testingMirror.value) return;
-  testingMirror.value = id;
-  try {
-    const res = await api.testMirror(base);
-    mirrorLatency.value = { ...mirrorLatency.value, [id]: res.ms };
-  } catch (e) {
-    mirrorLatency.value = { ...mirrorLatency.value, [id]: null };
-    message.error(String(e));
-  } finally {
-    testingMirror.value = "";
-  }
-}
-
-function onCustomMirrorInput() {
-  if (settings.settings && settings.settings.mirror !== "custom") {
-    settings.settings.mirror = "custom";
-  }
-}
 
 const javaCandidates = ref<JavaInfo[]>([]);
 const detecting = ref(false);
@@ -453,7 +424,6 @@ function confirmClear() {
 
 onMounted(() => {
   settings.load();
-  loadMirrors();
   // cached scan: no full rescan if another view already fetched recently
   settings.loadJava().then((c) => (javaCandidates.value = c));
   loadMemoryInfo();
@@ -510,7 +480,7 @@ onUnmounted(() => {
             <div class="choice-row">
               <div class="choice-info">
                 <span class="choice-label">自动更新</span>
-                <p class="choice-hint">启动时检测到新版本自动后台下载，但不会自动重启——下载完成后在标题栏点击「重启以更新」生效。</p>
+                <p class="choice-hint">启动时检测到新版本自动下载安装，无需手动确认。</p>
               </div>
               <button
                 class="toggle"
@@ -790,72 +760,6 @@ onUnmounted(() => {
             <p class="hint">对单个大文件使用 HTTP Range 分片并行下载的线程数。仅对支持断点续传的服务器生效，小文件始终单线程。</p>
           </div>
           <div class="card glass">
-            <h3><IconGlobe /> 下载镜像源</h3>
-            <div class="mirror-list">
-              <button
-                v-for="m in mirrors"
-                :key="m.id"
-                type="button"
-                class="mirror-item"
-                :class="{ active: settings.settings.mirror === m.id }"
-                @click="selectMirror(m.id)"
-              >
-                <span class="mirror-main">
-                  <span class="mirror-name">{{ m.label }}</span>
-                  <span class="mirror-base">{{ m.base || "直接使用各官方地址" }}</span>
-                </span>
-                <span class="mirror-side">
-                  <span
-                    v-if="mirrorLatency[m.id] !== undefined"
-                    class="mirror-ms"
-                    :class="{ bad: mirrorLatency[m.id] === null }"
-                  >
-                    {{ mirrorLatency[m.id] === null ? "不可用" : `${mirrorLatency[m.id]} ms` }}
-                  </span>
-                  <span
-                    class="mirror-btn"
-                    :class="{ disabled: testingMirror === m.id }"
-                    @click.stop="testMirror(m.id, m.base)"
-                  >
-                    {{ testingMirror === m.id ? "测试中…" : "测速" }}
-                  </span>
-                </span>
-              </button>
-              <div
-                class="mirror-custom"
-                :class="{ active: settings.settings.mirror === 'custom' }"
-              >
-                <label class="mirror-custom-head">
-                  <input
-                    type="radio"
-                    value="custom"
-                    :checked="settings.settings.mirror === 'custom'"
-                    @change="selectMirror('custom')"
-                  />
-                  <span>自定义镜像</span>
-                </label>
-                <input
-                  v-model="settings.settings.mirror_custom"
-                  class="text-input mono"
-                  placeholder="https://your-mirror.example.com"
-                  @input="onCustomMirrorInput"
-                />
-                <span
-                  class="mirror-btn"
-                  :class="{ disabled: testingMirror === 'custom' || !settings.settings.mirror_custom }"
-                  @click="testMirror('custom', settings.settings.mirror_custom)"
-                >
-                  {{ testingMirror === 'custom' ? "测试中…" : "测速" }}
-                </span>
-              </div>
-            </div>
-            <p class="hint">
-              加速游戏本体、资源文件与依赖库（Forge / Fabric / NeoForge）的下载，
-              <b>切换后立即生效，无需重启</b>；镜像缺失文件时会自动回退官方地址。
-              自定义镜像需兼容 BMCLAPI 接口，直接填写根地址即可。
-            </p>
-          </div>
-          <div class="card glass">
             <h3>下载中心</h3>
             <p class="hint">所有安装与下载任务可在左侧「下载中心」实时查看进度、速度与剩余文件。</p>
           </div>
@@ -984,7 +888,7 @@ onUnmounted(() => {
             <div class="about-logo">
               <img class="about-logo-img" :src="logoUrl" alt="QookiX" />
               <span class="about-name">QookiX Launcher</span>
-              <span class="about-ver">v0.4.61</span>
+              <span class="about-ver">v0.4.41</span>
             </div>
             <p class="about-desc">现代化、简洁、无广告的 Minecraft 启动器</p>
             <div class="about-features">
@@ -1900,106 +1804,5 @@ textarea.text-input {
 .toggle.on .knob {
   transform: translateX(18px);
   background: #fff;
-}
-.mirror-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.mirror-item,
-.mirror-custom {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--text-2);
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 13px;
-  text-align: left;
-  transition: border-color 0.15s, background 0.15s;
-}
-.mirror-item:hover,
-.mirror-custom:hover {
-  border-color: var(--accent-05);
-}
-.mirror-item.active,
-.mirror-custom.active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-.mirror-main {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.mirror-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-1);
-}
-.mirror-base {
-  font-size: 11px;
-  color: var(--text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mirror-side {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-.mirror-ms {
-  font-size: 12px;
-  color: var(--accent);
-  font-variant-numeric: tabular-nums;
-}
-.mirror-ms.bad {
-  color: #e5534b;
-}
-.mirror-btn {
-  font-size: 12px;
-  color: var(--text-2);
-  padding: 4px 10px;
-  border-radius: 7px;
-  border: 1px solid var(--border);
-  flex-shrink: 0;
-  transition: color 0.15s, border-color 0.15s;
-}
-.mirror-btn:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-.mirror-btn.disabled {
-  opacity: 0.5;
-  pointer-events: none;
-}
-.mirror-custom {
-  flex-wrap: wrap;
-}
-.mirror-custom-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-1);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.mirror-custom-head input {
-  accent-color: var(--accent);
-  margin: 0;
-}
-.mirror-custom .text-input {
-  flex: 1;
-  min-width: 150px;
 }
 </style>

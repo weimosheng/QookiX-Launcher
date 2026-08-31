@@ -9,7 +9,6 @@ mod launch;
 mod mcmeta;
 mod mcping;
 mod mcmod;
-mod mirror;
 mod models;
 mod modpack;
 mod modrinth;
@@ -24,22 +23,7 @@ mod util;
 use state::AppState;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
-use tauri::{
-    menu::{MenuBuilder, MenuItemBuilder},
-    tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    Manager,
-};
-
-/// Restore (and focus) the main window — used by the tray icon, which is the
-/// only way back once the window has been hidden by the "minimize to
-/// background" close behaviour.
-fn show_main_window(app: &tauri::AppHandle) {
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.unminimize();
-        let _ = win.show();
-        let _ = win.set_focus();
-    }
-}
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -85,8 +69,6 @@ pub fn run() {
             // settings & java
             commands::get_settings,
             commands::set_settings,
-            commands::list_mirrors,
-            commands::test_mirror,
             commands::change_data_dir,
             commands::auto_detect_memory,
             commands::detect_java,
@@ -203,8 +185,6 @@ pub fn run() {
             commands::list_crash_logs,
             commands::analyze_crash_log,
             commands::get_crash_report_content,
-            // news
-            commands::fetch_news,
         ])
         .on_window_event(|window, event| {
             use tauri::WindowEvent;
@@ -250,40 +230,6 @@ pub fn run() {
                 let state = handle.state::<AppState>();
                 *state.java_cache.lock().unwrap() = Some((ts, detected));
             });
-
-            // System tray: when the close behaviour is set to "minimize to
-            // background" the window is only hidden, so without a tray icon the
-            // user has no way to bring it back. Left click opens the menu,
-            // double click restores the window directly.
-            let show_item = MenuItemBuilder::with_id("show", "显示主窗口").build(app.handle())?;
-            let quit_item = MenuItemBuilder::with_id("quit", "退出 QookiX Launcher").build(app.handle())?;
-            let menu = MenuBuilder::new(app.handle())
-                .item(&show_item)
-                .separator()
-                .item(&quit_item)
-                .build()?;
-
-            let _ = TrayIconBuilder::with_id("main")
-                .icon(tauri::include_image!("icons/32x32.png"))
-                .tooltip("QookiX Launcher")
-                .menu(&menu)
-                .on_menu_event(|app, event| match event.id().as_ref() {
-                    "show" => show_main_window(app),
-                    "quit" => app.exit(0),
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    // Left click is reserved for the menu; double click restores.
-                    if let TrayIconEvent::DoubleClick {
-                        button: MouseButton::Left,
-                        ..
-                    } = event
-                    {
-                        show_main_window(tray.app_handle());
-                    }
-                })
-                .build(app.handle());
-
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -453,7 +399,6 @@ mod smoke {
             install_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ms_flow: Arc::new(Mutex::new(None)),
             java_cache: Mutex::new(None),
-            terracotta: Mutex::new(None),
         };
         let instance = Instance {
             id: "test-fabric".into(),
@@ -506,7 +451,6 @@ mod smoke {
             install_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ms_flow: Arc::new(Mutex::new(None)),
             java_cache: Mutex::new(None),
-            terracotta: Mutex::new(None),
         };
         // modpack type + empty query (regression for the 400 bug)
         let res = crate::modrinth::search(&state, "", "modpack", "", "relevance", 0, 20, "", "")
