@@ -1087,7 +1087,7 @@ onUnmounted(() => {
             <div class="about-logo">
               <img class="about-logo-img" :src="logoUrl" alt="QookiX" />
               <span class="about-name">QookiX Launcher</span>
-              <span class="about-ver">v0.4.63</span>
+              <span class="about-ver">v0.5.1</span>
             </div>
             <p class="about-desc">现代化、简洁、无广告的 Minecraft 启动器</p>
             <div class="about-features">
