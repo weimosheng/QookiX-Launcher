@@ -19,7 +19,16 @@ pub async fn fetch_manifest(state: &AppState) -> Result<VersionManifest, String>
             }
         }
     }
-    let text = crate::download::get_text(&state.client, MANIFEST_URL).await?;
+    let url = crate::mirror::manifest_url(state);
+    // 镜像不可用时回退官方清单，避免因为镜像故障导致整个版本列表打不开
+    let text = if url == MANIFEST_URL {
+        crate::download::get_text(&state.client, MANIFEST_URL).await?
+    } else {
+        match crate::download::get_text(&state.client, &url).await {
+            Ok(t) => t,
+            Err(_) => crate::download::get_text(&state.client, MANIFEST_URL).await?,
+        }
+    };
     let manifest: VersionManifest = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(path.parent().unwrap()).ok();
     let _ = std::fs::write(&path, &text);
@@ -37,7 +46,15 @@ pub async fn fetch_version_json(state: &AppState, id: &str) -> Result<VersionJso
     let manifest = fetch_manifest(state).await?;
     let entry = find_version(&manifest, id)
         .ok_or_else(|| format!("未找到 Minecraft 版本 {id}"))?;
-    let json: VersionJson = crate::download::get_json(&state.client, &entry.url).await?;
+    let url = crate::mirror::version_json_url(state, &entry.url, id);
+    let json: VersionJson = if url == entry.url {
+        crate::download::get_json(&state.client, &url).await?
+    } else {
+        match crate::download::get_json(&state.client, &url).await {
+            Ok(j) => j,
+            Err(_) => crate::download::get_json(&state.client, &entry.url).await?,
+        }
+    };
     Ok(json)
 }
 

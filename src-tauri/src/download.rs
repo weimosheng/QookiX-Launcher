@@ -60,9 +60,13 @@ pub async fn download_many(
     let current_total = Arc::new(AtomicU64::new(0));
     let cancel_flag = state.install_cancel.clone();
 
-    let (file_threads, chunk_threads) = {
+    let (file_threads, chunk_threads, mirror_base) = {
         let s = state.settings.read().unwrap();
-        (s.download_threads.max(1), s.download_chunk_threads.max(1))
+        (
+            s.download_threads.max(1),
+            s.download_chunk_threads.max(1),
+            crate::mirror::resolve_from(&s.mirror, &s.mirror_custom),
+        )
     };
     let sem = Arc::new(Semaphore::new(file_threads));
     let client = state.client.clone();
@@ -149,6 +153,7 @@ pub async fn download_many(
         let current_total = current_total.clone();
         let cancel = cancel_flag.clone();
         let phase = phase_owned.clone();
+        let mirror_base = mirror_base.clone();
         let bytes_total_h = bytes_total.clone();
         let my_done = active_files[i].1.bytes_done.clone();
         let my_total = active_files[i].1.bytes_total.clone();
@@ -180,7 +185,7 @@ pub async fn download_many(
                         mt.store(cl, Ordering::Relaxed);
                     }
                 };
-                match download_one(&client, &item, &on_progress, chunk_threads).await {
+                match download_one(&client, &item, &mirror_base, &on_progress, chunk_threads).await {
                     Ok(()) => {
                         result = Ok(());
                         break;
@@ -272,6 +277,7 @@ async fn probe_range_support(client: &reqwest::Client, url: &str) -> bool {
 async fn download_one(
     client: &reqwest::Client,
     item: &DownloadItem,
+    mirror_base: &str,
     on_progress: &(dyn Fn(u64, u64) + Send + Sync),
     chunk_threads: usize,
 ) -> Result<(), String> {
@@ -306,6 +312,33 @@ async fn download_one(
     let part = item.dest.with_extension("part");
     let _ = std::fs::remove_file(&part);
 
+    // 优先走镜像地址；镜像拉取/校验失败时回退到原始官方地址，
+    // 这样即使镜像站缺失某个文件，安装也不会整体失败。
+    let target = crate::mirror::map(mirror_base, &item.url);
+    let mut result =
+        fetch_and_verify(client, item, &target, &part, on_progress, chunk_threads).await;
+    if result.is_err() && target != item.url {
+        let _ = std::fs::remove_file(&part);
+        result =
+            fetch_and_verify(client, item, &item.url, &part, on_progress, chunk_threads).await;
+    }
+    result?;
+
+    tokio::fs::rename(&part, &item.dest)
+        .await
+        .map_err(|e| format!("移动文件失败: {e}"))?;
+    Ok(())
+}
+
+/// 拉取单个文件（必要时分片并行）并校验哈希 / 大小。
+async fn fetch_and_verify(
+    client: &reqwest::Client,
+    item: &DownloadItem,
+    url: &str,
+    part: &Path,
+    on_progress: &(dyn Fn(u64, u64) + Send + Sync),
+    chunk_threads: usize,
+) -> Result<(), String> {
     // Decide whether to attempt parallel chunked download:
     //   - chunk_threads > 1
     //   - file size known and >= CHUNK_THRESHOLD
@@ -313,43 +346,40 @@ async fn download_one(
     let can_chunk =
         chunk_threads > 1 && item.size.map(|s| s >= CHUNK_THRESHOLD).unwrap_or(false);
 
-    if can_chunk && probe_range_support(client, &item.url).await {
+    if can_chunk && probe_range_support(client, url).await {
         let size = item.size.unwrap();
-        match download_chunked(client, &item.url, &part, size, chunk_threads, on_progress).await {
+        match download_chunked(client, url, part, size, chunk_threads, on_progress).await {
             Ok(()) => {}
             Err(_) => {
                 // Fallback: some CDNs claim range support but 404 on actual Range requests.
-                let _ = std::fs::remove_file(&part);
-                download_streamed(client, &item.url, &part, on_progress).await?;
+                let _ = std::fs::remove_file(part);
+                download_streamed(client, url, part, on_progress).await?;
             }
         }
     } else {
-        download_streamed(client, &item.url, &part, on_progress).await?;
+        download_streamed(client, url, part, on_progress).await?;
     }
 
     if let Some(sha) = &item.sha512 {
-        let actual = file_sha512(&part).ok_or("校验失败: 无法读取")?;
+        let actual = file_sha512(part).ok_or("校验失败: 无法读取")?;
         if !actual.eq_ignore_ascii_case(sha) {
-            let _ = tokio::fs::remove_file(&part).await;
+            let _ = tokio::fs::remove_file(part).await;
             return Err(format!("sha512 不匹配 (期望 {sha}, 实际 {actual})"));
         }
     } else if let Some(sha) = &item.sha1 {
-        let actual = file_sha1(&part).ok_or("校验失败: 无法读取")?;
+        let actual = file_sha1(part).ok_or("校验失败: 无法读取")?;
         if !actual.eq_ignore_ascii_case(sha) {
-            let _ = tokio::fs::remove_file(&part).await;
+            let _ = tokio::fs::remove_file(part).await;
             return Err(format!("sha1 不匹配 (期望 {sha}, 实际 {actual})"));
         }
     }
     if let Some(size) = item.size {
-        let len = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
+        let len = std::fs::metadata(part).map(|m| m.len()).unwrap_or(0);
         if len != size {
-            let _ = tokio::fs::remove_file(&part).await;
+            let _ = tokio::fs::remove_file(part).await;
             return Err(format!("大小不匹配 (期望 {size}, 实际 {len})"));
         }
     }
-    tokio::fs::rename(&part, &item.dest)
-        .await
-        .map_err(|e| format!("移动文件失败: {e}"))?;
     Ok(())
 }
 

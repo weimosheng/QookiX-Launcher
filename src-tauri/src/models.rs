@@ -62,6 +62,10 @@ pub struct Settings {
     pub selected_account: Option<String>,
     /// HTTP/SOCKS proxy URL for downloads (e.g. "http://127.0.0.1:7890")
     pub proxy: Option<String>,
+    /// 下载镜像源 id："official" | "bmclapi" | "custom"
+    pub mirror: String,
+    /// 自定义镜像根地址（`mirror == "custom"` 时生效），需兼容 BMCLAPI 接口
+    pub mirror_custom: String,
     /// 自定义背景图片绝对路径（None = 使用默认渐变背景）
     pub background_image: Option<String>,
     /// 背景图片模糊半径 px（0-50）
@@ -102,6 +106,8 @@ impl Default for Settings {
             ms_client_id: "00000000-0000-0000-0000-000000000000".into(),
             selected_account: None,
             proxy: None,
+            mirror: "official".into(),
+            mirror_custom: String::new(),
             background_image: None,
             background_blur: 0,
             background_dim: 45,

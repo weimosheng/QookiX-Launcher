@@ -8,6 +8,8 @@ import type {
   Instance,
   InstanceGroup,
   JavaInfo,
+  MirrorPreset,
+  MirrorTestResult,
   NewsItem,
   ProjectHit,
   ProjectVersion,
@@ -36,6 +38,9 @@ const SILENT_COMMANDS = new Set([
   "start_hosted_server",
   "read_hosted_server_file",
   "write_hosted_server_file",
+  // 镜像测速：页面内已有独立加载态，不触发顶部加载条
+  "list_mirrors",
+  "test_mirror",
   // 陶瓦联机：高频轮询与状态操作，页面内已有独立加载反馈，不触发顶部加载条
   "terracotta_detect",
   "terracotta_download",
@@ -69,6 +74,8 @@ export const api = {
   // settings & java
   getSettings: () => invoke<Settings>("get_settings"),
   setSettings: (patch: Record<string, unknown>) => invoke<Settings>("set_settings", { patch }),
+  listMirrors: () => invoke<MirrorPreset[]>("list_mirrors"),
+  testMirror: (base: string) => invoke<MirrorTestResult>("test_mirror", { base }),
   changeDataDir: (newDir: string, mode: "move" | "copy" | "pointer") =>
     invoke<{ ok: boolean; new_dir: string; need_restart: boolean }>("change_data_dir", {
       newDir,

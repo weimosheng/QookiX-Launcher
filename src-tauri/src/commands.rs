@@ -28,6 +28,38 @@ pub fn set_settings(state: State<AppState>, patch: Value) -> Result<Settings, St
     settings::update_settings(&state, patch)
 }
 
+/// 可用的下载镜像源预设列表。
+#[tauri::command]
+pub fn list_mirrors() -> Value {
+    crate::mirror::presets()
+}
+
+/// 测试镜像源连通性并返回首字节耗时（毫秒）。
+/// `base` 为空串表示测试官方源。仅发一个 GET 并读取状态，不下载正文。
+#[tauri::command]
+pub async fn test_mirror(state: State<'_, AppState>, base: String) -> Result<Value, String> {
+    let base = base.trim().trim_end_matches('/').to_string();
+    let url = if base.is_empty() {
+        crate::mirror::OFFICIAL_MANIFEST.to_string()
+    } else {
+        format!("{base}/mc/game/version_manifest_v2.json")
+    };
+    let start = std::time::Instant::now();
+    let resp = state
+        .client
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| format!("连接失败: {e}"))?;
+    let ms = start.elapsed().as_millis() as u64;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("HTTP {status}"));
+    }
+    Ok(json!({ "ok": true, "ms": ms, "url": url }))
+}
+
 /// Move/copy the launcher data root to a new directory.
 /// `mode`: "move" | "copy" | "pointer". Returns the new data dir; the caller
 /// should restart for the change to fully take effect.
@@ -3019,10 +3051,83 @@ const CRASH_RULES: &[CrashRule] = &[
     },
 ];
 
-/// Fetch news from the launcher's news feed.
-/// Returns an empty array if the news feed is unavailable.
-#[allow(dead_code)]
+/// Minecraft 官方新闻搜索接口（minecraft.net 官网自用），按时间倒序取最新中文条目
+const NEWS_API: &str = "https://net-secondary.web.minecraft-services.net/api/v1.0/zh-cn/search?pageSize=24&sortType=Recent&category=News&newsOnly=true&geography=CN";
+
+#[derive(serde::Deserialize)]
+struct NewsEntry {
+    title: Option<String>,
+    description: Option<String>,
+    author: Option<String>,
+    image: Option<String>,
+    #[serde(rename = "imageAltText")]
+    image_alt: Option<String>,
+    url: Option<String>,
+    /// Unix 时间戳（秒）
+    time: Option<i64>,
+}
+
+#[derive(serde::Deserialize)]
+struct NewsResult {
+    results: Option<Vec<NewsEntry>>,
+}
+
+#[derive(serde::Deserialize)]
+struct NewsResponse {
+    result: Option<NewsResult>,
+}
+
+/// 官网原始数据里含有 `&amp;` 等 HTML 实体，直接展示会露出生标记
+fn decode_entities(s: &str) -> String {
+    s.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&nbsp;", " ")
+}
+
+/// 拉取 Minecraft 官方新闻。网络不可用时返回空数组，由前端展示「暂无新闻」。
 #[tauri::command]
-pub fn fetch_news() -> Result<Vec<serde_json::Value>, String> {
-    Ok(Vec::new())
+pub async fn fetch_news(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>, String> {
+    let resp = state
+        .client
+        .get(NEWS_API)
+        .timeout(std::time::Duration::from_secs(15))
+        .header("User-Agent", "QookiX-Launcher")
+        .send()
+        .await
+        .map_err(|e| format!("获取新闻失败: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("获取新闻失败: HTTP {status}"));
+    }
+    let body: NewsResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析新闻失败: {e}"))?;
+
+    let items = body
+        .result
+        .and_then(|r| r.results)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|e| {
+            let title = e.title.unwrap_or_default();
+            if title.trim().is_empty() {
+                return None;
+            }
+            Some(json!({
+                "title": decode_entities(&title),
+                "description": e.description.map(|d| decode_entities(&d)).unwrap_or_default(),
+                "author": e.author.unwrap_or_default(),
+                "time": e.time.unwrap_or(0),
+                "image": e.image.unwrap_or_default(),
+                "image_alt": e.image_alt.unwrap_or_default(),
+                "url": e.url.unwrap_or_default(),
+            }))
+        })
+        .collect();
+    Ok(items)
 }

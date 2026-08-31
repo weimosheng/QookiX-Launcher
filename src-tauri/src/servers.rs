@@ -484,8 +484,14 @@ async fn download_fabric_core(
         "serverId": id, "phase": "正在获取版本信息…", "done": 0, "total": 1
     }));
 
-    let meta_url = format!("https://meta.fabricmc.net/v2/versions/loader/{}", mc_version);
-    let maven_base = "https://maven.fabricmc.net/net/fabricmc/fabric-installer";
+    let meta_url = crate::mirror::rewrite(
+        state,
+        &format!("https://meta.fabricmc.net/v2/versions/loader/{}", mc_version),
+    );
+    let maven_base = crate::mirror::rewrite(
+        state,
+        "https://maven.fabricmc.net/net/fabricmc/fabric-installer",
+    );
 
     // 获取最新 loader 版本
     let resp: serde_json::Value = crate::download::get_json(&state.client, &meta_url)
@@ -500,8 +506,9 @@ async fn download_fabric_core(
         .ok_or("无法解析 loader 版本")?;
 
     // 获取最新 installer 版本
+    let installer_meta = crate::mirror::rewrite(state, "https://meta.fabricmc.net/v2/versions/installer");
     let ir: serde_json::Value =
-        crate::download::get_json(&state.client, "https://meta.fabricmc.net/v2/versions/installer")
+        crate::download::get_json(&state.client, &installer_meta)
             .await
             .map_err(|e| format!("获取 installer 版本失败: {e}"))?;
     let installer_ver = ir
@@ -541,8 +548,9 @@ async fn download_fabric_core(
         .downloads
         .server
         .ok_or_else(|| format!("版本 {} 没有官方服务端核心", mc_version))?;
+    let vanilla_url = crate::mirror::server_jar_url(state, &dl.url, mc_version);
     download_file_to_with_progress(
-        &app, &state.client, &dl.url, &vanilla_jar, id, "正在下载原版服务端核心…", None,
+        &app, &state.client, &vanilla_url, &vanilla_jar, id, "正在下载原版服务端核心…", None,
     )
     .await?;
 
@@ -582,10 +590,16 @@ async fn download_forge_core(
         "serverId": id, "phase": "正在获取版本信息…", "done": 0, "total": 1
     }));
 
-    let meta_url = "https://files.minecraftforge.net/maven/net/minecraftforge/forge/maven-metadata.xml";
-    let maven_base = "https://files.minecraftforge.net/maven/net/minecraftforge/forge";
+    let meta_url = crate::mirror::rewrite(
+        state,
+        "https://files.minecraftforge.net/maven/net/minecraftforge/forge/maven-metadata.xml",
+    );
+    let maven_base = crate::mirror::rewrite(
+        state,
+        "https://files.minecraftforge.net/maven/net/minecraftforge/forge",
+    );
 
-    let xml = crate::download::get_text(&state.client, meta_url)
+    let xml = crate::download::get_text(&state.client, &meta_url)
         .await
         .map_err(|e| format!("获取版本元数据失败: {e}"))?;
     let versions = parse_maven_versions(&xml);

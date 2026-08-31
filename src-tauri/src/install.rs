@@ -41,7 +41,7 @@ pub async fn install_game(
     let client_jar_path = crate::paths::resolve_version_dir(state, &instance.id).join(format!("{}.jar", instance.id));
     if let Some(client) = &patched.downloads.client {
         items.push(DownloadItem {
-            url: client.url.clone(),
+            url: crate::mirror::client_jar_url(state, &client.url, &instance.mc_version),
             dest: client_jar_path.clone(),
             sha1: Some(client.sha1.clone()),
             sha512: None,
@@ -188,11 +188,7 @@ pub async fn install_game(
                 continue;
             }
             asset_items.push(DownloadItem {
-                url: format!(
-                    "https://resources.download.minecraft.net/{}/{}",
-                    &obj.hash[0..2],
-                    &obj.hash
-                ),
+                url: crate::mirror::asset_url(state, &obj.hash),
                 dest,
                 sha1: Some(obj.hash.clone()),
                 sha512: None,
@@ -392,12 +388,16 @@ pub(crate) async fn fabric_patch(
     let loader_ver = match &instance.loader_version {
         Some(v) if !v.is_empty() => v.clone(),
         Some(_) | None => {
-            latest_stable_loader(state, "https://meta.fabricmc.net/v2/versions/loader", &instance.mc_version).await?
+            let base = crate::mirror::rewrite(state, "https://meta.fabricmc.net/v2/versions/loader");
+            latest_stable_loader(state, &base, &instance.mc_version).await?
         }
     };
-    let url = format!(
-        "https://meta.fabricmc.net/v2/versions/loader/{}/{}",
-        instance.mc_version, loader_ver
+    let url = crate::mirror::rewrite(
+        state,
+        &format!(
+            "https://meta.fabricmc.net/v2/versions/loader/{}/{}",
+            instance.mc_version, loader_ver
+        ),
     );
     let meta: LoaderMetaEntry = crate::download::get_json(&state.client, &url).await?;
     let mut patched = vanilla.clone();
@@ -510,6 +510,8 @@ async fn forge_patch(
             "forge",
         )
     };
+    // Forge / NeoForge 安装器走 maven 仓库，镜像站统一挂在 `/maven/` 下
+    let base_url = crate::mirror::rewrite(state, base_url);
     let full_ver = if is_neoforge {
         version.clone()
     } else {
@@ -628,7 +630,7 @@ pub async fn loader_versions(
                 LoaderType::Fabric => "https://meta.fabricmc.net/v2/versions/loader",
                 _ => "https://meta.quiltmc.org/v3/versions/loader",
             };
-            let url = format!("{base}/{mc_version}");
+            let url = format!("{}/{mc_version}", crate::mirror::rewrite(state, base));
             let list: Vec<serde_json::Value> = crate::download::get_json(&state.client, &url).await?;
             let versions: Vec<String> = list
                 .into_iter()
@@ -650,7 +652,8 @@ pub async fn loader_versions(
                     },
                 ),
             };
-            let xml = crate::download::get_text(&state.client, url).await?;
+            let url = crate::mirror::rewrite(state, url);
+            let xml = crate::download::get_text(&state.client, &url).await?;
             let versions = crate::util::parse_maven_versions(&xml);
             if loader == LoaderType::Forge {
                 Ok(sort_mc_versions(versions, &prefix))
