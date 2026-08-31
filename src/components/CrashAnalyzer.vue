@@ -536,12 +536,17 @@ function handleSelect(filename: string) {
 }
 
 /* 分析结果 */
+/* 分析结果卡片 */
 .crash-result {
   display: flex;
   flex-direction: column;
   gap: 14px;
   overflow-y: auto;
   min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
 }
 
 .crash-severity {

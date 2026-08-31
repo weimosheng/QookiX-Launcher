@@ -117,6 +117,21 @@ body,
   text-shadow: 0 1px 2px rgba(255, 255, 255, 0.65);
 }
 
+/* 深浅色切换过渡：仅在切换瞬间由脚本给 <html> 挂上 .theme-transition，
+   动画结束后立即移除，避免常驻全局 transition 影响性能与按钮 hover。 */
+.theme-transition,
+.theme-transition *,
+.theme-transition *::before,
+.theme-transition *::after {
+  transition:
+    background-color 0.28s ease,
+    border-color 0.28s ease,
+    color 0.28s ease,
+    fill 0.28s ease,
+    box-shadow 0.28s ease !important;
+  transition-delay: 0s !important;
+}
+
 .app-bg {
   position: relative;
   background:

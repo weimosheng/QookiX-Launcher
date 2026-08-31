@@ -65,6 +65,17 @@ pub async fn test_mirror(state: State<'_, AppState>, base: String) -> Result<Val
 /// 返回首字节耗时（毫秒）。`proxy` 仅在 `proxy_mode == "custom"` 时生效。
 #[tauri::command]
 pub async fn test_proxy(proxy_mode: String, proxy: Option<String>) -> Result<Value, String> {
+    // 自定义模式必须给出合法的代理地址，否则 http_client 会退化为直连，
+    // 导致「没填地址也测试成功」——这里先校验，避免误报成功。
+    if proxy_mode == "custom" {
+        let addr = proxy.as_deref().unwrap_or("").trim();
+        if addr.is_empty() {
+            return Err("请先填写代理地址".to_string());
+        }
+        if reqwest::Proxy::all(addr).is_err() {
+            return Err("代理地址格式不正确，应类似 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080".to_string());
+        }
+    }
     let client = settings::http_client(&proxy_mode, proxy.as_deref());
     let url = crate::mirror::OFFICIAL_MANIFEST.to_string();
     let start = std::time::Instant::now();

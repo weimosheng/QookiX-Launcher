@@ -192,6 +192,11 @@ async function testProxy() {
   testingProxy.value = true;
   try {
     const { proxy_mode, proxy } = settings.settings;
+    // 自定义模式必须填地址，否则后端会退化为直连而误报成功
+    if (proxy_mode === "custom" && !(proxy ?? "").trim()) {
+      message.warning("请先填写代理地址");
+      return;
+    }
     const res = await api.testProxy(
       proxy_mode,
       proxy_mode === "custom" ? proxy : null
@@ -251,12 +256,20 @@ const javaCandidates = ref<JavaInfo[]>([]);
 const detecting = ref(false);
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 const tab = ref("general");
-// 更新源位于「关于」页，面板用 v-show 隐藏时矩形为 0，需在切换到该页时刷新指示器
-watch(tab, (val) => {
-  // 这些面板用 v-show 隐藏时矩形为 0，需在切换到对应页时刷新滑动指示器
-  if (val === "appearance") nextTick(() => refreshThemeSeg());
-  if (val === "about") nextTick(() => refreshUpdateSourceSeg());
-  if (val === "download") nextTick(() => refreshProxyModeSeg());
+/**
+ * 刷新当前页的滑动指示器。
+ * 面板切换有过渡动画（out-in），新面板在 enter 结束后才完成布局，
+ * 因此必须在动画结束后测量，否则矩形为 0、指示器位置错乱。
+ */
+function refreshCurrentPaneIndicators() {
+  const val = tab.value;
+  if (val === "appearance") refreshThemeSeg();
+  if (val === "about") refreshUpdateSourceSeg();
+  // 「下载代理」seg 位于「内容服务」页，不是「下载」页
+  if (val === "content") refreshProxyModeSeg();
+}
+watch(tab, () => {
+  nextTick(refreshCurrentPaneIndicators);
 });
 
 const tabs = [
@@ -556,7 +569,8 @@ onUnmounted(() => {
       </nav>
     </aside>
 
-    <div class="settings-body">
+    <Transition name="settings-pane" mode="out-in" @after-enter="refreshCurrentPaneIndicators">
+    <div :key="tab" class="settings-body">
       <!-- 常规 -->
       <div v-show="tab === 'general'" class="settings-pane">
         <div class="grid">
@@ -962,7 +976,7 @@ onUnmounted(() => {
                 </button>
               </div>
               <button
-                class="mirror-btn"
+                class="mirror-btn proxy-test-btn"
                 :class="{ disabled: testingProxy }"
                 @click="testProxy"
               >
@@ -1087,7 +1101,7 @@ onUnmounted(() => {
             <div class="about-logo">
               <img class="about-logo-img" :src="logoUrl" alt="QookiX" />
               <span class="about-name">QookiX Launcher</span>
-              <span class="about-ver">v0.5.1</span>
+              <span class="about-ver">v0.5.2</span>
             </div>
             <p class="about-desc">现代化、简洁、无广告的 Minecraft 启动器</p>
             <div class="about-features">
@@ -1157,6 +1171,7 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+    </Transition>
 
     <n-modal v-model:show="migrateModal" preset="card" title="更改数据目录" class="migrate-modal">
       <div v-if="migratePhase === 'select'" class="migrate-body">
@@ -1261,6 +1276,21 @@ onUnmounted(() => {
 .settings-body {
   flex: 1;
   min-width: 0;
+}
+/* 子标签页切换动画 */
+.settings-pane-enter-active {
+  transition: opacity 0.22s ease, transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.settings-pane-leave-active {
+  transition: opacity 0.13s ease, transform 0.13s ease-in;
+}
+.settings-pane-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+.settings-pane-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 .settings-pane {
   display: flex;
@@ -2125,6 +2155,19 @@ textarea.text-input {
   opacity: 0.5;
   pointer-events: none;
 }
+/* 下载代理「测试连接」：跟随主题色 */
+.proxy-test-btn {
+  color: var(--accent);
+  border-color: var(--accent-35);
+  background: var(--accent-soft);
+  font-weight: 600;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.proxy-test-btn:hover:not(.disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1208;
+}
 .proxy-row {
   display: flex;
   align-items: center;
@@ -2133,6 +2176,9 @@ textarea.text-input {
 .proxy-row .seg {
   flex: 1;
   min-width: 0;
+}
+.proxy-row + .text-input {
+  margin-top: 8px;
 }
 .mirror-custom {
   flex-wrap: wrap;

@@ -89,6 +89,43 @@ function detectSkinModel(dataUrl: string): Promise<"classic" | "slim"> {
   });
 }
 
+// —— 手动选择的皮肤模型（经典/纤细）持久化 ——
+// skinVariant 本身只是组件内的 ref，离开页面组件销毁后就会丢失，
+// 回来时 loadCurrentAccountSkin 又会按皮肤自身的模型重置回去，
+// 导致「选了纤细、切走再回来又变经典」。这里把用户的手动选择存到
+// localStorage，按账号维度记住；换皮肤或换账号时清除，避免错误套用。
+function variantOverrideKey(uuid: string | undefined) {
+  return `qookix:skin_variant_override:${uuid ?? "anon"}`;
+}
+function readVariantOverride(): "classic" | "slim" | null {
+  const uuid = accounts.current?.uuid;
+  const v = localStorage.getItem(variantOverrideKey(uuid));
+  return v === "slim" || v === "classic" ? v : null;
+}
+function writeVariantOverride(m: "classic" | "slim") {
+  localStorage.setItem(variantOverrideKey(accounts.current?.uuid), m);
+}
+function clearVariantOverride() {
+  localStorage.removeItem(variantOverrideKey(accounts.current?.uuid));
+}
+/** 应用持久化的手动选择（在自动加载完当前皮肤后调用） */
+function applyVariantOverride() {
+  const m = readVariantOverride();
+  if (!m) return;
+  skinVariant.value = m;
+  renderer.setModel(m === "slim" ? "slim" : "default");
+}
+
+/**
+ * 判断某张皮肤是否为「当前正在预览的皮肤」。
+ * 必须比对皮肤内容（dataURL）而不是名字：离线账号自动加载时
+ * currentName 是账号昵称，而列表里的 s.name 是皮肤保存名（如正版玩家名），
+ * 两者往往不同，用名字比对会导致缩略图/高亮永远匹配不上。
+ */
+function isCurrentSkin(src: string | undefined | null): boolean {
+  return !!src && src === currentSrc.value;
+}
+
 // —— Microsoft 账号皮肤/披风缓存 ——
 // 每次打开皮肤页都会向 Mojang 服务器请求一次当前正版皮肤 + 披风列表，
 // 而这些数据短期内几乎不会变。这里用 localStorage 做带 TTL 的本地缓存，
@@ -218,6 +255,8 @@ watch(
   () => accounts.current?.uuid,
   async (uuid, oldUuid) => {
     if (!uuid || uuid === oldUuid) return;
+    // 换了账号：之前的选择不该套用到新账号的皮肤上
+    clearVariantOverride();
     await loadCurrentAccountSkin();
   },
 );
@@ -225,6 +264,8 @@ watch(
 function setSkinModel(m: "classic" | "slim") {
   skinVariant.value = m;
   renderer.setModel(m === "slim" ? "slim" : "default");
+  // 记住用户的手动选择，切换页面/重启后仍然生效
+  writeVariantOverride(m);
 }
 
 const offlineHintShow = ref(false);
@@ -270,6 +311,8 @@ async function applySkin() {
     try {
       await api.applySkinOffline(currentSrc.value, skinVariant.value, currentAccount.value!.uuid);
       lastAppliedSrc.value = currentSrc.value;
+      // 应用时同样记住手动选择，切页面回来不会被缓存的 variant 覆盖
+      writeVariantOverride(skinVariant.value);
       saveOfflineSkinCache(currentAccount.value!.uuid, {
         src: currentSrc.value,
         variant: skinVariant.value,
@@ -330,15 +373,25 @@ async function previewSkin(src: string, name: string, kind: "local" | "official"
   currentName.value = name;
   currentKind.value = kind;
   await renderer.loadSkinFromSrc(src);
+  // 所有渲染路径的公共出口：渲染完成后套用用户的手动选择（若有的话）。
+  // 主动换皮肤时会先 clearVariantOverride() 再走到这里，所以不会误套用；
+  // 而切页面/重启后自动加载皮肤时，用户上次的选择会被正确还原。
+  applyVariantOverride();
 }
 
 async function selectLocal(s: SkinEntry) {
   const url = skinDataUrls.value[s.filename];
   if (!url) return;
+  // 主动换了皮肤：清除手动选择，按这张皮肤自身的模型显示
+  clearVariantOverride();
+  const variant = await detectSkinModel(url);
+  skinVariant.value = variant;
+  renderer.setModel(variant === "slim" ? "slim" : "default");
   await previewSkin(url, s.name, "local");
 }
 
 async function selectOfficial(s: (typeof BUILTIN_SKINS)[number]) {
+  clearVariantOverride();
   skinVariant.value = s.model === "slim" ? "slim" : "classic";
   renderer.setModel(s.model === "slim" ? "slim" : "default");
   await previewSkin(s.dataUrl, s.name, "official");
@@ -435,9 +488,11 @@ async function saveCurrentToLocal() {
 async function deleteSkin(s: SkinEntry) {
   try {
     await api.deleteSkin(s.filename);
+    // 先取内容再删映射：用皮肤内容判断是否为当前预览的皮肤（名字比对不可靠）
+    const wasCurrent = currentKind.value === "local" && isCurrentSkin(skinDataUrls.value[s.filename]);
     delete skinDataUrls.value[s.filename];
     skins.value = skins.value.filter((x) => x.filename !== s.filename);
-    if (currentKind.value === "local" && currentName.value === s.name) {
+    if (wasCurrent) {
       currentSrc.value = null;
       currentName.value = "";
       currentKind.value = "none";
@@ -480,6 +535,7 @@ function formatSize(bytes: number): string {
 onMounted(async () => {
   await accounts.load();
   await loadSkins();
+  // 手动选择由 previewSkin 统一套用（loadCurrentAccountSkin 内部会渲染）
   await loadCurrentAccountSkin();
 });
 </script>
@@ -582,13 +638,13 @@ onMounted(async () => {
                 v-for="s in skins"
                 :key="s.filename"
                 class="skin-card"
-                :class="{ active: currentKind === 'local' && currentName === s.name }"
+                :class="{ active: currentKind === 'local' && isCurrentSkin(skinDataUrls[s.filename]) }"
                 @click="selectLocal(s)"
               >
                 <div class="thumb-wrap">
                   <SkinThumb
                     :src="skinDataUrls[s.filename] ?? null"
-                    :slim="currentKind === 'local' && currentName === s.name && skinVariant === 'slim'"
+                    :slim="currentKind === 'local' && isCurrentSkin(skinDataUrls[s.filename]) && skinVariant === 'slim'"
                   />
                 </div>
                 <div class="skin-meta">
@@ -611,13 +667,17 @@ onMounted(async () => {
                 v-for="s in BUILTIN_SKINS"
                 :key="s.name"
                 class="skin-card"
-                :class="{ active: currentKind === 'official' && currentName === s.name }"
+                :class="{ active: currentKind === 'official' && isCurrentSkin(s.dataUrl) }"
                 @click="selectOfficial(s)"
               >
                 <div class="thumb-wrap">
                   <SkinThumb
                     :src="s.dataUrl"
-                    :slim="s.model === 'slim' || (currentKind === 'official' && currentName === s.name && skinVariant === 'slim')"
+                    :slim="
+                      currentKind === 'official' && isCurrentSkin(s.dataUrl)
+                        ? skinVariant === 'slim'
+                        : s.model === 'slim'
+                    "
                   />
                 </div>
                 <div class="skin-meta">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, computed, watch, ref, provide } from "vue";
+import { onMounted, onBeforeUnmount, computed, watch, ref, provide } from "vue";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { darkTheme, lightTheme, NConfigProvider, NDialogProvider, NLoadingBarProvider, NMessageProvider, NNotificationProvider } from "naive-ui";
 import TitleBar from "./components/TitleBar.vue";
@@ -35,9 +35,28 @@ const themeOverrides = computed(() =>
   isDark.value ? buildDarkOverrides(accentColor.value) : buildLightOverrides(accentColor.value),
 );
 
+// 首次应用主题不做过渡（否则页面加载时会闪一下颜色）
+let themeReady = false;
+let themeTransitionTimer: ReturnType<typeof setTimeout> | null = null;
+
 watch(isDark, () => {
-  document.documentElement.classList.toggle("light", !isDark.value);
+  const root = document.documentElement;
+  if (themeReady) {
+    // 切换瞬间临时开启全局颜色过渡，结束后移除，避免影响性能与 hover 动画
+    root.classList.add("theme-transition");
+    if (themeTransitionTimer) clearTimeout(themeTransitionTimer);
+    themeTransitionTimer = setTimeout(() => {
+      root.classList.remove("theme-transition");
+      themeTransitionTimer = null;
+    }, 320);
+  }
+  root.classList.toggle("light", !isDark.value);
+  themeReady = true;
 }, { immediate: true });
+
+onBeforeUnmount(() => {
+  if (themeTransitionTimer) clearTimeout(themeTransitionTimer);
+});
 
 // 将主题色应用到 CSS 变量上（accent / accent-deep / accent-soft / 各级 alpha）
 watch(accentColor, (hex) => {
