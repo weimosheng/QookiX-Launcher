@@ -24,6 +24,7 @@ export interface Settings {
   jvm_args: string;
   game_args: string;
   download_threads: number;
+  download_chunk_threads: number;
   curseforge_api_key: string | null;
   theme: string;
   theme_color: string;
@@ -234,6 +235,27 @@ export interface DownloadProgressEvent {
   bytesDone?: number;
   bytesTotal?: number;
   ts?: number;
+  activeFiles?: string[];
+}
+
+export interface ActiveFile {
+  name: string;
+  done: number;
+  total: number;
+  bytesDone?: number;
+  bytesTotal?: number;
+}
+
+export interface NewsItem {
+  title: string;
+  description?: string;
+  content?: string;
+  author?: string;
+  time: number;
+  image?: string;
+  image_alt?: string;
+  url?: string;
+  important?: boolean;
 }
 
 export interface LaunchLogEvent {

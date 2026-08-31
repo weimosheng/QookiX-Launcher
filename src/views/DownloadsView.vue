@@ -218,10 +218,10 @@ function isModpackTask(t: TaskEntry) {
                 <div class="file-current-row">
                   <span class="file-status">→</span>
                   <span class="file-name text-ellipsis">{{ f.name }}</span>
-                  <span v-if="f.bytesTotal" class="file-progress">{{ pct(f.bytesDone, f.bytesTotal) }}%</span>
+                   <span v-if="f.bytesTotal" class="file-progress">{{ pct(f.bytesDone ?? 0, f.bytesTotal) }}%</span>
                 </div>
                 <div v-if="f.bytesTotal" class="file-mini-bar">
-                  <div class="file-mini-fill" :style="{ width: pct(f.bytesDone, f.bytesTotal) + '%' }"></div>
+                   <div class="file-mini-fill" :style="{ width: pct(f.bytesDone ?? 0, f.bytesTotal) + '%' }"></div>
                 </div>
               </div>
               <div
