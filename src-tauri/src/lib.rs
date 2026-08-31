@@ -23,7 +23,22 @@ mod util;
 use state::AppState;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
-use tauri::Manager;
+use tauri::{
+    menu::{MenuBuilder, MenuItemBuilder},
+    tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
+    Manager,
+};
+
+/// Restore (and focus) the main window — used by the tray icon, which is the
+/// only way back once the window has been hidden by the "minimize to
+/// background" close behaviour.
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -230,6 +245,40 @@ pub fn run() {
                 let state = handle.state::<AppState>();
                 *state.java_cache.lock().unwrap() = Some((ts, detected));
             });
+
+            // System tray: when the close behaviour is set to "minimize to
+            // background" the window is only hidden, so without a tray icon the
+            // user has no way to bring it back. Left click opens the menu,
+            // double click restores the window directly.
+            let show_item = MenuItemBuilder::with_id("show", "显示主窗口").build(app.handle())?;
+            let quit_item = MenuItemBuilder::with_id("quit", "退出 QookiX Launcher").build(app.handle())?;
+            let menu = MenuBuilder::new(app.handle())
+                .item(&show_item)
+                .separator()
+                .item(&quit_item)
+                .build()?;
+
+            let _ = TrayIconBuilder::with_id("main")
+                .icon(tauri::include_image!("icons/32x32.png"))
+                .tooltip("QookiX Launcher")
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "show" => show_main_window(app),
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    // Left click is reserved for the menu; double click restores.
+                    if let TrayIconEvent::DoubleClick {
+                        button: MouseButton::Left,
+                        ..
+                    } = event
+                    {
+                        show_main_window(tray.app_handle());
+                    }
+                })
+                .build(app.handle());
+
             Ok(())
         })
         .run(tauri::generate_context!())
