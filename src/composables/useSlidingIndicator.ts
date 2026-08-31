@@ -43,9 +43,8 @@ export function useSlidingIndicator(
     return null;
   }
 
-  // 记录上一次的矩形，用于“先扩展包裹、再收缩到目标”的两段式动画
+  // 记录上一次的矩形，用于“从当前位置直接平滑滑动到目标”的连续过渡
   let last: { top: number; height: number; left: number; width: number } | null = null;
-  let timer: ReturnType<typeof setTimeout> | null = null;
 
   function setRect(rect: { top: number; height: number; left: number; width: number }, dur: string) {
     const base: Record<string, string> =
@@ -55,7 +54,7 @@ export function useSlidingIndicator(
     indicatorStyle.value = {
       opacity: "1",
       ...base,
-      transition: `top ${dur}, height ${dur}, left ${dur}, width ${dur}, opacity 0.18s`,
+      transition: `top ${dur}, height ${dur}, left ${dur}, width ${dur}, opacity 0.2s`,
     };
   }
 
@@ -80,22 +79,9 @@ export function useSlidingIndicator(
       last = to;
       return;
     }
-    if (timer) clearTimeout(timer);
-    // 阶段 1：扩展包裹“当前 + 目标”两段的整个区间
-    setRect(
-      {
-        top: Math.min(last.top, to.top),
-        height: Math.max(last.top + last.height, to.top + to.height) - Math.min(last.top, to.top),
-        left: Math.min(last.left, to.left),
-        width: Math.max(last.left + last.width, to.left + to.width) - Math.min(last.left, to.left),
-      },
-      "0.18s"
-    );
-    // 阶段 2：收缩贴合到目标按钮
-    timer = setTimeout(() => {
-      setRect(to, "0.18s");
-      timer = null;
-    }, 180);
+    // 连续过渡：直接从当前位置滑动 + 缩放贴合到目标，一次到位，
+    // 不再用「先包裹再收缩」的两段式（那种中间会有明显的停顿跳变）。
+    setRect(to, "0.26s");
     last = to;
   }
 
@@ -122,8 +108,6 @@ export function useSlidingIndicator(
         left: r.left - c.left,
         width: r.width,
       };
-      if (timer) clearTimeout(timer);
-      timer = null;
       setRect(to, "0s");
       last = to;
     });
@@ -134,7 +118,6 @@ export function useSlidingIndicator(
     window.addEventListener("resize", refresh);
   });
   onBeforeUnmount(() => {
-    if (timer) clearTimeout(timer);
     cancelAnimationFrame(raf);
     window.removeEventListener("resize", refresh);
   });

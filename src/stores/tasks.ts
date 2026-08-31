@@ -115,11 +115,7 @@ export const useTasksStore = defineStore("tasks", {
           if (p.bytesTotal && p.bytesTotal > 0) t.bytesTotal = Math.max(t.bytesTotal, p.bytesTotal);
           t.ok = p.ok;
           if (p.activeFiles) {
-            t.activeFiles = p.activeFiles.map((name) => ({
-              name,
-              done: 0,
-              total: 0,
-            }));
+            t.activeFiles = p.activeFiles;
           }
           if (p.current) {
             t.files.push({ name: p.current, ok: p.ok ?? true });

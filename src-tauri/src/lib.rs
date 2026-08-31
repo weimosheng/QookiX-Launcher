@@ -453,6 +453,7 @@ mod smoke {
             install_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ms_flow: Arc::new(Mutex::new(None)),
             java_cache: Mutex::new(None),
+            terracotta: Mutex::new(None),
         };
         let instance = Instance {
             id: "test-fabric".into(),
@@ -505,6 +506,7 @@ mod smoke {
             install_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ms_flow: Arc::new(Mutex::new(None)),
             java_cache: Mutex::new(None),
+            terracotta: Mutex::new(None),
         };
         // modpack type + empty query (regression for the 400 bug)
         let res = crate::modrinth::search(&state, "", "modpack", "", "relevance", 0, 20, "", "")

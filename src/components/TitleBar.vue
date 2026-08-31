@@ -10,9 +10,11 @@ import {
   IconCompass,
   IconDownload,
   IconGrid,
+  IconNewspaper,
   IconPlus,
   IconSettings,
   IconUser,
+  IconUsers,
   IconTrash,
   IconRefresh,
 } from "./icons";
@@ -35,9 +37,11 @@ const pageIcons: Record<string, any> = {
   compass: IconCompass,
   download: IconDownload,
   grid: IconGrid,
+  newspaper: IconNewspaper,
   plus: IconPlus,
   settings: IconSettings,
   user: IconUser,
+  users: IconUsers,
 };
 const pageIcon = computed(() => pageIcons[(route.meta.icon as string) ?? ""] ?? IconHome);
 

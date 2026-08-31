@@ -62,12 +62,15 @@ export function useSkinRenderer(canvasRef: Ref<HTMLCanvasElement | null>) {
 
   async function setModel(m: ModelKind) {
     model.value = m;
-    if (viewer && currentSrc) {
-      try {
-        await viewer.loadSkin(currentSrc, { model: m });
-      } catch {
-        /* ignore */
-      }
+    if (!viewer || !currentSrc) return;
+    try {
+      // 同一张皮肤纹理时，skinview3d 的 loadSkin 会因为 source 相同而直接
+      // 早退、不重建几何体，于是 model（slim/classic 胳膊宽度）不会变。
+      // 先清空再带 model 重新加载，强制走重建路径，预览才会跟着切纤细/经典。
+      viewer.loadSkin(null);
+      await viewer.loadSkin(currentSrc, { model: m });
+    } catch {
+      /* ignore */
     }
   }
 
