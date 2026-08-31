@@ -9,6 +9,7 @@ mod launch;
 mod mcmeta;
 mod mcping;
 mod mcmod;
+mod mirror;
 mod models;
 mod modpack;
 mod modrinth;
@@ -18,12 +19,28 @@ mod settings;
 mod state;
 mod storage;
 mod terracotta;
+mod updater;
 mod util;
 
 use state::AppState;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
-use tauri::Manager;
+use tauri::{
+    menu::{MenuBuilder, MenuItemBuilder},
+    tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
+    Manager,
+};
+
+/// Restore (and focus) the main window — used by the tray icon, which is the
+/// only way back once the window has been hidden by the "minimize to
+/// background" close behaviour.
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -43,11 +60,12 @@ pub fn run() {
     let _ = settings::ensure_layout(&root);
     let loaded = settings::load_settings(&root);
 
+    let proxy_mode = loaded.proxy_mode.clone();
     let proxy = loaded.proxy.clone();
     let app_state = AppState {
         root,
         settings: RwLock::new(loaded),
-        client: settings::http_client(proxy.as_deref()),
+        client: settings::http_client(&proxy_mode, proxy.as_deref()),
         semaphore: Arc::new(tokio::sync::Semaphore::new(8)),
         game_pids: Arc::new(Mutex::new(HashMap::new())),
         server_pids: Arc::new(Mutex::new(HashMap::new())),
@@ -57,6 +75,7 @@ pub fn run() {
         ms_flow: Arc::new(Mutex::new(None)),
         java_cache: Mutex::new(None),
         terracotta: Mutex::new(None),
+        pending_update: Mutex::new(None),
     };
 
     tauri::Builder::default()
@@ -69,6 +88,9 @@ pub fn run() {
             // settings & java
             commands::get_settings,
             commands::set_settings,
+            commands::list_mirrors,
+            commands::test_mirror,
+            commands::test_proxy,
             commands::change_data_dir,
             commands::auto_detect_memory,
             commands::detect_java,
@@ -185,6 +207,12 @@ pub fn run() {
             commands::list_crash_logs,
             commands::analyze_crash_log,
             commands::get_crash_report_content,
+            // news
+            commands::fetch_news,
+            // app self-update (dynamic update source)
+            updater::check_for_update,
+            updater::download_update,
+            updater::apply_app_update,
         ])
         .on_window_event(|window, event| {
             use tauri::WindowEvent;
@@ -230,6 +258,40 @@ pub fn run() {
                 let state = handle.state::<AppState>();
                 *state.java_cache.lock().unwrap() = Some((ts, detected));
             });
+
+            // System tray: when the close behaviour is set to "minimize to
+            // background" the window is only hidden, so without a tray icon the
+            // user has no way to bring it back. Left click opens the menu,
+            // double click restores the window directly.
+            let show_item = MenuItemBuilder::with_id("show", "显示主窗口").build(app.handle())?;
+            let quit_item = MenuItemBuilder::with_id("quit", "退出 QookiX Launcher").build(app.handle())?;
+            let menu = MenuBuilder::new(app.handle())
+                .item(&show_item)
+                .separator()
+                .item(&quit_item)
+                .build()?;
+
+            let _ = TrayIconBuilder::with_id("main")
+                .icon(tauri::include_image!("icons/32x32.png"))
+                .tooltip("QookiX Launcher")
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "show" => show_main_window(app),
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    // Left click is reserved for the menu; double click restores.
+                    if let TrayIconEvent::DoubleClick {
+                        button: MouseButton::Left,
+                        ..
+                    } = event
+                    {
+                        show_main_window(tray.app_handle());
+                    }
+                })
+                .build(app.handle());
+
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -243,7 +305,7 @@ mod smoke {
 
     #[tokio::test]
     async fn mojang_manifest_and_version_json_parse() {
-        let client = crate::settings::http_client(None);
+        let client = crate::settings::http_client("system", None);
         let url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
         let text = crate::download::get_text(&client, url).await.unwrap_or_else(|e| {
             panic!("fetch failed: {e}");
@@ -272,7 +334,7 @@ mod smoke {
 
     #[tokio::test]
     async fn fabric_meta_parses() {
-        let client = crate::settings::http_client(None);
+        let client = crate::settings::http_client("system", None);
         let entry: LoaderMetaEntry = crate::download::get_json(
             &client,
             "https://meta.fabricmc.net/v2/versions/loader/1.20.1/0.15.11",
@@ -390,7 +452,7 @@ mod smoke {
         let state = crate::state::AppState {
             root: root.clone(),
             settings: RwLock::new(Default::default()),
-            client: crate::settings::http_client(None),
+            client: crate::settings::http_client("system", None),
             semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
             game_pids: Arc::new(Mutex::new(HashMap::new())),
             server_pids: Arc::new(Mutex::new(HashMap::new())),
@@ -399,6 +461,8 @@ mod smoke {
             install_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ms_flow: Arc::new(Mutex::new(None)),
             java_cache: Mutex::new(None),
+            terracotta: Mutex::new(None),
+            pending_update: Mutex::new(None),
         };
         let instance = Instance {
             id: "test-fabric".into(),
@@ -442,7 +506,7 @@ mod smoke {
         let state = crate::state::AppState {
             root: root.clone(),
             settings: RwLock::new(Default::default()),
-            client: crate::settings::http_client(None),
+            client: crate::settings::http_client("system", None),
             semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
             game_pids: Arc::new(Mutex::new(HashMap::new())),
             server_pids: Arc::new(Mutex::new(HashMap::new())),
@@ -451,6 +515,8 @@ mod smoke {
             install_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ms_flow: Arc::new(Mutex::new(None)),
             java_cache: Mutex::new(None),
+            terracotta: Mutex::new(None),
+            pending_update: Mutex::new(None),
         };
         // modpack type + empty query (regression for the 400 bug)
         let res = crate::modrinth::search(&state, "", "modpack", "", "relevance", 0, 20, "", "")

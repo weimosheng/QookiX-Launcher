@@ -67,6 +67,15 @@ pub fn load_settings(root: &std::path::Path) -> Settings {
         .ok()
         .and_then(|s| serde_json::from_str::<Settings>(&s).ok())
         .unwrap_or_default();
+    // 兼容迁移：旧版本只有 proxy 没有 proxy_mode。
+    // 若缺少 proxy_mode 但配置了自定义 proxy，则视为自定义模式。
+    if settings.proxy_mode.is_empty() {
+        settings.proxy_mode = if settings.proxy.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
+            "custom".into()
+        } else {
+            "system".into()
+        };
+    }
     if settings.data_dir.is_empty() {
         settings.data_dir = root.to_string_lossy().to_string();
     }
@@ -153,6 +162,12 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
     }
     if let Some(v) = patch.get("selected_account") {
         settings.selected_account = v.as_str().map(|s| s.to_string()).filter(|s| !s.is_empty());
+    }
+    if let Some(v) = patch.get("proxy_mode").and_then(|v| v.as_str()) {
+        let m = v.trim().to_string();
+        if matches!(m.as_str(), "system" | "direct" | "custom") {
+            settings.proxy_mode = m;
+        }
     }
     if let Some(v) = patch.get("proxy") {
         let p = v.as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
@@ -352,7 +367,7 @@ pub fn ensure_layout(root: &std::path::Path) -> std::io::Result<()> {
 }
 
 /// Shared http client builder with a browser-ish UA.
-pub fn http_client(proxy: Option<&str>) -> reqwest::Client {
+pub fn http_client(proxy_mode: &str, proxy: Option<&str>) -> reqwest::Client {
     let mut builder = reqwest::Client::builder()
         .user_agent(format!(
             "QookiX-Launcher/{} (desktop)",
@@ -362,12 +377,23 @@ pub fn http_client(proxy: Option<&str>) -> reqwest::Client {
         .brotli(true)
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(60));
-    if let Some(p) = proxy {
-        if !p.is_empty() {
-            if let Ok(proxy) = reqwest::Proxy::all(p) {
-                builder = builder.proxy(proxy);
+    match proxy_mode {
+        // 直连：禁用所有代理（含系统代理）
+        "direct" => {
+            builder = builder.no_proxy();
+        }
+        // 自定义：使用显式配置的代理 URL
+        "custom" => {
+            if let Some(p) = proxy {
+                if !p.is_empty() {
+                    if let Ok(proxy) = reqwest::Proxy::all(p) {
+                        builder = builder.proxy(proxy);
+                    }
+                }
             }
         }
+        // "system" 及其它：不额外设置，走 reqwest 默认的系统代理
+        _ => {}
     }
     builder.build().expect("failed to build http client")
 }

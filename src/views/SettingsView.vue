@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { NButton, NModal, useMessage, useDialog } from "naive-ui";
@@ -38,7 +38,7 @@ async function checkUpdate() {
   checking.value = true;
   updateVersion.value = null;
   try {
-    const update = await peekUpdate();
+    const update = await peekUpdate(true);
     if (!update) {
       message.success("已是最新版本");
       return;
@@ -65,7 +65,13 @@ async function checkUpdate() {
         ]),
     });
   } catch {
-    message.error("检查更新失败，请稍后重试");
+    // 国内镜像不可用时给出明确提示，而不是误报「已是最新版本」
+    const isBucket = settings.settings?.update_source !== "github";
+    message.error(
+      isBucket
+        ? "国内镜像暂时不可用，请检查网络，或切换到 GitHub 官方源后重试"
+        : "检查更新失败，请稍后重试"
+    );
   } finally {
     checking.value = false;
   }
@@ -152,10 +158,120 @@ const { indicatorStyle: closeSegStyle, refresh: refreshCloseSeg } = useSlidingIn
 );
 watch(() => settings.settings?.close_behavior, () => nextTick(() => refreshCloseSeg()));
 
+// 更新源 seg 滑动高亮（国内镜像 / GitHub 官方）
+const updateSourceSegRef = ref<HTMLElement | null>(null);
+const { indicatorStyle: updateSourceSegStyle, refresh: refreshUpdateSourceSeg } =
+  useSlidingIndicator(
+    updateSourceSegRef,
+    () => Array.from(updateSourceSegRef.value?.querySelectorAll<HTMLElement>(".seg button") ?? []),
+    () => (settings.settings?.update_source === "github" ? 1 : 0),
+    { axis: "horizontal" }
+  );
+watch(() => settings.settings?.update_source, () => nextTick(() => refreshUpdateSourceSeg()));
+
+// 下载代理 seg 滑动高亮（系统代理 / 直连 / 自定义）
+const proxyModeSegRef = ref<HTMLElement | null>(null);
+const proxyModes = [
+  { id: "system", label: "系统代理" },
+  { id: "direct", label: "直连" },
+  { id: "custom", label: "自定义" },
+];
+const { indicatorStyle: proxyModeSegStyle, refresh: refreshProxyModeSeg } = useSlidingIndicator(
+  proxyModeSegRef,
+  () => Array.from(proxyModeSegRef.value?.querySelectorAll<HTMLElement>(".seg button") ?? []),
+  () => Math.max(0, proxyModes.findIndex((m) => m.id === settings.settings?.proxy_mode)),
+  { axis: "horizontal" }
+);
+watch(() => settings.settings?.proxy_mode, () => nextTick(() => refreshProxyModeSeg()));
+
+async function selectProxyMode(id: string) {
+  if (settings.settings?.proxy_mode === id) return;
+  try {
+    await settings.patch({ proxy_mode: id });
+  } catch (e) {
+    message.error(String(e));
+  }
+}
+
+function onCustomProxyInput() {
+  if (settings.settings && settings.settings.proxy_mode !== "custom") {
+    settings.settings.proxy_mode = "custom";
+  }
+}
+
+// 测试代理连接
+const testingProxy = ref(false);
+async function testProxy() {
+  if (testingProxy.value || !settings.settings) return;
+  testingProxy.value = true;
+  try {
+    const { proxy_mode, proxy } = settings.settings;
+    const res = await api.testProxy(
+      proxy_mode,
+      proxy_mode === "custom" ? proxy : null
+    );
+    message.success(`连接成功 ${res.ms} ms`);
+  } catch (e) {
+    message.error(`连接失败: ${e}`);
+  } finally {
+    testingProxy.value = false;
+  }
+}
+
+// 下载镜像源
+const mirrors = ref<MirrorPreset[]>([]);
+/** 每个镜像最近一次测速结果（毫秒）；null 表示不可用 */
+const mirrorLatency = ref<Record<string, number | null>>({});
+const testingMirror = ref("");
+
+async function loadMirrors() {
+  try {
+    mirrors.value = await api.listMirrors();
+  } catch {
+    mirrors.value = [];
+  }
+}
+
+async function selectMirror(id: string) {
+  if (settings.settings?.mirror === id) return;
+  try {
+    await settings.patch({ mirror: id });
+  } catch (e) {
+    message.error(String(e));
+  }
+}
+
+async function testMirror(id: string, base: string) {
+  if (testingMirror.value) return;
+  testingMirror.value = id;
+  try {
+    const res = await api.testMirror(base);
+    mirrorLatency.value = { ...mirrorLatency.value, [id]: res.ms };
+  } catch (e) {
+    mirrorLatency.value = { ...mirrorLatency.value, [id]: null };
+    message.error(String(e));
+  } finally {
+    testingMirror.value = "";
+  }
+}
+
+function onCustomMirrorInput() {
+  if (settings.settings && settings.settings.mirror !== "custom") {
+    settings.settings.mirror = "custom";
+  }
+}
+
 const javaCandidates = ref<JavaInfo[]>([]);
 const detecting = ref(false);
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 const tab = ref("general");
+// 更新源位于「关于」页，面板用 v-show 隐藏时矩形为 0，需在切换到该页时刷新指示器
+watch(tab, (val) => {
+  // 这些面板用 v-show 隐藏时矩形为 0，需在切换到对应页时刷新滑动指示器
+  if (val === "appearance") nextTick(() => refreshThemeSeg());
+  if (val === "about") nextTick(() => refreshUpdateSourceSeg());
+  if (val === "download") nextTick(() => refreshProxyModeSeg());
+});
 
 const tabs = [
   { key: "general", label: "常规", icon: IconSliders },
@@ -776,16 +892,46 @@ onUnmounted(() => {
               class="text-input mono"
               placeholder="在 console.curseforge.com 免费申请"
             />
-            <p class="hint">可选。不填则 CurseForge 内容中心不可用，Modrinth 不受影响。</p>
+            <p class="hint">可选。不填使用默认key 可能会导致 CurseForge 内容中心不可用，Modrinth 不受影响。</p>
           </div>
           <div class="card glass">
             <h3>下载代理</h3>
+            <div class="proxy-row">
+              <div ref="proxyModeSegRef" class="seg">
+                <div class="indicator" :style="proxyModeSegStyle"></div>
+                <button
+                  v-for="m in proxyModes"
+                  :key="m.id"
+                  :class="{ active: settings.settings.proxy_mode === m.id }"
+                  @click="selectProxyMode(m.id)"
+                >
+                  {{ m.label }}
+                </button>
+              </div>
+              <button
+                class="mirror-btn"
+                :class="{ disabled: testingProxy }"
+                @click="testProxy"
+              >
+                {{ testingProxy ? "测试中…" : "测试连接" }}
+              </button>
+            </div>
             <input
+              v-if="settings.settings.proxy_mode === 'custom'"
               v-model="settings.settings.proxy"
               class="text-input mono"
               placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080"
+              @input="onCustomProxyInput"
             />
-            <p class="hint">可选。用于绕过 CDN 下载失败（404/连接失败）。修改后需重启启动器生效。</p>
+            <p class="hint">
+              {{
+                settings.settings.proxy_mode === "system"
+                  ? "使用系统网络代理设置（默认）。"
+                  : settings.settings.proxy_mode === "direct"
+                    ? "直连，不经过任何代理。"
+                    : "自定义代理。用于绕过 CDN 下载失败（404/连接失败）。修改后需重启启动器生效。"
+              }}
+            </p>
           </div>
         </div>
       </div>
@@ -913,9 +1059,34 @@ onUnmounted(() => {
                 恢复 v{{ settings.settings.dismissed_update_version }} 更新提醒
               </button>
             </div>
+            <div class="update-source">
+              <div class="choice-info">
+                <span class="choice-label">更新源</span>
+                <p class="choice-hint">选择从哪个渠道下载启动器更新。默认使用国内镜像（更快），也可切换到 GitHub 官方源（最新），切换后点「检查更新」立即生效。</p>
+              </div>
+              <div ref="updateSourceSegRef" class="seg">
+                <div class="indicator" :style="updateSourceSegStyle"></div>
+                <button
+                  :class="{ active: settings.settings.update_source !== 'github' }"
+                  @click="settings.patch({ update_source: 'bucket' })"
+                >
+                  国内镜像
+                </button>
+                <button
+                  :class="{ active: settings.settings.update_source === 'github' }"
+                  @click="settings.patch({ update_source: 'github' })"
+                >
+                  GitHub 官方
+                </button>
+              </div>
+            </div>
           </div>
           <div class="card glass about-links">
             <h3>链接</h3>
+            <button class="about-link" @click="openUrl('https://qookix.swkj1.cn/')">
+              <span>官方网站</span>
+              <span class="link-arrow">→</span>
+            </button>
             <button class="about-link" @click="openUrl('https://github.com/weimosheng/QookiX-Launcher')">
               <span>GitHub 仓库</span>
               <span class="link-arrow">→</span>
@@ -1636,6 +1807,22 @@ textarea.text-input {
   gap: 12px;
   margin-top: 14px;
 }
+.update-source {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.update-source .seg {
+  width: 100%;
+  max-width: 280px;
+  align-self: flex-start;
+}
+.update-source .seg button {
+  flex: 1;
+}
 .about-grid {
   grid-template-columns: 1fr 1fr;
 }
@@ -1804,5 +1991,115 @@ textarea.text-input {
 .toggle.on .knob {
   transform: translateX(18px);
   background: #fff;
+}
+.mirror-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mirror-item,
+.mirror-custom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-2);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.mirror-item:hover,
+.mirror-custom:hover {
+  border-color: var(--accent-05);
+}
+.mirror-item.active,
+.mirror-custom.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.mirror-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.mirror-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.mirror-base {
+  font-size: 11px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mirror-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.mirror-ms {
+  font-size: 12px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.mirror-ms.bad {
+  color: #e5534b;
+}
+.mirror-btn {
+  font-size: 12px;
+  color: var(--text-2);
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s;
+}
+.mirror-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.mirror-btn.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.proxy-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.proxy-row .seg {
+  flex: 1;
+  min-width: 0;
+}
+.mirror-custom {
+  flex-wrap: wrap;
+}
+.mirror-custom-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.mirror-custom-head input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+.mirror-custom .text-input {
+  flex: 1;
+  min-width: 150px;
 }
 </style>

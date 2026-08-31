@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "QookiX Launcher",
-  "version": "0.4.5",
+  "version": "0.4.61",
   "identifier": "cn.swkj1.qookix-launcher",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },

@@ -60,7 +60,9 @@ pub struct Settings {
     pub ms_client_id: String,
     /// Currently selected account (uuid) used when an instance has no override
     pub selected_account: Option<String>,
-    /// HTTP/SOCKS proxy URL for downloads (e.g. "http://127.0.0.1:7890")
+    /// 下载代理模式："system"（系统代理，默认）| "direct"（直连）| "custom"（自定义）
+    pub proxy_mode: String,
+    /// HTTP/SOCKS proxy URL for downloads（`proxy_mode == "custom"` 时生效，如 "http://127.0.0.1:7890"）
     pub proxy: Option<String>,
     /// 下载镜像源 id："official" | "bmclapi" | "custom"
     pub mirror: String,
@@ -107,6 +109,7 @@ impl Default for Settings {
             keep_open: true,
             ms_client_id: "00000000-0000-0000-0000-000000000000".into(),
             selected_account: None,
+            proxy_mode: "system".into(),
             proxy: None,
             mirror: "official".into(),
             mirror_custom: String::new(),
