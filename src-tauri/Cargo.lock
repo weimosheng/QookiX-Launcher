@@ -2997,7 +2997,7 @@ checksum = "e0c5ccf5294c6ccd63a74f1565028353830a9c2f5eb0c682c355c471726a6e3f"
 
 [[package]]
 name = "qookix-launcher"
-version = "0.4.54"
+version = "0.4.61"
 dependencies = [
  "base64 0.22.1",
  "directories",

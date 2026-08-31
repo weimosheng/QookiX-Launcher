@@ -222,18 +222,25 @@ a:active {
   opacity: 0;
 }
 
+/* 路由切换过渡：进入从下方轻移 + 微缩放淡入，离开轻微上移淡出，
+   用一致的缓动让进出衔接更顺，减少 out-in 模式下的空档感 */
 .page-rise-enter-active {
-  transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  transition:
+    opacity 0.26s ease,
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .page-rise-leave-active {
-  transition: opacity 0.15s ease;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s cubic-bezier(0.55, 0, 0.55, 0.2);
 }
 .page-rise-enter-from {
   opacity: 0;
-  transform: translateY(14px);
+  transform: translateY(12px) scale(0.99);
 }
 .page-rise-leave-to {
   opacity: 0;
+  transform: translateY(-6px) scale(0.995);
 }
 
 .n-loading-bar-container {

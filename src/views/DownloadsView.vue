@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useTasksStore, type TaskEntry } from "../stores/tasks";
+import { useInstancesStore } from "../stores/instances";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import {
   IconChevronDown,
@@ -10,6 +11,7 @@ import {
 } from "../components/icons";
 
 const tasks = useTasksStore();
+const instances = useInstancesStore();
 const router = useRouter();
 const expanded = ref<Set<number>>(new Set());
 const activeTab = ref<"active" | "finished">("active");
@@ -100,13 +102,175 @@ function toggle(t: TaskEntry) {
   expanded.value = next;
 }
 
-function gotoInstance(t: TaskEntry) {
-  if (t.instanceId) router.push(`/instance/${t.instanceId}`);
-}
-
-// 整合包会自动创建新实例，不是用户选择的目标实例，所以不显示“目标实例”
+// 整合包会自动创建新实例，不是用户选择的目标实例，所以不显示"目标实例"
 function isModpackTask(t: TaskEntry) {
   return (t.source ?? "").startsWith("整合包");
+}
+
+/**
+ * 任务里的 `instanceId` 指向的实例是否已经真正可跳转。
+ *
+ * 实例详情页是从 instances store 里取数据的，而 store 只在启动时拉一次。
+ * 整合包 / 导入这类"先下载、后建实例"的流程，任务一开始就带上了
+ * instanceId，此时实例还没写进 instances.json（或者 store 还是旧快照），
+ * 直接跳过去只会显示「实例不存在或已删除」。所以必须等到 store 里真的
+ * 能查到这个实例才允许跳转。
+ */
+function instanceReady(t: TaskEntry) {
+  return !!t.instanceId && !!instances.get(t.instanceId);
+}
+
+function gotoInstance(t: TaskEntry) {
+  if (!instanceReady(t)) return;
+  router.push(`/instance/${t.instanceId}`);
+}
+
+// 任务结束（成功或失败）时刷新实例列表：新建的实例这时才会进 store，
+// 「目标实例」也随之从不可点击变成可跳转。
+watch(
+  () => tasks.taskList.filter((t) => t.finished).length,
+  () => {
+    void instances.load();
+  }
+);
+
+onMounted(() => {
+  if (!instances.instances.length) void instances.load();
+});
+
+// —— 展开 / 收起动画 ——
+//
+// 结构：外层 .task-detail-wrap（overflow:hidden，高度被动画驱动）
+//       └ 内层 .task-detail（高度 auto，用来实时量真实内容高度）
+// 分开两层是为了能一边动画一边持续测量内容高度——直接量被动画改写过
+// height 的元素是量不准的。
+//
+// 两个导致"结尾顿一下"的坑，都必须堵掉：
+//
+// 1) 不能用 setTimeout(duration) 当结束信号。CSS transition 是在我们改完
+//    样式后的下一帧才真正开始跑的，而定时器从调用那一刻就开始计时，所以
+//    定时器必然比动画早 1~2 帧触发。那一刻高度大约只走到 97%，我们却把它
+//    一把改成 auto —— 剩下 3% 就是那个"跳"。改成监听 transitionend
+//    （只认 propertyName === 'height' 且 target 是自己），另设一个稍长的
+//    兜底定时器防止极端情况卡住。
+//
+// 2) 动画期间内容还在长。下载中 activeFiles 每 400ms 更新、完成的文件不断
+//    追加，内容高度会变。若目标高度只在开头量一次，结尾就会跳到新的 auto
+//    高度。用 ResizeObserver 盯着内层，内容一变就把动画目标同步过去——
+//    CSS transition 会从当前值平滑改道到新目标，不会跳。
+//
+// 另外 .task-card 是 flex + gap，元素一插入就会多出这段间距，动画期间用负
+// margin-top 抵消，避免开头 / 结尾抖一下。
+const DETAIL_GAP = 10;
+const DETAIL_DUR = 240;
+const DETAIL_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+const DETAIL_TRANSITION = `height ${DETAIL_DUR}ms ${DETAIL_EASE}, margin-top ${DETAIL_DUR}ms ${DETAIL_EASE}, opacity ${DETAIL_DUR}ms ${DETAIL_EASE}`;
+
+/** 挂在动画元素上的收尾函数，连续快速点击时先取消上一次，避免两个动画打架 */
+type AnimEl = HTMLElement & { _dlCancel?: () => void };
+
+function innerOf(e: HTMLElement): HTMLElement | null {
+  return e.firstElementChild instanceof HTMLElement ? e.firstElementChild : null;
+}
+function contentHeight(e: HTMLElement) {
+  const inner = innerOf(e);
+  return inner ? inner.offsetHeight : e.scrollHeight;
+}
+
+/** 等 height 真正跑完；定时器只作为兜底，不作为正常结束信号 */
+function whenHeightDone(e: AnimEl, done: () => void, after?: () => void) {
+  let settled = false;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    e.removeEventListener("transitionend", onEnd);
+    clearTimeout(timer);
+    e._dlCancel = undefined;
+    after?.();
+    done();
+  };
+  // 子元素也会冒泡出 transitionend，认准 target 是自己 + 属性是 height
+  const onEnd = (ev: TransitionEvent) => {
+    if (ev.target !== e || ev.propertyName !== "height") return;
+    finish();
+  };
+  // 兜底：高度没变（无 transition 触发）、元素被隐藏等场景下也要放行
+  const timer = window.setTimeout(finish, DETAIL_DUR + 120);
+  e._dlCancel = () => {
+    if (settled) return;
+    settled = true;
+    e.removeEventListener("transitionend", onEnd);
+    clearTimeout(timer);
+    e._dlCancel = undefined;
+  };
+  e.addEventListener("transitionend", onEnd);
+}
+
+function onExpandEnter(el: Element, done: () => void) {
+  const e = el as AnimEl;
+  e._dlCancel?.();
+
+  e.style.transition = "none";
+  e.style.overflow = "hidden";
+  e.style.height = "0px";
+  e.style.marginTop = `-${DETAIL_GAP}px`;
+  e.style.opacity = "0";
+  void e.offsetHeight; // 强制回流，让起始态生效
+
+  const inner = innerOf(e);
+  let ro: ResizeObserver | null = null;
+  if (inner) {
+    ro = new ResizeObserver(() => {
+      e.style.height = `${contentHeight(e)}px`;
+    });
+    ro.observe(inner);
+  }
+
+  e.style.transition = DETAIL_TRANSITION;
+  e.style.height = `${contentHeight(e)}px`;
+  e.style.marginTop = "0px";
+  e.style.opacity = "1";
+
+  whenHeightDone(
+    e,
+    done,
+    () => {
+      ro?.disconnect();
+      e.style.transition = "none";
+      // 交还 auto，让后续动态内容能自由撑开
+      e.style.height = "";
+      e.style.marginTop = "";
+      e.style.opacity = "";
+      e.style.overflow = "";
+      void e.offsetHeight;
+      e.style.transition = "";
+    }
+  );
+}
+
+function onExpandLeave(el: Element, done: () => void) {
+  const e = el as AnimEl;
+  e._dlCancel?.();
+
+  e.style.transition = "none";
+  e.style.overflow = "hidden";
+  e.style.height = `${e.offsetHeight}px`;
+  e.style.marginTop = "0px";
+  e.style.opacity = "1";
+  void e.offsetHeight; // 强制回流，让起始态生效
+
+  e.style.transition = DETAIL_TRANSITION;
+  e.style.height = "0px";
+  e.style.marginTop = `-${DETAIL_GAP}px`;
+  e.style.opacity = "0";
+
+  whenHeightDone(e, done, () => {
+    e.style.transition = "";
+    e.style.height = "";
+    e.style.marginTop = "";
+    e.style.opacity = "";
+    e.style.overflow = "";
+  });
 }
 </script>
 
@@ -136,17 +300,20 @@ function isModpackTask(t: TaskEntry) {
               <span class="status" :class="t.finished ? (t.ok === false ? 'fail' : 'ok') : 'run'">
                 {{ statusText(t) }}
               </span>
-              <IconChevronDown v-if="expanded.has(t.id)" class="caret" />
-              <IconChevronRight v-else class="caret" />
+              <IconChevronDown class="caret" :class="{ open: expanded.has(t.id) }" />
             </div>
             <div class="task-meta">
               <span class="meta-item">{{ fmtTime(t.startedAt) }}</span>
               <span
                 v-if="t.instanceName && !isModpackTask(t)"
-                class="meta-item link"
+                class="meta-item"
+                :class="instanceReady(t) ? 'link' : 'pending'"
+                :title="instanceReady(t) ? '跳转到该实例' : '实例正在创建/安装，完成后才能跳转'"
                 @click.stop="gotoInstance(t)"
               >
-                目标实例：{{ t.instanceName }} <IconChevronRight />
+                目标实例：{{ t.instanceName }}
+                <IconChevronRight v-if="instanceReady(t)" />
+                <span v-else class="pending-tag">创建中</span>
               </span>
               <span class="meta-item">{{ stageLabel(t) }}</span>
             </div>
@@ -202,40 +369,48 @@ function isModpackTask(t: TaskEntry) {
         </div>
 
         <!-- details -->
-        <div v-if="expanded.has(t.id)" class="task-detail">
-          <div class="detail-row">
-            <span class="dl-label">正在下载</span>
-            <span class="dl-value">{{ t.activeFiles.length }} 个文件</span>
-          </div>
-          <div class="detail-row">
-            <span class="dl-label">平均速度</span>
-            <span class="dl-value">{{ fmtSpeed(t.speed) }}</span>
-          </div>
-          <div v-if="t.files.length || t.activeFiles.length" class="detail-row files">
-            <span class="dl-label">文件明细</span>
-            <div class="dl-files">
-              <div v-for="(f, i) in t.activeFiles" :key="'a'+i" class="file-current">
-                <div class="file-current-row">
-                  <span class="file-status">→</span>
-                  <span class="file-name text-ellipsis">{{ f.name }}</span>
-                   <span v-if="f.bytesTotal" class="file-progress">{{ pct(f.bytesDone ?? 0, f.bytesTotal) }}%</span>
-                </div>
-                <div v-if="f.bytesTotal" class="file-mini-bar">
-                   <div class="file-mini-fill" :style="{ width: pct(f.bytesDone ?? 0, f.bytesTotal) + '%' }"></div>
-                </div>
+        <Transition
+          :css="false"
+          @enter="onExpandEnter"
+          @leave="onExpandLeave"
+        >
+          <div v-if="expanded.has(t.id)" class="task-detail-wrap">
+            <div class="task-detail">
+              <div class="detail-row">
+                <span class="dl-label">正在下载</span>
+                <span class="dl-value">{{ t.activeFiles.length }} 个文件</span>
               </div>
-              <div
-                v-for="(f, i) in t.files.slice(-30).reverse()"
-                :key="i"
-                class="file-row"
-                :class="f.ok ? 'ok' : 'fail'"
-              >
-                <span class="file-status">{{ f.ok ? '✓' : '✗' }}</span>
-                <span class="file-name text-ellipsis">{{ f.name }}</span>
+              <div class="detail-row">
+                <span class="dl-label">平均速度</span>
+                <span class="dl-value">{{ fmtSpeed(t.speed) }}</span>
+              </div>
+              <div v-if="t.files.length || t.activeFiles.length" class="detail-row files">
+                <span class="dl-label">文件明细</span>
+                <div class="dl-files">
+                  <div v-for="(f, i) in t.activeFiles" :key="'a'+i" class="file-current">
+                    <div class="file-current-row">
+                      <span class="file-status">→</span>
+                      <span class="file-name text-ellipsis">{{ f.name }}</span>
+                      <span v-if="f.bytesTotal" class="file-progress">{{ pct(f.bytesDone, f.bytesTotal) }}%</span>
+                    </div>
+                    <div v-if="f.bytesTotal" class="file-mini-bar">
+                      <div class="file-mini-fill" :style="{ width: pct(f.bytesDone, f.bytesTotal) + '%' }"></div>
+                    </div>
+                  </div>
+                  <div
+                    v-for="(f, i) in t.files.slice(-30).reverse()"
+                    :key="i"
+                    class="file-row"
+                    :class="f.ok ? 'ok' : 'fail'"
+                  >
+                    <span class="file-status">{{ f.ok ? '✓' : '✗' }}</span>
+                    <span class="file-name text-ellipsis">{{ f.name }}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </Transition>
       </div>
     </div>
   </div>
@@ -363,6 +538,13 @@ function isModpackTask(t: TaskEntry) {
   color: var(--text-3);
   margin-left: auto;
   flex-shrink: 0;
+  /* 收起时指向右侧，展开时旋转 90° 指向下方；时长与详情区动画保持一致 */
+  transform: rotate(-90deg);
+  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1), color 0.15s;
+}
+.caret.open {
+  transform: rotate(0deg);
+  color: var(--accent);
 }
 .status {
   font-size: 11px;
@@ -400,6 +582,25 @@ function isModpackTask(t: TaskEntry) {
   color: var(--accent);
   cursor: pointer;
 }
+/* 实例还没建好，跳过去只会看到「实例不存在或已删除」，先禁用 */
+.meta-item.pending {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+/* 动画容器：只负责裁剪与高度过渡，内层 .task-detail 保持 auto 以便测量 */
+.task-detail-wrap {
+  overflow: hidden;
+}
+
+.pending-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 0 5px;
+  border-radius: 5px;
+  color: var(--text-3);
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .task-side {
   text-align: right;
   flex-shrink: 0;

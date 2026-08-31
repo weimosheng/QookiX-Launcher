@@ -25,6 +25,44 @@ const diagnosis = ref<CrashDiagnosis | null>(null);
 const rawContent = ref("");
 const showRaw = ref(false);
 
+// Tauri 的 invoke 报错可能是字符串，也可能是带 message 的对象，
+// 统一转成可读文本，避免界面上只弹出一个 [object Object] 或啥都没有。
+function errText(e: unknown): string {
+  if (typeof e === "string") return e;
+  if (e && typeof e === "object" && "message" in e) return String((e as { message: unknown }).message);
+  return String(e);
+}
+
+// —— 分析结果缓存 ——
+// 崩溃报告内容基本不会变，每次切走再回来都重新分析既慢又费（要读文件 + 跑诊断）。
+// 按 实例 + 文件名 缓存诊断，TTL 1 小时。重新分析会强制刷新。
+const DIAG_TTL = 60 * 60 * 1000;
+interface DiagCache {
+  d: CrashDiagnosis;
+  ts: number;
+}
+function diagKey(instanceId: string, filename: string) {
+  return `qookix:crash_diag:${instanceId}:${filename}`;
+}
+function readDiagCache(instanceId: string, filename: string): CrashDiagnosis | null {
+  try {
+    const raw = localStorage.getItem(diagKey(instanceId, filename));
+    if (!raw) return null;
+    const c = JSON.parse(raw) as DiagCache;
+    if (Date.now() - c.ts > DIAG_TTL) return null;
+    return c.d;
+  } catch {
+    return null;
+  }
+}
+function writeDiagCache(instanceId: string, filename: string, d: CrashDiagnosis) {
+  try {
+    localStorage.setItem(diagKey(instanceId, filename), JSON.stringify({ d, ts: Date.now() }));
+  } catch {
+    /* 容量溢出等忽略，不影响主流程 */
+  }
+}
+
 async function loadLogs() {
   loading.value = true;
   try {
@@ -34,33 +72,69 @@ async function loadLogs() {
       selected.value = logs.value[0].filename;
     }
   } catch (e) {
-    message.error(String(e));
+    console.error("[CrashAnalyzer] loadLogs failed:", e);
+    message.error("加载崩溃报告失败：" + errText(e));
   } finally {
     loading.value = false;
   }
 }
 
-async function analyze() {
-  if (!selected.value) return;
+async function analyze(force = false) {
+  if (!selected.value) {
+    // 没选文件时给明确提示，而不是静默 return（否则看起来像"点了没反应"）
+    if (!logs.value.length) {
+      message.warning("该实例暂无崩溃报告");
+    } else {
+      message.warning("请先选择一个崩溃报告");
+    }
+    return;
+  }
+  // 命中有效缓存且非强制刷新：直接展示，不发请求
+  if (!force) {
+    const cached = readDiagCache(props.instanceId, selected.value);
+    if (cached) {
+      diagnosis.value = cached;
+      return;
+    }
+  }
   analyzing.value = true;
   diagnosis.value = null;
   rawContent.value = "";
   try {
-    diagnosis.value = await api.analyzeCrash(props.instanceId, selected.value);
+    const d = await api.analyzeCrash(props.instanceId, selected.value);
+    diagnosis.value = d;
+    writeDiagCache(props.instanceId, selected.value, d);
   } catch (e) {
-    message.error(String(e));
+    console.error("[CrashAnalyzer] analyze failed:", e);
+    message.error("分析失败：" + errText(e));
   } finally {
     analyzing.value = false;
   }
 }
 
 async function loadRaw() {
-  if (!selected.value) return;
+  if (!selected.value) {
+    message.warning("请先选择一个崩溃报告");
+    return;
+  }
   try {
     rawContent.value = await api.getCrashReportContent(props.instanceId, selected.value);
   } catch (e) {
-    message.error(String(e));
+    console.error("[CrashAnalyzer] loadRaw failed:", e);
+    message.error("读取报告失败：" + errText(e));
   }
+}
+
+// 点「查看原始报告」时：若还没加载过原始内容就顺手拉取，不必再单独点一次
+async function ensureRaw() {
+  if (rawContent.value) return;
+  await loadRaw();
+}
+
+// 展开/收起原始报告：展开时若未加载则自动拉取
+async function toggleRaw() {
+  showRaw.value = !showRaw.value;
+  if (showRaw.value) await ensureRaw();
 }
 
 async function deleteLog(filename: string) {
@@ -165,6 +239,11 @@ watch(selected, () => {
 
 function handleSelect(filename: string) {
   selected.value = filename;
+  // 切换文件：清掉上一次的原始内容；诊断优先走缓存（命中即直接展示）
+  rawContent.value = "";
+  showRaw.value = false;
+  const cached = readDiagCache(props.instanceId, filename);
+  diagnosis.value = cached;
 }
 </script>
 
@@ -228,12 +307,7 @@ function handleSelect(filename: string) {
           <span>正在分析崩溃原因…</span>
         </div>
 
-        <div v-else-if="selected" class="crash-prompt">
-          <NButton type="primary" size="small" :disabled="analyzing" @click="analyze">
-            分析此崩溃报告
-          </NButton>
-        </div>
-
+        <!-- 已出诊断：优先于「分析」按钮展示，否则点完按钮结果永远不显示 -->
         <div v-else-if="diagnosis" class="crash-diagnosis">
           <!-- 严重度标签 -->
           <div class="crash-severity" :style="{ background: severityBg, color: severityColor }">
@@ -279,25 +353,35 @@ function handleSelect(filename: string) {
 
           <!-- 操作 -->
           <div class="crash-actions">
-            <NButton quaternary size="small" @click="showRaw = !showRaw">
+            <NButton quaternary size="small" @click="analyze(true)">
+              <IconRefresh />
+              重新分析
+            </NButton>
+            <NButton quaternary size="small" @click="toggleRaw">
               <IconChevronRight v-if="!showRaw" />
               <IconChevronDown v-else />
               查看原始报告
             </NButton>
-            <NButton quaternary size="small" @click="loadRaw">
-              <IconRefresh />
-              加载原始内容
-            </NButton>
           </div>
 
-          <!-- 原始内容 -->
-          <div v-if="showRaw && rawContent" class="crash-raw">
-            <pre>{{ rawContent }}</pre>
-            <NButton quaternary size="small" @click="copyRaw">
-              <IconCopy />
-              复制全部
-            </NButton>
+          <!-- 原始内容：点「查看原始报告」即自动加载，无需再单独点一次 -->
+          <div v-if="showRaw" class="crash-raw">
+            <NSpin v-if="!rawContent" size="small" />
+            <template v-else>
+              <pre>{{ rawContent }}</pre>
+              <NButton quaternary size="small" @click="copyRaw">
+                <IconCopy />
+                复制全部
+              </NButton>
+            </template>
           </div>
+        </div>
+
+        <!-- 尚未分析：显示「分析此崩溃报告」按钮（selected 为真但还没出结果） -->
+        <div v-else class="crash-prompt">
+          <NButton type="primary" size="small" :disabled="analyzing || !selected" @click="analyze">
+            分析此崩溃报告
+          </NButton>
         </div>
       </div>
     </div>

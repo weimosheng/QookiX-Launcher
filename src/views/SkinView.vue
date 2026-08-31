@@ -89,7 +89,62 @@ function detectSkinModel(dataUrl: string): Promise<"classic" | "slim"> {
   });
 }
 
-async function loadCurrentAccountSkin() {
+// —— Microsoft 账号皮肤/披风缓存 ——
+// 每次打开皮肤页都会向 Mojang 服务器请求一次当前正版皮肤 + 披风列表，
+// 而这些数据短期内几乎不会变。这里用 localStorage 做带 TTL 的本地缓存，
+// 命中且未过期时直接用缓存，不再发请求，避免每次进页面都联网。
+// 缓存内容较大（皮肤是 base64 PNG），所以 TTL 设 10 分钟，并允许手动刷新。
+const MS_SKIN_TTL = 10 * 60 * 1000;
+interface MsSkinCache {
+  data_url: string;
+  model: string;
+  cape_data_url: string | null;
+  capes: { id: string; name: string; data_url: string; active: boolean }[];
+  ts: number;
+}
+function msSkinCacheKey(uuid: string) {
+  return `qookix:ms_skin_cache:${uuid}`;
+}
+function readMsSkinCache(uuid: string): MsSkinCache | null {
+  const raw = localStorage.getItem(msSkinCacheKey(uuid));
+  if (!raw) return null;
+  try {
+    const c = JSON.parse(raw) as MsSkinCache;
+    if (Date.now() - c.ts > MS_SKIN_TTL) return null; // 过期
+    return c;
+  } catch {
+    return null;
+  }
+}
+function writeMsSkinCache(uuid: string, c: MsSkinCache) {
+  localStorage.setItem(msSkinCacheKey(uuid), JSON.stringify({ ...c, ts: Date.now() }));
+}
+
+/** 用一份 Microsoft 皮肤数据渲染预览 + 披风列表（缓存命中与网络拉取共用） */
+async function applyMsSkin(c: MsSkinCache, username: string) {
+  const variant = c.model === "slim" ? "slim" : "classic";
+  skinVariant.value = variant;
+  renderer.setModel(variant === "slim" ? "slim" : "default");
+  await previewSkin(c.data_url, username, "official");
+  const capeList: CapeEntry[] = [{ id: "none", name: "无披风", dataUrl: null }];
+  for (const cc of c.capes) {
+    capeList.push({ id: cc.id, name: cc.name, dataUrl: cc.data_url });
+  }
+  if (!c.capes.length && c.cape_data_url) {
+    capeList.push({ id: "current", name: "当前披风", dataUrl: c.cape_data_url });
+  }
+  capes.value = capeList;
+  const activeCape = capeList.find((x) => x.id !== "none" && x.dataUrl === c.cape_data_url);
+  selectedCapeId.value = activeCape?.id ?? "none";
+  if (activeCape?.dataUrl) {
+    await renderer.loadCape(activeCape.dataUrl);
+  } else {
+    renderer.loadCape(null);
+  }
+  lastAppliedSrc.value = c.data_url;
+}
+
+async function loadCurrentAccountSkin(force = false) {
   const token = ++skinLoadToken;
   const acc = accounts.current;
   if (!acc) {
@@ -99,36 +154,46 @@ async function loadCurrentAccountSkin() {
     return;
   }
   if (acc.type === "microsoft") {
+    const cached = !force ? readMsSkinCache(acc.uuid) : null;
+    if (cached) {
+      // 命中有效缓存：直接渲染，不发任何网络请求
+      if (token !== skinLoadToken) return;
+      await applyMsSkin(cached, acc.username);
+      return;
+    }
     try {
       const res = await api.fetchPlayerSkin(acc.username);
       if (token !== skinLoadToken) return;
-      const variant = res.model === "slim" ? "slim" : "classic";
-      skinVariant.value = variant;
-      renderer.setModel(variant === "slim" ? "slim" : "default");
-      await previewSkin(res.data_url, acc.username, "official");
-      const capeList: CapeEntry[] = [{ id: "none", name: "无披风", dataUrl: null }];
+      let playerCapes: { id: string; name: string; data_url: string; active: boolean }[] = [];
       try {
-        const playerCapes = await api.fetchPlayerCapes(acc.uuid);
+        playerCapes = await api.fetchPlayerCapes(acc.uuid);
         if (token !== skinLoadToken) return;
-        for (const c of playerCapes) {
-          capeList.push({ id: c.id, name: c.name, dataUrl: c.data_url });
-        }
       } catch {
-        if (res.cape_data_url) {
-          capeList.push({ id: "current", name: "当前披风", dataUrl: res.cape_data_url });
-        }
+        /* 披风拉取失败不致命，下面用 res.cape_data_url 兜底 */
       }
-      capes.value = capeList;
-      const activeCape = capeList.find((c) => c.id !== "none" && c.dataUrl === res.cape_data_url);
-      selectedCapeId.value = activeCape?.id ?? "none";
-      if (activeCape?.dataUrl) {
-        await renderer.loadCape(activeCape.dataUrl);
-      } else {
-        renderer.loadCape(null);
-      }
-      lastAppliedSrc.value = res.data_url;
+      const payload: MsSkinCache = {
+        data_url: res.data_url,
+        model: res.model,
+        cape_data_url: res.cape_data_url,
+        capes: playerCapes,
+        ts: Date.now(),
+      };
+      writeMsSkinCache(acc.uuid, payload);
+      await applyMsSkin(payload, acc.username);
       return;
     } catch {
+      // 网络不可达：若有旧缓存（即使过期）也先用着，不让页面空白
+      const stale = localStorage.getItem(msSkinCacheKey(acc.uuid));
+      if (stale) {
+        try {
+          const c = JSON.parse(stale) as MsSkinCache;
+          if (token !== skinLoadToken) return;
+          await applyMsSkin(c, acc.username);
+          return;
+        } catch {
+          /* ignore */
+        }
+      }
       resetCapeList();
       /* 网络不可达，回退 */
     }
@@ -388,6 +453,21 @@ function resetView() {
   renderer.resetView();
 }
 
+/** 手动刷新当前账号皮肤：跳过缓存强制重新向服务器拉取 */
+const refreshingAccount = ref(false);
+async function refreshAccountSkin() {
+  if (!currentAccount.value || refreshingAccount.value) return;
+  refreshingAccount.value = true;
+  try {
+    await loadCurrentAccountSkin(true);
+    message.success("已刷新皮肤");
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    refreshingAccount.value = false;
+  }
+}
+
 function setAnim(a: AnimationKind) {
   renderer.setAnimation(a);
 }
@@ -419,6 +499,15 @@ onMounted(async () => {
           <div class="info-row">
             <span class="info-label">当前皮肤</span>
             <span class="info-value">{{ currentName || "未选择" }}</span>
+            <button
+              v-if="isCurrentMs && currentAccount"
+              class="info-refresh"
+              :class="{ spinning: refreshingAccount }"
+              title="刷新皮肤（绕过缓存）"
+              @click="refreshAccountSkin"
+            >
+              <IconRefresh />
+            </button>
           </div>
         </div>
         <div class="anim-row">
@@ -497,7 +586,10 @@ onMounted(async () => {
                 @click="selectLocal(s)"
               >
                 <div class="thumb-wrap">
-                  <SkinThumb :src="skinDataUrls[s.filename] ?? null" />
+                  <SkinThumb
+                    :src="skinDataUrls[s.filename] ?? null"
+                    :slim="currentKind === 'local' && currentName === s.name && skinVariant === 'slim'"
+                  />
                 </div>
                 <div class="skin-meta">
                   <div class="skin-name text-ellipsis">{{ s.name }}</div>
@@ -523,7 +615,10 @@ onMounted(async () => {
                 @click="selectOfficial(s)"
               >
                 <div class="thumb-wrap">
-                  <SkinThumb :src="s.dataUrl" />
+                  <SkinThumb
+                    :src="s.dataUrl"
+                    :slim="s.model === 'slim' || (currentKind === 'official' && currentName === s.name && skinVariant === 'slim')"
+                  />
                 </div>
                 <div class="skin-meta">
                   <div class="skin-name text-ellipsis">{{ s.name }}</div>
@@ -710,6 +805,36 @@ onMounted(async () => {
 .info-value {
   color: var(--text-1);
   font-weight: 600;
+}
+.info-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-3);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, transform 0.2s;
+}
+.info-refresh:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--text-1);
+}
+.info-refresh svg {
+  width: 14px;
+  height: 14px;
+}
+.info-refresh.spinning svg {
+  animation: info-spin 0.8s linear infinite;
+}
+@keyframes info-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .preview-actions {
   display: flex;

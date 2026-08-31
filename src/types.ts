@@ -254,15 +254,14 @@ export interface DownloadProgressEvent {
   bytesDone?: number;
   bytesTotal?: number;
   ts?: number;
-  activeFiles?: string[];
+  activeFiles?: ActiveFile[];
 }
 
+/** 正在下载的文件，由后端 `download.rs` 每 400ms 上报一次实时字节数 */
 export interface ActiveFile {
   name: string;
-  done: number;
-  total: number;
-  bytesDone?: number;
-  bytesTotal?: number;
+  bytesDone: number;
+  bytesTotal: number;
 }
 
 export interface NewsItem {
