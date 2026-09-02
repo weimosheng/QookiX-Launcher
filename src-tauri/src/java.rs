@@ -267,6 +267,7 @@ fn instance_placeholder(_state: &crate::state::AppState) -> crate::models::Insta
         loader_version: None,
         created: 0,
         last_played: None,
+        total_play_time: 0,
         installed: false,
         icon: None,
         max_memory_mb: None,

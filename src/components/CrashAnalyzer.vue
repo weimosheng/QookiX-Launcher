@@ -36,7 +36,7 @@ function errText(e: unknown): string {
 // —— 分析结果缓存 ——
 // 崩溃报告内容基本不会变，每次切走再回来都重新分析既慢又费（要读文件 + 跑诊断）。
 // 按 实例 + 文件名 缓存诊断，TTL 1 小时。重新分析会强制刷新。
-const DIAG_TTL = 60 * 60 * 1000;
+const DIAG_TTL = 7 * 24 * 60 * 60 * 1000;
 interface DiagCache {
   d: CrashDiagnosis;
   ts: number;
@@ -69,7 +69,10 @@ async function loadLogs() {
     const r = await api.crashAnalysis(props.instanceId);
     logs.value = r;
     if (logs.value.length && !selected.value) {
+      // 自动选中第一个文件时必须同时恢复其缓存诊断，
+      // 否则切走再回来 diagnosis 为空，看起来像"缓存没生效"。
       selected.value = logs.value[0].filename;
+      diagnosis.value = readDiagCache(props.instanceId, selected.value);
     }
   } catch (e) {
     console.error("[CrashAnalyzer] loadLogs failed:", e);
@@ -141,6 +144,8 @@ async function deleteLog(filename: string) {
   if (!confirm(`确定删除 ${filename}？`)) return;
   try {
     await api.deleteInstancePath(props.instanceId, `crash-reports/${filename}`);
+    // 顺手清掉对应诊断缓存，避免留下孤儿数据
+    localStorage.removeItem(diagKey(props.instanceId, filename));
     message.success("已删除");
     await loadLogs();
     diagnosis.value = null;

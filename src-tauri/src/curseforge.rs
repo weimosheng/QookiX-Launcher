@@ -611,6 +611,7 @@ async fn install_modpack_inner(
         loader_version: None,
         created: 0,
         last_played: None,
+        total_play_time: 0,
         installed: false,
         icon: None,
         max_memory_mb: None,

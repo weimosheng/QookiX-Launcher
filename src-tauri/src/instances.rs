@@ -98,6 +98,7 @@ pub fn create_instance(
         loader_version,
         created: now(),
         last_played: None,
+        total_play_time: 0,
         installed: true,
         icon: None,
         max_memory_mb: None,
@@ -197,6 +198,18 @@ pub fn update_instance(state: &AppState, patch: serde_json::Value) -> Result<Ins
 pub fn touch_last_played(state: &AppState, id: &str) {
     if let Ok(mut inst) = get_instance(state, id) {
         inst.last_played = Some(now());
+        let _ = save_instance(state, &inst);
+    }
+}
+
+/// 累加实例的累计游玩时长（秒）。游戏进程退出时由 launch.rs 的退出钩子调用，
+/// 正常退出与 kill_game 强杀都会走到该钩子。
+pub fn add_play_time(state: &AppState, id: &str, secs: u64) {
+    if secs == 0 {
+        return;
+    }
+    if let Ok(mut inst) = get_instance(state, id) {
+        inst.total_play_time = inst.total_play_time.saturating_add(secs);
         let _ = save_instance(state, &inst);
     }
 }

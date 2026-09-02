@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { listen } from "@tauri-apps/api/event";
+import { useInstancesStore } from "./instances";
 import type {
   ActiveFile,
   DownloadProgressEvent,
@@ -142,6 +143,9 @@ export const useTasksStore = defineStore("tasks", {
         } else {
           this.runningInstances = this.runningInstances.filter((id) => id !== p.instanceId);
           this.lastExit = { instanceId: p.instanceId, code: p.code };
+          // 游戏退出后后端已累加游玩时长/更新 last_played，刷新实例列表让
+          // 卡片上的「上次游玩/累计时长」立即反映最新数据（后端先写盘再发事件）。
+          void useInstancesStore().load();
         }
       });
     },

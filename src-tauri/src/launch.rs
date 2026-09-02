@@ -4,7 +4,7 @@ use crate::util::rules_allow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 #[derive(Clone)]
 pub struct ResolvedAccount {
@@ -248,6 +248,8 @@ pub async fn launch_game(
         .spawn()
         .map_err(|e| format!("启动 Java 失败: {e}"))?;
     let pid = child.id().unwrap_or(0);
+    // 游玩计时起点：进程成功 spawn 的时刻
+    let started = std::time::Instant::now();
     let _ = app.emit("launch://progress", serde_json::json!({ "step": "启动成功，正在等待游戏窗口…", "progress": 100 }));
     emit_state(&app, &instance.id, "running", pid, None);
     {
@@ -270,6 +272,13 @@ pub async fn launch_game(
         {
             let mut guard = gp.lock().unwrap();
             guard.remove(&inst_id);
+        }
+        // 累计游玩时长：进程退出（含强杀）都会走到这里；写入完成后再发 exited
+        // 状态事件，保证前端刷新时已能读到最新时长。
+        let played_secs = started.elapsed().as_secs();
+        if played_secs > 0 {
+            let st = app2.state::<AppState>();
+            crate::instances::add_play_time(st.inner(), &inst_id, played_secs);
         }
         emit_state(&app2, &inst_id, "exited", pid, outcome);
         let _ = app2.emit(
@@ -960,6 +969,12 @@ fn substitute(input: &str, ctx: &LaunchContext, features: &mut HashMap<String, b
     vars.insert("launcher_version".into(), env!("CARGO_PKG_VERSION").into());
     vars.insert("classpath".into(), ctx.classpath.clone());
     vars.insert("library_directory".into(), ctx.libraries_dir.to_string_lossy().to_string());
+    // Forge 1.17+ 的模块路径参数（-p）用 ${classpath_separator} 拼接多个 jar，
+    // 缺失时整串会被 Java 当作单个路径解析，直接 InvalidPathException 启动失败。
+    vars.insert(
+        "classpath_separator".into(),
+        if cfg!(windows) { ";" } else { ":" }.into(),
+    );
     vars.insert("version_name".into(), ctx.instance.id.clone());
     vars.insert("version_type".into(), "release".into());
     vars.insert("assets_root".into(), ctx.assets_dir.to_string_lossy().to_string());

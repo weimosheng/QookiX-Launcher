@@ -9,6 +9,7 @@ import LaunchProgress from "./components/LaunchProgress.vue";
 import CrashDialog from "./components/CrashDialog.vue";
 import UpdaterCheck from "./components/UpdaterCheck.vue";
 import { useSettingsStore } from "./stores/settings";
+
 import { useAccountsStore } from "./stores/accounts";
 import { useInstancesStore } from "./stores/instances";
 import { useTasksStore } from "./stores/tasks";

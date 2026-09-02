@@ -1,7 +1,7 @@
 ﻿<script setup lang="ts">
 import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { NButton, NModal, useMessage, useDialog } from "naive-ui";
+import { NButton, NModal, NTooltip, useMessage, useDialog } from "naive-ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -13,6 +13,7 @@ import {
   IconCpu,
   IconDownload,
   IconFile,
+  IconGithub,
   IconGlobe,
   IconHardDrive,
   IconImage,
@@ -24,6 +25,8 @@ import {
 import { peekUpdate, downloadUpdate, updateReady, updateReadyVersion } from "../updater";
 import type { JavaInfo, MirrorPreset, StorageStats } from "../types";
 import logoUrl from "../assets/logo.png";
+import devWeimoshengUrl from "../assets/dev-weimosheng.jpg";
+import devZhayiUrl from "../assets/dev-zhayi.jpg";
 
 const settings = useSettingsStore();
 const message = useMessage();
@@ -1101,9 +1104,46 @@ onUnmounted(() => {
             <div class="about-logo">
               <img class="about-logo-img" :src="logoUrl" alt="QookiX" />
               <span class="about-name">QookiX Launcher</span>
-              <span class="about-ver">v0.5.2</span>
+              <span class="about-ver">v0.5.3</span>
             </div>
             <p class="about-desc">现代化、简洁、无广告的 Minecraft 启动器</p>
+            <div class="about-devs">
+              <span class="about-devs-label">开发者</span>
+              <div class="dev-item">
+                <n-tooltip trigger="hover" placement="top">
+                  <template #trigger>
+                    <img class="dev-avatar" :src="devWeimoshengUrl" alt="维墨笙" />
+                  </template>
+                  维墨笙
+                </n-tooltip>
+                <span class="dev-name">维墨笙</span>
+                <n-tooltip trigger="hover" placement="top">
+                  <template #trigger>
+                    <button class="dev-github-btn" @click="openUrl('https://github.com/weimosheng')">
+                      <IconGithub />
+                    </button>
+                  </template>
+                  GitHub 主页
+                </n-tooltip>
+              </div>
+              <div class="dev-item">
+                <n-tooltip trigger="hover" placement="top">
+                  <template #trigger>
+                    <img class="dev-avatar" :src="devZhayiUrl" alt="ZhaYi" />
+                  </template>
+                  ZhaYi
+                </n-tooltip>
+                <span class="dev-name">ZhaYi</span>
+                <n-tooltip trigger="hover" placement="top">
+                  <template #trigger>
+                    <button class="dev-github-btn" @click="openUrl('https://github.com/ZhaYi-Miao')">
+                      <IconGithub />
+                    </button>
+                  </template>
+                  GitHub 主页
+                </n-tooltip>
+              </div>
+            </div>
             <div class="about-features">
               <div class="feature-item"><span class="feature-dot"></span>Modrinth / CurseForge 内容中心</div>
               <div class="feature-item"><span class="feature-dot"></span>多线程高速下载</div>
@@ -1942,6 +1982,60 @@ textarea.text-input {
   font-size: 13px;
   color: var(--text-3);
   margin: 0 0 16px;
+}
+/* 开发者区块 */
+.about-devs {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.about-devs-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-3);
+  margin-right: 2px;
+}
+.dev-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dev-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--accent-35);
+}
+.dev-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.dev-github-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.14s, border-color 0.14s, background 0.14s;
+}
+.dev-github-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent-35);
+  background: var(--accent-soft);
 }
 .about-features {
   display: flex;

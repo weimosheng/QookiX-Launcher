@@ -31,6 +31,29 @@ function loaderBadge() {
   return props.instance.loader === "vanilla" ? "原版" : props.instance.loader.charAt(0).toUpperCase() + props.instance.loader.slice(1);
 }
 
+/** 上次游玩的相对时间（unix 秒）：刚刚 / N 分钟前 / N 小时前 / 昨天 / N 天前 / 日期 */
+function relTime(ts: number): string {
+  const diff = Date.now() / 1000 - ts;
+  if (diff < 60) return "刚刚";
+  if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
+  if (diff < 172800) return "昨天";
+  if (diff < 259200) return "前天";
+  if (diff < 86400 * 30) return `${Math.floor(diff / 86400)} 天前`;
+  return new Date(ts * 1000).toLocaleDateString();
+}
+
+/** 累计游玩时长（秒）的简短人类可读格式 */
+function fmtDuration(secs: number): string {
+  if (secs < 60) return "不到 1 分钟";
+  const totalMin = Math.floor(secs / 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h >= 24) return `${Math.floor(h / 24)} 天 ${h % 24} 小时`;
+  if (h > 0) return m > 0 ? `${h} 小时 ${m} 分钟` : `${h} 小时`;
+  return `${m} 分钟`;
+}
+
 async function launch() {
   try {
     await instances.launch(props.instance.id);
@@ -80,8 +103,12 @@ function confirmDelete() {
     </div>
     <div class="card-foot">
       <div class="foot-info">
-        <span v-if="instance.last_played">
-          最近 {{ new Date(instance.last_played * 1000).toLocaleDateString() }}
+        <span v-if="instance.last_played" :title="`上次游玩 ${new Date(instance.last_played * 1000).toLocaleString()}`">
+          上次 {{ relTime(instance.last_played) }}
+        </span>
+        <span v-if="instance.last_played && instance.total_play_time > 0">·</span>
+        <span v-if="instance.total_play_time > 0" title="累计游玩时长">
+          已玩 {{ fmtDuration(instance.total_play_time) }}
         </span>
       </div>
       <div class="actions" @click.stop>

@@ -198,6 +198,10 @@ pub struct Instance {
     pub loader_version: Option<String>,
     pub created: u64,
     pub last_played: Option<u64>,
+    /// 累计游玩时长（秒）。游戏进程退出时由 launch 钩子累加；
+    /// serde(default) 保证旧版本 qookix.json 缺字段时兼容。
+    #[serde(default)]
+    pub total_play_time: u64,
     /// Game files are fully installed and ready to launch
     pub installed: bool,
     pub icon: Option<String>,

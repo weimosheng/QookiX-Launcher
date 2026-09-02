@@ -113,6 +113,8 @@ export interface Instance {
   loader_version: string | null;
   created: number;
   last_played: number | null;
+  /** 累计游玩时长（秒），由后端在游戏进程退出时累加 */
+  total_play_time: number;
   installed: boolean;
   icon: string | null;
   max_memory_mb: number | null;
