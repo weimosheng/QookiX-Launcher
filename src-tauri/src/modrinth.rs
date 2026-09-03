@@ -480,6 +480,7 @@ async fn install_modpack_inner(
         total_play_time: 0,
         installed: false,
         icon: None,
+        alias: None,
         max_memory_mb: None,
         memory_mode: None,
         jvm_args: None,

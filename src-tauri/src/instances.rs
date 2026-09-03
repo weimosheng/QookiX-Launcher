@@ -101,6 +101,7 @@ pub fn create_instance(
         total_play_time: 0,
         installed: true,
         icon: None,
+        alias: None,
         max_memory_mb: None,
         memory_mode: None,
         jvm_args: None,
@@ -149,6 +150,27 @@ pub fn update_instance(state: &AppState, patch: serde_json::Value) -> Result<Ins
     let mut inst = get_instance(state, id)?;
     if let Some(v) = patch.get("name").and_then(|v| v.as_str()) {
         inst.name = v.to_string();
+    }
+    if let Some(v) = patch.get("alias") {
+        // 别名用于 qookix://launch/<alias>：小写、仅字母数字与 -/_，空串清除。
+        // 需保证全局唯一（与其他实例冲突时报错）。
+        let raw = v.as_str().unwrap_or("").trim().to_ascii_lowercase();
+        if raw.is_empty() {
+            inst.alias = None;
+        } else {
+            let valid =
+                !raw.is_empty() && raw.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+            if !valid {
+                return Err("别名只能包含英文字母、数字、- 和 _".into());
+            }
+            // 冲突检查（排除自身）
+            for entry in load_instances(state) {
+                if entry.id != inst.id && entry.alias.as_deref() == Some(raw.as_str()) {
+                    return Err(format!("别名已被实例「{}」占用", entry.name));
+                }
+            }
+            inst.alias = Some(raw);
+        }
     }
     if let Some(v) = patch.get("icon").and_then(|v| v.as_str()) {
         inst.icon = if v.is_empty() { None } else { Some(v.to_string()) };

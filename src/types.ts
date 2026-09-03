@@ -47,6 +47,8 @@ export interface Settings {
   glass_blur: number;
   show_home_hero: boolean;
   show_sidebar_collapse_btn: boolean;
+  /** 新闻页面与侧边栏新闻入口是否显示（默认 true） */
+  show_news: boolean;
   dismissed_update_version: string | null;
   auto_update: boolean;
   /** 应用自更新源："bucket"（对象存储，默认） | "github"（GitHub Releases 官方源） */
@@ -117,6 +119,8 @@ export interface Instance {
   total_play_time: number;
   installed: boolean;
   icon: string | null;
+  /** 实例别名（qookix://launch/<alias> 协议启动用，全局唯一） */
+  alias?: string | null;
   max_memory_mb: number | null;
   memory_mode: string | null;
   jvm_args: string | null;

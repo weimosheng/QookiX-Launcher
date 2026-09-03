@@ -19,6 +19,7 @@
     "opener:default",
     "dialog:default",
     "process:default",
-    "updater:default"
+    "updater:default",
+    "deep-link:default"
   ]
 }

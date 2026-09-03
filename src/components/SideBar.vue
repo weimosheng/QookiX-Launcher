@@ -2,10 +2,12 @@
 import { useRoute } from "vue-router";
 import { computed, nextTick, ref, watch } from "vue";
 import AccountChip from "./AccountChip.vue";
+import AppIcon from "./AppIcon.vue";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import { useTasksStore } from "../stores/tasks";
 import { useInstancesStore } from "../stores/instances";
 import { useSettingsStore } from "../stores/settings";
+import { usePinsStore } from "../stores/pins";
 import { useMessage } from "naive-ui";
 import {
   IconChevronsLeft,
@@ -31,15 +33,44 @@ const collapsed = ref(true);
 
 const sidebarRef = ref<HTMLElement | null>(null);
 
-const nav = [
-  { name: "home", label: "首页", icon: IconHome, to: "/" },
-  { name: "browse", label: "内容", icon: IconCompass, to: "/browse" },
-  { name: "instances", label: "实例", icon: IconGrid, to: "/instances" },
-  { name: "multiplayer", label: "多人", icon: IconUsers, to: "/multiplayer" },
-  { name: "skins", label: "皮肤", icon: IconSkin, to: "/skins" },
-  { name: "settings", label: "设置", icon: IconSettings, to: "/settings" },
-  { name: "news", label: "新闻", icon: IconNewspaper, to: "/news" },
-];
+// 新闻可隐藏：settings.show_news 为 false 时不显示该导航项（默认显示）
+const nav = computed(() => {
+  const list = [
+    { name: "home", label: "首页", icon: IconHome, to: "/" },
+    { name: "browse", label: "内容", icon: IconCompass, to: "/browse" },
+    { name: "instances", label: "实例", icon: IconGrid, to: "/instances" },
+    { name: "multiplayer", label: "多人", icon: IconUsers, to: "/multiplayer" },
+    { name: "skins", label: "皮肤", icon: IconSkin, to: "/skins" },
+    { name: "settings", label: "设置", icon: IconSettings, to: "/settings" },
+  ];
+  if (settingsStore.settings?.show_news ?? true) {
+    list.push({ name: "news", label: "新闻", icon: IconNewspaper, to: "/news" });
+  }
+  return list;
+});
+
+// —— 侧边栏固定实例 ——
+// 复用 pins store（实例卡片上的「固定到首页」用的同一份数据），
+// 只取 type === "instance" 的项，并跟随实例列表拿到最新的名称/图标。
+const pins = usePinsStore();
+const pinnedInstances = computed(() => {
+  const byId = new Map(instances.instances.map((i) => [i.id, i]));
+  return pins.items
+    .filter((p) => p.type === "instance")
+    .map((p) => {
+      const inst = byId.get(p.instanceId);
+      return {
+        id: p.id,
+        instanceId: p.instanceId,
+        // 实例可能已被删除或改名/换图标，实时从实例列表取，缺失时回退 pin 快照
+        name: inst?.name ?? p.instanceName ?? p.name,
+        icon: inst?.icon ?? p.instanceIcon ?? null,
+        exists: !!inst,
+      };
+    })
+    // 已被删除的实例不再显示
+    .filter((p) => p.exists);
+});
 
 const downloadCount = computed(() => tasks.activeCount);
 
@@ -54,9 +85,11 @@ const { indicatorStyle, refresh, snap } = useSlidingIndicator(
   sidebarRef,
   () => Array.from(sidebarRef.value?.querySelectorAll<HTMLElement>(".nav-item") ?? []),
   () => {
-    const idx = nav.findIndex((n) => isActive(n));
+    // 用 nav.value（现在是 computed）。查询范围是整个 sidebar 的 .nav-item；
+    // 固定实例用独立的 .pin-item 类名，不会被计入，索引顺序保持稳定。
+    const idx = nav.value.findIndex((n) => isActive(n));
     if (idx >= 0) return idx;
-    if (route.path.startsWith("/downloads")) return nav.length;
+    if (route.path.startsWith("/downloads")) return nav.value.length;
     return -1;
   },
   { axis: "vertical" }
@@ -66,6 +99,15 @@ watch(
   () => nextTick(() => refresh())
 );
 watch(collapsed, () => nextTick(() => snap()));
+// 固定实例增删会改变侧边栏高度/布局，需重算指示器位置
+watch(
+  () => [pinnedInstances.value.length, nav.value.length],
+  () => nextTick(() => refresh())
+);
+
+function unpin(id: string) {
+  pins.remove(id);
+}
 
 async function stopAll() {
   try {
@@ -98,6 +140,35 @@ async function stopAll() {
         >{{ downloadCount }}</span>
       </router-link>
     </nav>
+
+    <!-- 固定实例：独立类名 .pin-item，避免被滑动指示器计入 .nav-item -->
+    <div v-if="pinnedInstances.length" class="pin-section">
+      <div v-if="!collapsed" class="pin-section-title">固定</div>
+      <div v-else class="pin-divider"></div>
+      <div class="pin-list">
+        <router-link
+          v-for="p in pinnedInstances"
+          :key="p.id"
+          :to="`/instance/${p.instanceId}`"
+          class="nav-item pin-item"
+          :class="{ active: route.path.startsWith(`/instance/${p.instanceId}`) }"
+          :title="collapsed ? p.name : p.name"
+        >
+          <div class="pin-icon-wrap">
+            <AppIcon :name="p.icon" />
+          </div>
+          <span v-if="!collapsed" class="nav-label pin-label">{{ p.name }}</span>
+          <button
+            v-if="!collapsed"
+            class="pin-unpin"
+            title="取消固定"
+            @click.prevent.stop="unpin(p.id)"
+          >
+            <IconX />
+          </button>
+        </router-link>
+      </div>
+    </div>
 
     <div class="side-foot">
       <button v-if="tasks.gameRunning" class="stop-all-btn" @click="stopAll">
@@ -158,6 +229,88 @@ async function stopAll() {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+/* —— 固定实例区域 —— */
+.pin-section {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  max-height: 40vh;
+  /* 隐藏滚动条但保留滚轮滚动 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.pin-section::-webkit-scrollbar {
+  display: none;
+}
+.pin-section-title {
+  padding: 0 14px 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--text-3);
+}
+.pin-divider {
+  height: 1px;
+  margin: 0 8px 4px;
+  background: var(--border);
+}
+.pin-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pin-item {
+  padding-right: 6px;
+}
+.pin-icon-wrap {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.pin-icon-wrap :deep(img),
+.pin-icon-wrap :deep(svg) {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.pin-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pin-unpin {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+.pin-item:hover .pin-unpin {
+  opacity: 1;
+}
+.pin-unpin:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 .nav-item {
   position: relative;

@@ -80,6 +80,8 @@ pub struct Settings {
     pub show_home_hero: bool,
     /// 侧边栏展开/收缩按钮是否显示
     pub show_sidebar_collapse_btn: bool,
+    /// 新闻页面与侧边栏新闻入口是否显示
+    pub show_news: bool,
     /// 用户点击「忽略此版本」后记录的版本号。启动时若为同一版本则不再弹窗提示，
     /// 出现更新的版本时恢复提醒。
     pub dismissed_update_version: Option<String>,
@@ -119,6 +121,7 @@ impl Default for Settings {
             glass_blur: 8,
             show_home_hero: false,
             show_sidebar_collapse_btn: false,
+            show_news: true,
             dismissed_update_version: None,
             auto_update: false,
             update_source: "bucket".into(),
@@ -205,6 +208,9 @@ pub struct Instance {
     /// Game files are fully installed and ready to launch
     pub installed: bool,
     pub icon: Option<String>,
+    /// 实例别名：用于 qookix://launch/<alias> 协议启动（唯一、小写、无空格）
+    #[serde(default)]
+    pub alias: Option<String>,
     // per-instance overrides (fall back to settings)
     pub max_memory_mb: Option<u32>,
     /// Memory allocation mode: "global" | "auto" | "custom" (defaults to global)

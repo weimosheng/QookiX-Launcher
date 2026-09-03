@@ -9,6 +9,7 @@ import LaunchProgress from "./components/LaunchProgress.vue";
 import CrashDialog from "./components/CrashDialog.vue";
 import UpdaterCheck from "./components/UpdaterCheck.vue";
 import { useSettingsStore } from "./stores/settings";
+import { initDeepLink } from "./composables/deepLink";
 
 import { useAccountsStore } from "./stores/accounts";
 import { useInstancesStore } from "./stores/instances";
@@ -91,6 +92,7 @@ watch(() => settings.settings?.background_image, (p) => {
 }, { immediate: true });
 
 onMounted(() => {
+  void initDeepLink();
   tasks.init();
   settings.load();
   accounts.load();

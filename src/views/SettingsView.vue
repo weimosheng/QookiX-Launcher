@@ -619,6 +619,25 @@ onUnmounted(() => {
           </div>
 
           <div class="card glass">
+            <h3>界面元素</h3>
+            <div class="choice-row">
+              <div class="choice-info">
+                <span class="choice-label">新闻</span>
+                <p class="choice-hint">关闭后隐藏侧边栏的「新闻」入口与新闻页面。</p>
+              </div>
+              <button
+                class="toggle"
+                :class="{ on: settings.settings.show_news ?? true }"
+                role="switch"
+                :aria-checked="settings.settings.show_news ?? true"
+                @click="settings.patch({ show_news: !(settings.settings.show_news ?? true) })"
+              >
+                <span class="knob"></span>
+              </button>
+            </div>
+          </div>
+
+          <div class="card glass">
             <h3>数据目录</h3>
             <div class="dir-row">
               <code class="mono dir">{{ settings.settings.data_dir }}</code>
@@ -1107,7 +1126,7 @@ onUnmounted(() => {
           <AboutShowcase />
           <div class="about-hero-title">
             <span class="about-name about-hero-name">QookiX Launcher</span>
-            <span class="about-ver">v0.5.4</span>
+            <span class="about-ver">v0.5.5</span>
           </div>
           <p class="about-hero-slogan">现代化、简洁、无广告的 Minecraft 启动器</p>
         </div>

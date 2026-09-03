@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { useSettingsStore } from "./stores/settings";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -15,6 +16,19 @@ const router = createRouter({
     { path: "/settings", name: "settings", component: () => import("./views/SettingsView.vue"), meta: { title: "设置", icon: "settings" } },
     { path: "/skins", name: "skins", component: () => import("./views/SkinView.vue"), meta: { title: "皮肤中心", icon: "user" } },
   ],
+});
+
+// 关闭「新闻」后，直接访问 /news 会跳回首页（侧边栏入口本身也已隐藏）。
+// 设置尚未加载时按「显示」处理，避免启动瞬间误跳转。
+router.beforeEach((to) => {
+  if (to.path !== "/news") return true;
+  try {
+    const s = useSettingsStore();
+    if (s.settings && s.settings.show_news === false) return { path: "/", replace: true };
+  } catch {
+    // store 尚未初始化（Pinia 未激活）时放行
+  }
+  return true;
 });
 
 export default router;

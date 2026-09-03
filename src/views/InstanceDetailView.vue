@@ -43,6 +43,7 @@ import {
   IconMapPin,
   IconHardDrive,
   IconBug,
+  IconSliders,
 } from "../components/icons";
 const route = useRoute();
 const router = useRouter();
@@ -187,6 +188,7 @@ const ALL_TABS = [
   { key: "files", label: "文件", icon: IconHardDrive },
   { key: "logs", label: "日志", icon: IconFile },
   { key: "crash", label: "崩溃分析", icon: IconBug },
+  { key: "settings", label: "设置", icon: IconSliders },
 ];
 
 // folder-backed tabs are only shown when the corresponding folder exists;
@@ -747,6 +749,7 @@ const edit = ref({
   account_id: "",
   resolution_w: "",
   resolution_h: "",
+  alias: "",
 });
 
 const memTotal = ref(0);
@@ -835,6 +838,7 @@ watch(
       account_id: i.account_id ?? "",
       resolution_w: i.resolution?.[0]?.toString() ?? "",
       resolution_h: i.resolution?.[1]?.toString() ?? "",
+      alias: i.alias ?? "",
     };
   },
   { immediate: true }
@@ -915,6 +919,7 @@ async function saveSettings() {
       game_args: edit.value.game_args,
       java_path: edit.value.java_path,
       account_id: edit.value.account_id,
+      alias: edit.value.alias,
       resolution:
         edit.value.resolution_w && edit.value.resolution_h
           ? [Number(edit.value.resolution_w), Number(edit.value.resolution_h)]
@@ -1389,6 +1394,18 @@ watch(
                 <span><i class="dot total"></i>总内存 {{ fmtMem(memTotal) }} / 可用 {{ fmtMem(memAvailable) }}</span>
               </div>
             </div>
+          </div>
+
+          <div class="set-card glass">
+            <h4>实例别名（协议启动）</h4>
+            <input
+              v-model="edit.alias"
+              class="text-input mono"
+              placeholder="例如 my-sky（仅小写字母、数字、- 和 _）"
+            />
+            <p class="hint">
+              设置后可用 <code>qookix://launch/{{ edit.alias || "别名" }}</code> 从浏览器或命令行直接启动本实例。
+            </p>
           </div>
 
           <div class="set-card glass">
