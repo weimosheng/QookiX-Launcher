@@ -12,11 +12,15 @@ import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import {
   IconCpu,
   IconDownload,
+  IconExternal,
   IconFile,
   IconGithub,
   IconGlobe,
   IconHardDrive,
+  IconHeart,
   IconImage,
+  IconList,
+  IconUsers,
   IconRefresh,
   IconSearch,
   IconSliders,
@@ -24,9 +28,9 @@ import {
 } from "../components/icons";
 import { peekUpdate, downloadUpdate, updateReady, updateReadyVersion } from "../updater";
 import type { JavaInfo, MirrorPreset, StorageStats } from "../types";
-import logoUrl from "../assets/logo.png";
 import devWeimoshengUrl from "../assets/dev-weimosheng.jpg";
 import devZhayiUrl from "../assets/dev-zhayi.jpg";
+import AboutShowcase from "../components/AboutShowcase.vue";
 
 const settings = useSettingsStore();
 const message = useMessage();
@@ -1099,58 +1103,55 @@ onUnmounted(() => {
 
       <!-- 关于 -->
       <div v-show="tab === 'about'" class="settings-pane">
+        <div class="card glass about-showcase">
+          <AboutShowcase />
+          <div class="about-hero-title">
+            <span class="about-name about-hero-name">QookiX Launcher</span>
+            <span class="about-ver">v0.5.4</span>
+          </div>
+          <p class="about-hero-slogan">现代化、简洁、无广告的 Minecraft 启动器</p>
+        </div>
         <div class="grid about-grid">
           <div class="card glass about-card">
-            <div class="about-logo">
-              <img class="about-logo-img" :src="logoUrl" alt="QookiX" />
-              <span class="about-name">QookiX Launcher</span>
-              <span class="about-ver">v0.5.3</span>
-            </div>
-            <p class="about-desc">现代化、简洁、无广告的 Minecraft 启动器</p>
-            <div class="about-devs">
-              <span class="about-devs-label">开发者</span>
-              <div class="dev-item">
-                <n-tooltip trigger="hover" placement="top">
-                  <template #trigger>
-                    <img class="dev-avatar" :src="devWeimoshengUrl" alt="维墨笙" />
-                  </template>
-                  维墨笙
-                </n-tooltip>
-                <span class="dev-name">维墨笙</span>
-                <n-tooltip trigger="hover" placement="top">
-                  <template #trigger>
-                    <button class="dev-github-btn" @click="openUrl('https://github.com/weimosheng')">
-                      <IconGithub />
-                    </button>
-                  </template>
-                  GitHub 主页
-                </n-tooltip>
+            <div class="about-devs-title">开发者</div>
+            <div class="dev-list">
+              <div class="dev-line">
+                <img class="dev-avatar" :src="devWeimoshengUrl" alt="维墨笙" />
+                <div class="dev-meta">
+                  <div class="dev-head">
+                    <span class="dev-name">维墨笙</span>
+                    <n-tooltip trigger="hover" placement="top">
+                      <template #trigger>
+                        <button class="dev-github-btn" @click="openUrl('https://github.com/weimosheng')">
+                          <IconGithub />
+                        </button>
+                      </template>
+                      GitHub 主页
+                    </n-tooltip>
+                  </div>
+                  <span class="dev-role">QookiX Launcher 的开发者</span>
+                </div>
               </div>
-              <div class="dev-item">
-                <n-tooltip trigger="hover" placement="top">
-                  <template #trigger>
-                    <img class="dev-avatar" :src="devZhayiUrl" alt="ZhaYi" />
-                  </template>
-                  ZhaYi
-                </n-tooltip>
-                <span class="dev-name">ZhaYi</span>
-                <n-tooltip trigger="hover" placement="top">
-                  <template #trigger>
-                    <button class="dev-github-btn" @click="openUrl('https://github.com/ZhaYi-Miao')">
-                      <IconGithub />
-                    </button>
-                  </template>
-                  GitHub 主页
-                </n-tooltip>
+              <div class="dev-line">
+                <img class="dev-avatar" :src="devZhayiUrl" alt="ZhaYi" />
+                <div class="dev-meta">
+                  <div class="dev-head">
+                    <span class="dev-name">ZhaYi</span>
+                    <n-tooltip trigger="hover" placement="top">
+                      <template #trigger>
+                        <button class="dev-github-btn" @click="openUrl('https://github.com/ZhaYi-Miao')">
+                          <IconGithub />
+                        </button>
+                      </template>
+                      GitHub 主页
+                    </n-tooltip>
+                  </div>
+                  <span class="dev-role">QookiX Launcher 的协力开发者</span>
+                </div>
               </div>
             </div>
-            <div class="about-features">
-              <div class="feature-item"><span class="feature-dot"></span>Modrinth / CurseForge 内容中心</div>
-              <div class="feature-item"><span class="feature-dot"></span>多线程高速下载</div>
-              <div class="feature-item"><span class="feature-dot"></span>Java 自动检测与下载</div>
-              <div class="feature-item"><span class="feature-dot"></span>微软正版与离线登录</div>
-              <div class="feature-item"><span class="feature-dot"></span>离线皮肤支持</div>
-            </div>
+          </div>
+          <div class="card glass about-update-card">
             <div class="about-update">
               <button class="mini-btn primary" :disabled="checking" @click="checkUpdate">
                 {{ checking ? "检查中…" : "检查更新" }}
@@ -1188,25 +1189,43 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
-          <div class="card glass about-links">
-            <h3>链接</h3>
+          <div class="about-links-row">
             <button class="about-link" @click="openUrl('https://qookix.swkj1.cn/')">
-              <span>官方网站</span>
+              <span class="link-left"><IconGlobe /> 官方网站</span>
               <span class="link-arrow">→</span>
             </button>
             <button class="about-link" @click="openUrl('https://github.com/weimosheng/QookiX-Launcher')">
-              <span>GitHub 仓库</span>
+              <span class="link-left"><IconGithub /> GitHub 仓库</span>
               <span class="link-arrow">→</span>
             </button>
             <button class="about-link" @click="openUrl('https://github.com/weimosheng/QookiX-Launcher/issues')">
-              <span>问题反馈</span>
+              <span class="link-left"><IconExternal /> 问题反馈</span>
               <span class="link-arrow">→</span>
             </button>
             <button class="about-link" @click="openUrl('https://github.com/weimosheng/QookiX-Launcher/releases')">
-              <span>更新日志</span>
+              <span class="link-left"><IconList /> 更新日志</span>
               <span class="link-arrow">→</span>
             </button>
-
+            <button class="about-link" @click="openUrl('https://qm.qq.com/q/91keQnJ8dy')">
+              <span class="link-left"><IconUsers /> 官方 Q 群</span>
+              <span class="link-arrow">→</span>
+            </button>
+            <button class="about-link" @click="openUrl('https://afdian.com/a/qookix')">
+              <span class="link-left"><IconHeart /> 爱发电赞助</span>
+              <span class="link-arrow">→</span>
+            </button>
+          </div>
+          <div class="card glass about-license-card">
+            <h3>许可证</h3>
+            <p class="license-text">
+              QookiX Launcher 基于
+              <span class="license-accent">GPL-3.0</span>
+              开源协议发布。图标、名称与品牌归属 QookiX 开发组所有，未经许可请勿用于商业用途。
+            </p>
+            <button class="about-link" @click="openUrl('https://github.com/weimosheng/QookiX-Launcher/blob/main/LICENSE')">
+              <span class="link-left"><IconFile /> 查看 GPL-3.0 完整文本</span>
+              <span class="link-arrow">→</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1928,7 +1947,28 @@ textarea.text-input {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 14px;
+}
+.about-license-card {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.about-license-card h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.license-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+.license-accent {
+  color: var(--accent);
+  font-weight: 600;
 }
 .update-source {
   display: flex;
@@ -1953,17 +1993,32 @@ textarea.text-input {
   display: flex;
   flex-direction: column;
 }
-.about-logo {
+/* 顶部展示卡：画布与卡片保持留白，桌布做斜向动画 + 曲奇咬口 */
+.about-showcase {
+  padding: 16px;
+}
+.about-showcase .about-show-wrap {
+  height: 200px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.about-hero-title {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 4px;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 14px;
 }
-.about-logo-img {
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
-  flex-shrink: 0;
+.about-hero-name {
+  font-size: 20px;
+}
+.about-hero-slogan {
+  text-align: center;
+  margin: 6px 0 2px;
+  font-size: 13px;
+  color: var(--text-2);
+  letter-spacing: 0.2px;
 }
 .about-name {
   font-size: 18px;
@@ -1983,37 +2038,51 @@ textarea.text-input {
   color: var(--text-3);
   margin: 0 0 16px;
 }
-/* 开发者区块 */
-.about-devs {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 16px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+.dev-role {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.3;
 }
-.about-devs-label {
+/* 开发者区块：一人一行，不套卡片 */
+.about-devs-title {
   font-size: 12px;
   font-weight: 700;
   color: var(--text-3);
-  margin-right: 2px;
+  margin: 0 0 10px;
+  letter-spacing: 0.3px;
 }
-.dev-item {
+.dev-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.dev-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.dev-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.dev-head {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 .dev-avatar {
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   object-fit: cover;
   border: 2px solid var(--accent-35);
+  flex-shrink: 0;
 }
 .dev-name {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-1);
 }
@@ -2037,29 +2106,17 @@ textarea.text-input {
   border-color: var(--accent-35);
   background: var(--accent-soft);
 }
-.about-features {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 4px;
+.about-links-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
 }
-.feature-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text-2);
-}
-.feature-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex-shrink: 0;
-}
-.about-links {
-  display: flex;
-  flex-direction: column;
+.about-links-row .about-link {
+  justify-content: flex-start;
+  padding: 18px 16px;
+  min-height: 56px;
+  font-size: 14px;
 }
 .about-link {
   display: flex;
@@ -2068,7 +2125,10 @@ textarea.text-input {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.03);
+  /* 与 .card.glass 一致的磨砂背景，避免和卡片质感不一致 */
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(var(--glass-blur, 8px));
+  backdrop-filter: blur(var(--glass-blur, 8px));
   color: var(--text-2);
   font-size: 13px;
   font-weight: 500;
@@ -2081,6 +2141,16 @@ textarea.text-input {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--text-1);
+}
+.link-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.link-left :deep(svg) {
+  font-size: 15px;
+  color: var(--accent);
+  flex-shrink: 0;
 }
 .link-arrow {
   color: var(--text-3);

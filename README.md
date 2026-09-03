@@ -6,7 +6,14 @@
 
 **一款免费、纯净、无广告的 Minecraft 启动器**
 
-支持 Modrinth / CurseForge 双内容中心，模组、整合包、光影、资源包一键安装与升级。
+<div align="center">
+
+![Build](https://img.shields.io/github/actions/workflow/status/weimosheng/QookiX-Launcher/release.yml?label=build)
+![Downloads](https://img.shields.io/github/downloads/weimosheng/QookiX-Launcher/total?label=downloads)
+![Stars](https://img.shields.io/github/stars/weimosheng/QookiX-Launcher?label=stars)
+![License](https://img.shields.io/github/license/weimosheng/QookiX-Launcher?label=license)
+
+</div>
 
 </div>
 

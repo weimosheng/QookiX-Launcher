@@ -1,15 +1,17 @@
 import { defineStore } from "pinia";
 
+export type PinType = "server" | "world" | "instance";
+
 export interface PinItem {
   /** 唯一标识：`instanceId:type:key` */
   id: string;
-  type: "server" | "world";
+  type: PinType;
   instanceId: string;
   instanceName: string;
   instanceIcon: string | null;
   mcVersion: string;
   loader: string;
-  /** 展示名：服务器名或世界名 */
+  /** 展示名：服务器名、世界名或实例名 */
   name: string;
   /** 服务器地址（type=server 时） */
   address?: string;
@@ -44,7 +46,7 @@ export const usePinsStore = defineStore("pins", {
     save() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.items));
     },
-    makeId(type: "server" | "world", instanceId: string, key: string) {
+    makeId(type: PinType, instanceId: string, key: string) {
       return `${instanceId}:${type}:${key}`;
     },
     add(pin: PinItem) {

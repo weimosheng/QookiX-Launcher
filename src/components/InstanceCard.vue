@@ -2,15 +2,17 @@
 import { ref } from "vue";
 import { useRouter } from "vue-router";
 import { useInstancesStore } from "../stores/instances";
+import { usePinsStore } from "../stores/pins";
 import { useMessage, NModal, NButton } from "naive-ui";
 import { api } from "../api";
 import AppIcon from "./AppIcon.vue";
-import { IconFolder, IconLayers, IconPlay, IconTrash } from "./icons";
+import { IconFolder, IconLayers, IconMapPin, IconPlay, IconTrash } from "./icons";
 import type { Instance } from "../types";
 
 const props = defineProps<{ instance: Instance }>();
 const emit = defineEmits<{ move: [instance: Instance] }>();
 const instances = useInstancesStore();
+const pins = usePinsStore();
 const router = useRouter();
 const message = useMessage();
 
@@ -61,6 +63,22 @@ async function launch() {
   } catch (e) {
     message.error(String(e));
   }
+}
+
+const instancePinId = pins.makeId("instance", props.instance.id, props.instance.id);
+function togglePin() {
+  const i = props.instance;
+  pins.toggle({
+    id: instancePinId,
+    type: "instance",
+    instanceId: i.id,
+    instanceName: i.name,
+    instanceIcon: i.icon,
+    mcVersion: i.mc_version,
+    loader: i.loader,
+    name: i.name,
+    icon: null,
+  });
 }
 
 async function apiOpen() {
@@ -118,6 +136,14 @@ function confirmDelete() {
           @click="launch"
         >
           <IconPlay />
+        </button>
+        <button
+          class="icon-btn pin"
+          :class="{ active: pins.isPinned(instancePinId) }"
+          :title="pins.isPinned(instancePinId) ? '取消固定到首页' : '固定到首页'"
+          @click="togglePin"
+        >
+          <IconMapPin />
         </button>
         <button class="icon-btn" title="打开游戏目录" @click="apiOpen">
           <IconFolder />
@@ -254,6 +280,11 @@ function confirmDelete() {
   color: var(--text-1);
 }
 .icon-btn.play {
+  color: var(--accent);
+  border-color: var(--accent-04);
+  background: var(--accent-soft);
+}
+.icon-btn.pin.active {
   color: var(--accent);
   border-color: var(--accent-04);
   background: var(--accent-soft);

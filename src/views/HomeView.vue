@@ -178,7 +178,11 @@ async function launchPin(p: PinItem) {
   }
   try {
     await instances.launch(p.instanceId, p.world, p.address);
-    message.success(p.type === "server" ? `正在加入服务器「${p.name}」` : `正在进入世界「${p.name}」`);
+    const msg =
+      p.type === "server" ? `正在加入服务器「${p.name}」`
+      : p.type === "world" ? `正在进入世界「${p.name}」`
+      : `正在启动实例「${p.name}」`;
+    message.success(msg);
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -191,7 +195,15 @@ function unpin(p: PinItem) {
 }
 
 function openInstance(p: PinItem) {
-  router.push({ path: `/instances/${p.instanceId}`, query: { tab: "saves" } });
+  if (p.type === "instance") {
+    router.push(`/instance/${p.instanceId}`);
+  } else {
+    router.push({ path: `/instances/${p.instanceId}`, query: { tab: "saves" } });
+  }
+}
+
+function pinTypeLabel(t: PinItem["type"]): string {
+  return t === "server" ? "服务器" : t === "world" ? "存档" : "实例";
 }
 
 onMounted(() => {
@@ -232,16 +244,20 @@ onMounted(() => {
               <img v-if="pinIconSrc(p)" :src="pinIconSrc(p)" class="pin-icon-img" alt="" />
               <IconGlobe v-else />
             </template>
-            <template v-else>
+            <template v-else-if="p.type === 'world'">
               <img v-if="worldIconSrc(p)" :src="worldIconSrc(p)" class="pin-icon-img" alt="" />
               <IconFolder v-else />
+            </template>
+            <template v-else>
+              <AppIcon :name="p.instanceIcon" />
             </template>
           </div>
           <div class="pin-info">
             <div class="pin-title text-ellipsis">{{ p.name }}</div>
             <div class="pin-meta">
-              <span class="pin-type" :class="p.type">{{ p.type === "server" ? "服务器" : "存档" }}</span>
-              <span class="pin-inst text-ellipsis">{{ p.instanceName }}</span>
+              <span class="pin-type" :class="p.type">{{ pinTypeLabel(p.type) }}</span>
+              <span v-if="p.type === 'instance'" class="pin-inst text-ellipsis">{{ p.mcVersion }} · {{ p.loader }}</span>
+              <span v-else class="pin-inst text-ellipsis">{{ p.instanceName }}</span>
             </div>
             <div v-if="p.type === 'server'" class="pin-status">
               <span v-if="pinStatus[p.id]" :class="['latency', latencyInfo(pinStatus[p.id].latency_ms).tier]">
@@ -526,6 +542,10 @@ onMounted(() => {
 .pin-type.world {
   background: rgba(122, 208, 138, 0.15);
   color: #7ad08a;
+}
+.pin-type.instance {
+  background: var(--accent-16);
+  color: var(--accent);
 }
 .pin-inst {
   color: var(--text-3);

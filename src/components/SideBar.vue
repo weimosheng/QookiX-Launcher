@@ -38,7 +38,7 @@ const nav = [
   { name: "multiplayer", label: "多人", icon: IconUsers, to: "/multiplayer" },
   { name: "skins", label: "皮肤", icon: IconSkin, to: "/skins" },
   { name: "settings", label: "设置", icon: IconSettings, to: "/settings" },
-  { name: "downloads", label: "下载", icon: IconDownload, to: "/downloads" },
+  { name: "news", label: "新闻", icon: IconNewspaper, to: "/news" },
 ];
 
 const downloadCount = computed(() => tasks.activeCount);
@@ -56,7 +56,7 @@ const { indicatorStyle, refresh, snap } = useSlidingIndicator(
   () => {
     const idx = nav.findIndex((n) => isActive(n));
     if (idx >= 0) return idx;
-    if (route.path.startsWith("/news")) return nav.length;
+    if (route.path.startsWith("/downloads")) return nav.length;
     return -1;
   },
   { axis: "vertical" }
@@ -105,13 +105,18 @@ async function stopAll() {
         <span v-if="!collapsed">关闭所有实例</span>
       </button>
       <router-link
-        to="/news"
+        to="/downloads"
         class="nav-item foot-nav"
-        :class="{ active: route.path.startsWith('/news') }"
-        :title="collapsed ? '新闻' : undefined"
+        :class="{ active: route.path.startsWith('/downloads') }"
+        :title="collapsed ? '下载' : undefined"
       >
-        <IconNewspaper class="nav-icon" />
-        <span v-if="!collapsed" class="nav-label">新闻</span>
+        <IconDownload class="nav-icon" />
+        <span v-if="!collapsed" class="nav-label">下载</span>
+        <span
+          v-if="downloadCount > 0"
+          class="nav-badge"
+          :title="`正在下载 ${downloadCount} 项`"
+        >{{ downloadCount }}</span>
       </router-link>
       <AccountChip :collapsed="collapsed" />
       <button
