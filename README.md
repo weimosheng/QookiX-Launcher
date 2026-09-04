@@ -8,10 +8,10 @@
 
 <div align="center">
 
-![Build](https://img.shields.io/github/actions/workflow/status/weimosheng/QookiX-Launcher/release.yml?label=build)
-![Downloads](https://img.shields.io/github/downloads/weimosheng/QookiX-Launcher/total?label=downloads)
-![Stars](https://img.shields.io/github/stars/weimosheng/QookiX-Launcher?label=stars)
-![License](https://img.shields.io/github/license/weimosheng/QookiX-Launcher?label=license)
+[![Build](https://img.shields.io/github/actions/workflow/status/weimosheng/QookiX-Launcher/.github/workflows/build.yml?label=build)](https://github.com/weimosheng/QookiX-Launcher/actions)
+[![Downloads](https://img.shields.io/github/downloads/weimosheng/QookiX-Launcher/total?label=downloads)](https://github.com/weimosheng/QookiX-Launcher/releases)
+[![Stars](https://img.shields.io/github/stars/weimosheng/QookiX-Launcher?label=stars)](https://github.com/weimosheng/QookiX-Launcher)
+[![License](https://img.shields.io/github/license/weimosheng/QookiX-Launcher?label=license)](https://github.com/weimosheng/QookiX-Launcher/blob/main/LICENSE)
 
 </div>
 
