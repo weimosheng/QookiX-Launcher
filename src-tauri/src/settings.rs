@@ -371,15 +371,16 @@ pub fn ensure_layout(root: &std::path::Path) -> std::io::Result<()> {
 
 /// Shared http client builder with a browser-ish UA.
 pub fn http_client(proxy_mode: &str, proxy: Option<&str>) -> reqwest::Client {
-    let mut builder = reqwest::Client::builder()
-        .user_agent(format!(
-            "QookiX-Launcher/{} (desktop)",
-            env!("CARGO_PKG_VERSION")
-        ))
-        .gzip(true)
-        .brotli(true)
-        .connect_timeout(std::time::Duration::from_secs(15))
-        .timeout(std::time::Duration::from_secs(60));
+    let user_agent = format!("QookiX-Launcher/{} (desktop)", env!("CARGO_PKG_VERSION"));
+    let base = || {
+        reqwest::Client::builder()
+            .user_agent(&user_agent)
+            .gzip(true)
+            .brotli(true)
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .timeout(std::time::Duration::from_secs(60))
+    };
+    let mut builder = base();
     match proxy_mode {
         // 直连：禁用所有代理（含系统代理）
         "direct" => {
@@ -398,7 +399,16 @@ pub fn http_client(proxy_mode: &str, proxy: Option<&str>) -> reqwest::Client {
         // "system" 及其它：不额外设置，走 reqwest 默认的系统代理
         _ => {}
     }
-    builder.build().expect("failed to build http client")
+    // 构建失败不再 panic（旧实现 expect 会让应用在启动路径直接崩溃，
+    // 典型诱因是用户配置的自定义代理），回退为不带自定义代理的默认客户端。
+    // 无自定义代理的兜底构建在实际中不会失败。
+    match builder.build() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[settings] HTTP 客户端构建失败({e})，已回退为默认网络配置");
+            base().build().expect("default http client build")
+        }
+    }
 }
 
 #[allow(dead_code)]

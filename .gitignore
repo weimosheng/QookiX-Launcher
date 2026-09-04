@@ -16,6 +16,16 @@ dist-ssr
 # Release artifacts staged by .github/workflows/build.yml before publishing
 dist-artifacts
 
+# AI/工具会话产物（避免误提交）
+.workbuddy/
+.codegraph/
+.merkle-snapshot.json
+.codeartsdoer/
+
+# 本地构建/测试时散落的安装包与日志
+/*.exe
+/dev.log
+
 # 根目录的素材图（非 public/ 内被引用的应用图标）
 /app-icon.png
 

@@ -1023,12 +1023,15 @@ watch(
   { immediate: true }
 );
 
+// 只监听本实例对象的变化（浅监听）：store 每次 load 会重建整个实例数组，
+// 旧实现 deep 监听整个数组，任何其它实例的字段变化都会触发本页全量
+// 内容重载（例如某局游戏退出刷新 last_played 时，开着详情页就会白白
+// 重新拉一遍 mods 列表）。本实例对象在 load 后是新引用，浅监听即可捕获。
 watch(
-  () => instances.instances,
+  () => instances.get(instanceId),
   () => {
     if (tab.value !== "files") loadContent();
-  },
-  { deep: true }
+  }
 );
 </script>
 

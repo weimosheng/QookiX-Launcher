@@ -77,6 +77,15 @@ const downloadCount = computed(() => tasks.activeCount);
 
 function isActive(n: { to: string }) {
   if (n.to === "/") return route.path === "/";
+  // 实例详情/创建页是「实例」的子页面，进入后保持「实例」高亮，
+  // 否则滑动指示器会停留在上一个页面（没有任何 nav 项匹配 → 不更新）
+  if (n.to === "/instances") {
+    return (
+      route.path.startsWith("/instances") ||
+      route.path.startsWith("/instance/") ||
+      route.path === "/create"
+    );
+  }
   return route.path.startsWith(n.to);
 }
 

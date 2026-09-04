@@ -198,7 +198,7 @@ function openInstance(p: PinItem) {
   if (p.type === "instance") {
     router.push(`/instance/${p.instanceId}`);
   } else {
-    router.push({ path: `/instances/${p.instanceId}`, query: { tab: "saves" } });
+    router.push({ path: `/instance/${p.instanceId}`, query: { tab: "saves" } });
   }
 }
 

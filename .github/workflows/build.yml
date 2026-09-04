@@ -110,6 +110,24 @@ jobs:
           echo "$QOOKIX_CERT_PFX_B64" | base64 -d > "$RUNNER_TEMP/qookix.pfx"
           test -s "$RUNNER_TEMP/qookix.pfx"
 
+      # Rust unit tests. lib.rs 的 smoke tests（Mojang/Fabric/Modrinth 实网
+      # 请求）与 java_detection_report（需要 JVM）都在这里执行——
+      # v0.4.53 的合并事故（fetch_news 被写成空 stub 未修复即发版）
+      # 正是缺这一步才会漏过。
+      - name: Setup Java (for Rust tests)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Run Rust tests
+        run: cargo test
+
+      # Advisory lint：只输出警告不阻断构建（代码库尚未清零 clippy 告警），
+      # 让告警可见，为日后 -D warnings 做准备。
+      - name: Clippy (advisory)
+        run: cargo clippy
+
       # `npm run tauri build` runs the run-tauri.mjs wrapper: it builds the
       # WebView2 installer UI, embeds it, and (on Windows) signs the main exe /
       # installer / MSI. When TAURI_SIGNING_PRIVATE_KEY is set, the bundler

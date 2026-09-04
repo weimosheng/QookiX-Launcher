@@ -117,7 +117,7 @@ pub async fn launch_game(
                     .map(|h| h.trim() == current_hash)
                     .unwrap_or(false);
                 if !already_built {
-                    let _ = app.emit("launch//log", serde_json::json!({
+                    let _ = app.emit("launch://log", serde_json::json!({
                         "instanceId": instance.id,
                         "stream": "out",
                         "line": "正在应用离线皮肤…",

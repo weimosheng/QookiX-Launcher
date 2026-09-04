@@ -498,6 +498,8 @@ mod smoke {
             loader_version: Some("0.15.11".into()),
             created: 0,
             last_played: None,
+            total_play_time: 0,
+            alias: None,
             installed: false,
             icon: None,
             max_memory_mb: None,
