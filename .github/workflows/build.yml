@@ -121,12 +121,15 @@ jobs:
           java-version: 17
 
       - name: Run Rust tests
-        run: cargo test
+        # manifest 在 src-tauri/ 子目录；仓库根目录执行需显式指定。
+        # 保持根目录 cwd，使 job 级 CARGO_TARGET_DIR（target-shared）与
+        # sccache 共享目录和构建步骤保持一致。
+        run: cargo test --manifest-path src-tauri/Cargo.toml
 
       # Advisory lint：只输出警告不阻断构建（代码库尚未清零 clippy 告警），
       # 让告警可见，为日后 -D warnings 做准备。
       - name: Clippy (advisory)
-        run: cargo clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml
 
       # `npm run tauri build` runs the run-tauri.mjs wrapper: it builds the
       # WebView2 installer UI, embeds it, and (on Windows) signs the main exe /
