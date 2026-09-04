@@ -2,7 +2,7 @@ use crate::accounts;
 use crate::curseforge;
 use crate::install;
 use crate::launch;
-use crate::launch::CrashDiagnosis;
+use crate::crash::CrashDiagnosis;
 use crate::mcmeta;
 use crate::models::*;
 use crate::modrinth;
@@ -2800,109 +2800,28 @@ pub fn list_crash_logs(state: State<AppState>, id: String) -> Result<Vec<CrashLo
 }
 
 /// Run the built-in crash diagnosis engine against a specific crash report.
+///
+/// 诊断逻辑（正则规则集 + 堆栈关键词反查模组）全部在 `crash` 模块中，
+/// 这里只负责读取报告文本并回填报告文件名。
 #[tauri::command]
 pub fn analyze_crash_log(state: State<AppState>, id: String, filename: String) -> Result<CrashDiagnosis, String> {
     let inst_dir = state.root.join("instances").join(&id);
-    let _logs_dir = inst_dir.join("logs");
-    let crash_dir = inst_dir.join("crash-reports");
     let crash_path = if filename.starts_with("crash-") {
-        crash_dir.join(&filename)
+        inst_dir.join("crash-reports").join(&filename)
     } else {
         inst_dir.join(&filename)
     };
     if !crash_path.is_file() {
         return Err("崩溃报告文件不存在".into());
     }
-    let content = String::from_utf8_lossy(&std::fs::read(&crash_path).map_err(|e| e.to_string())?).to_string();
-    let lower = content.to_lowercase();
-    let mut diagnosis = CrashDiagnosis::default();
-    diagnosis.crash_report = Some(filename.clone());
-    diagnosis.exit_code = None;
+    let content =
+        String::from_utf8_lossy(&std::fs::read(&crash_path).map_err(|e| e.to_string())?).to_string();
 
-    // Extract affected mods
-    diagnosis.affected_mods = extract_affected_mods_from_text(&content);
-
-    // Extract description/excerpt
-    for line in content.lines() {
-        let s = line.trim();
-        if s.starts_with("Description:") {
-            let d = s.strip_prefix("Description:").unwrap_or("").trim().replace('\u{a0}', " ");
-            if !d.is_empty() && !d.to_lowercase().contains("loading library") {
-                diagnosis.excerpt = d;
-                break;
-            }
-        }
-    }
-    if diagnosis.excerpt.is_empty() {
-        for line in content.lines() {
-            let s = line.trim();
-            if s.starts_with("net.fabricmc") || s.starts_with("java.") || s.starts_with("cpw.mods") {
-                diagnosis.excerpt = s.replace('\u{a0}', " ");
-                break;
-            }
-        }
-    }
-
-    // 高优先级：玩家手动触发调试崩溃（F3+C），并非真正的游戏问题
-    if lower.contains("manually triggered debug crash") {
-        diagnosis.severity = "unknown".into();
-        diagnosis.title = "手动触发的调试崩溃".into();
-        diagnosis.reason = "这是你在游戏中按 F3+C 手动触发的调试崩溃，游戏本身没有问题。".into();
-        diagnosis.advice = "你的游戏运行正常，无需任何修复。".into();
-        return Ok(diagnosis);
-    }
-
-    // Fabric incompatibility
-    let fabric_evid = [
-        "some of your mods are incompatible",
-        "incompatible with the game",
-        "formattedexception",
-        "net.fabricmc.loader.impl",
-        "incompatible mods found",
-        "missing required dependency",
-        "缺少需要的模组",
-        "不兼容的模组",
-    ];
-    if fabric_evid.iter().any(|k| lower.contains(k)) {
-        diagnosis.severity = "mod".into();
-        diagnosis.title = "Mod 不兼容 / 依赖缺失".into();
-        let missing_dep = lower.contains("missing required dependency") || lower.contains("fabric-api");
-        diagnosis.reason = if missing_dep {
-            "缺少必需的 Mod 依赖".into()
-        } else {
-            "Mod 之间或 Mod 与游戏不兼容".into()
-        };
-        if !diagnosis.affected_mods.is_empty() {
-            diagnosis.advice = format!(
-                "以下模组存在依赖或兼容问题：{}。请检查它们的依赖模组（如 fabric-api）是否安装完整。",
-                diagnosis.affected_mods.join("、")
-            );
-        } else if missing_dep {
-            diagnosis.advice = "缺少模组依赖（如 fabric-api、fabric-language-kotlin 等），请安装缺失依赖后再启动游戏。".into();
-        } else {
-            diagnosis.advice = "Mod 与游戏或 Mod 之间存在不兼容，请移除/更新冲突的模组后再试。".into();
-        }
-        return Ok(diagnosis);
-    }
-
-    // Keyword rules
-    for rule in CRASH_RULES {
-        if rule.keys.iter().any(|k| lower.contains(k)) {
-            diagnosis.severity = rule.severity.into();
-            diagnosis.title = rule.title.into();
-            diagnosis.reason = rule.reason.into();
-            diagnosis.advice = rule.advice.into();
-            return Ok(diagnosis);
-        }
-    }
-
-    // Unknown crash
-    diagnosis.severity = "unknown".into();
-    diagnosis.title = "游戏异常退出".into();
-    diagnosis.reason = "未能定位到具体的崩溃原因".into();
-    diagnosis.advice = "请将崩溃报告提交到启动器仓库/社区，以便进一步分析。".into();
+    let mut diagnosis = crate::crash::analyze_text(&content, None);
+    diagnosis.crash_report = Some(filename);
     Ok(diagnosis)
 }
+
 
 /// Read the raw content of a crash report or hs_err log.
 #[tauri::command]
@@ -2918,187 +2837,6 @@ pub fn get_crash_report_content(state: State<AppState>, id: String, filename: St
     }
     Ok(String::from_utf8_lossy(&std::fs::read(&path).map_err(|e| e.to_string())?).to_string())
 }
-
-fn extract_affected_mods_from_text(text: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    let mut in_block = false;
-    for raw in text.lines() {
-        let s = raw.trim();
-        if s.eq_ignore_ascii_case("Mods affected:")
-            || s.starts_with("受影响")
-            || (s.contains("Mods affected") && s.contains(':'))
-            || s.starts_with("--Mods affected")
-        {
-            in_block = true;
-            continue;
-        }
-        if in_block {
-            if s.is_empty() || s.starts_with("Stacktrace") || s.starts_with("Time:") {
-                break;
-            }
-            let name = s.trim_start_matches(['-', '•', '*']).trim();
-            if name.is_empty() || name.starts_with("at ") {
-                continue;
-            }
-            let pretty = name
-                .split_once(" — ")
-                .map(|(a, _)| a.trim())
-                .unwrap_or(name)
-                .split_once(" (")
-                .map(|(a, _)| a.trim())
-                .unwrap_or(name);
-            if !pretty.is_empty() && !out.iter().any(|x| x == pretty) {
-                out.push(pretty.to_string());
-            }
-            continue;
-        }
-        if s.starts_with("模组 '") {
-            if let Some(rest) = s.strip_prefix("模组 '") {
-                if let Some((name, _)) = rest.split_once("'") {
-                    let n = name.trim().to_string();
-                    if !n.is_empty() && !out.iter().any(|x| x == &n) {
-                        out.push(n);
-                    }
-                }
-            }
-        }
-        if s.starts_with("Mod '") {
-            if let Some(rest) = s.strip_prefix("Mod '") {
-                if let Some((name, _)) = rest.split_once("'") {
-                    let n = name.trim().to_string();
-                    if !n.is_empty() && !out.iter().any(|x| x == &n) {
-                        out.push(n);
-                    }
-                }
-            }
-        }
-    }
-    out.truncate(8);
-    out
-}
-
-struct CrashRule {
-    severity: &'static str,
-    title: &'static str,
-    reason: &'static str,
-    advice: &'static str,
-    keys: &'static [&'static str],
-}
-
-const CRASH_RULES: &[CrashRule] = &[
-    CrashRule {
-        severity: "jvm",
-        title: "Java 虚拟机崩溃",
-        reason: "JVM 发生致命错误（hs_err_pid*.log 已生成）",
-        advice: "请检查 Java 运行版本是否匹配，并尝试在实例设置中更换 Java 路径或调低内存分配后重试。",
-        keys: &["hs_err_pid", "# there is insufficient memory for the java runtime", "native memory allocation (mmap) failed"],
-    },
-    CrashRule {
-        severity: "oom",
-        title: "内存不足",
-        reason: "内存分配失败（包含 Java 堆与原生内存）",
-        advice: "请进入实例设置调低已分配内存，或关闭其他占用内存的程序后重试。",
-        keys: &["outofmemoryerror", "could not reserve enough space", "not enough space", "java heap space", "native memory allocation (mmap) failed", "failed to allocate memory", "insufficient memory", "the system is out of physical ram"],
-    },
-    CrashRule {
-        severity: "lwjgl",
-        title: "LWJGL 依赖缺失",
-        reason: "本地库加载失败（可能由 Java/Minecraft 组件缺失引起）",
-        advice: "请尝试重装/切换 Java 运行时；或彻底删除后重装该实例。",
-        keys: &["no classfound: org/lwjgl", "no lwjgl on java.library.path", "could not initialize class org.lwjgl", "unsatisfiedlinkerror", "failed to locate library"],
-    },
-    CrashRule {
-        severity: "java_ver",
-        title: "Java 版本不兼容",
-        reason: "Java 运行库版本不满足启动要求",
-        advice: "请安装正确版本的 Java 后重试，可在「设置」中选择自动下载 JRE。",
-        keys: &["unsupportedclassversionerror", "unsupported major.minor", "has been compiled by a more recent version", "unsupported class file major version", "level is not supported by the active jre"],
-    },
-    CrashRule {
-        severity: "java_ver",
-        title: "Java 版本过高",
-        reason: "当前 Java 版本过高，游戏不兼容",
-        advice: "请降级 Java 版本（如使用 Java 8 运行旧版游戏）后重试。",
-        keys: &["unable to make protected final java.lang.class java.lang.classloader.defineclass", "because module java.base does not export", "java.lang.nosuchfieldexception: ucp"],
-    },
-    CrashRule {
-        severity: "gl",
-        title: "显卡 / OpenGL 初始化失败",
-        reason: "OpenGL / 显卡驱动初始化错误",
-        advice: "请检查显卡驱动是否最新、是否满足 Minecraft 对 OpenGL 3.2 的要求，更新驱动后重试。",
-        keys: &["pixel format not accelerated", "failed to create gl context", "no matching pixel format", "opengl 32bit", "glfw error", "failed to initialize glfw", "could not create glfw", "probably the driver does not support opengl", "glx genesys", "the driver does not appear to support opengl", "couldn't set pixel format"],
-    },
-    CrashRule {
-        severity: "mod",
-        title: "模组/资源包加载失败",
-        reason: "Fabric/Forge 或某个模组加载时抛出严重异常",
-        advice: "请在实例设置中检查并禁用最近安装/更新过的模组后重启游戏，或查阅 Mod 日志确认冲突项。",
-        keys: &[
-            "mod loading has failed",
-            "mod loading was attempted",
-            "fatal error during mod loading",
-            "there was a severe problem during mod loading",
-            "mod launcher failed",
-            "mod initializer failed",
-            "mixin apply failed",
-            "duplicate modifier",
-            "mixins are missing dependencies",
-            "this is a fatal",
-            "incompatible mod",
-            "mod crashed",
-        ],
-    },
-    CrashRule {
-        severity: "mod",
-        title: "Mod 文件被解压",
-        reason: "Mod 文件被解压到目录中而非以 .jar 形式加载",
-        advice: "请删除被解压的 Mod 文件夹，确保所有 Mod 以 .jar 格式放入 mods 目录。",
-        keys: &["the directories below appear to be extracted jar files", "extracted mod jars found, loading will not continue"],
-    },
-    CrashRule {
-        severity: "mod",
-        title: "Mixin 缺失",
-        reason: "缺少 MixinBootstrap 或 Mixin 相关依赖",
-        advice: "请安装 MixinBootstrap 或更新 Mod 加载器后重试。",
-        keys: &["classnotfoundexception: org.spongepowered.asm.launch.mixintweaker", "mixin prepare failed", "mixinapplyerror", "mixintransformererror"],
-    },
-    CrashRule {
-        severity: "mod",
-        title: "Mod 重复安装",
-        reason: "检测到重复安装的 Mod",
-        advice: "请检查 mods 目录，删除重复的 Mod 文件后重试。",
-        keys: &["duplicatemodsfoundexception", "found a duplicate mod", "found duplicate mods", "modresolutionexception: duplicate"],
-    },
-    CrashRule {
-        severity: "mod",
-        title: "Mod 互不兼容",
-        reason: "多个 Mod 之间存在兼容性问题",
-        advice: "请移除冲突的 Mod 或更新到兼容版本后重试。",
-        keys: &["incompatible mods found!", "missing or unsupported mandatory dependencies:"],
-    },
-    CrashRule {
-        severity: "mod",
-        title: "ShadersMod 与 OptiFine 冲突",
-        reason: "ShadersMod 与 OptiFine 同时安装导致冲突",
-        advice: "请只保留其中一个（建议保留 OptiFine）后重试。",
-        keys: &["shaders mod detected"],
-    },
-    CrashRule {
-        severity: "java_ver",
-        title: "使用了 OpenJ9",
-        reason: "OpenJ9 虚拟机不被 Minecraft 支持",
-        advice: "请使用 HotSpot JVM（Oracle/OpenJDK）而非 OpenJ9 后重试。",
-        keys: &["open j9 is not supported", "openj9 is incompatible", ".j9vminternals."],
-    },
-    CrashRule {
-        severity: "java_ver",
-        title: "使用了 JDK",
-        reason: "游戏检测到使用了 JDK 而非 JRE",
-        advice: "建议使用 JRE 而非 JDK 运行游戏，可在「设置」中切换。",
-        keys: &["classcastexception: java.base/jdk", "class jdk."],
-    },
-];
-
 /// Minecraft 官方新闻搜索接口（minecraft.net 官网自用），按时间倒序取最新中文条目
 const NEWS_API: &str = "https://net-secondary.web.minecraft-services.net/api/v1.0/zh-cn/search?pageSize=24&sortType=Recent&category=News&newsOnly=true&geography=CN";
 
