@@ -1,5 +1,6 @@
 mod accounts;
 mod commands;
+mod crash;
 mod curseforge;
 mod download;
 mod install;
