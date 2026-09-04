@@ -645,8 +645,6 @@ onUnmounted(() => {
 
 <style scoped>
 .create-view {
-  max-width: 760px;
-  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -696,6 +694,18 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+/* 宽屏：创建表单由单列改双列，避免在超宽屏上被拉成又宽又长的一条 */
+@media (min-width: 1200px) {
+  .fresh {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+  .fresh > .fresh-head,
+  .fresh > .create-actions {
+    grid-column: 1 / -1;
+  }
 }
 .fresh-head {
   display: flex;

@@ -273,35 +273,36 @@ function handleSelect(filename: string) {
           <span class="crash-log-count">{{ logs.length }} 个</span>
         </div>
         <div class="crash-log-items">
-          <button
+          <div
             v-for="l in logs"
             :key="l.filename"
             class="crash-log-item"
             :class="{ active: selected === l.filename }"
-            @click="handleSelect(l.filename)"
           >
-            <div class="crash-log-icon">
-              <IconFile v-if="l.kind === 'crash'" />
-              <IconAlertCircle v-else />
-            </div>
-            <div class="crash-log-info">
-              <div class="crash-log-name text-ellipsis">{{ l.filename }}</div>
-              <div class="crash-log-meta">
-                <span>{{ l.kind === "crash" ? "崩溃报告" : "JVM 日志" }}</span>
-                <span>·</span>
-                <span>{{ fmtSize(l.size) }}</span>
-                <span>·</span>
-                <span>{{ fmtTime(l.modified) }}</span>
+            <button class="crash-log-select" @click="handleSelect(l.filename)">
+              <div class="crash-log-icon">
+                <IconFile v-if="l.kind === 'crash'" />
+                <IconAlertCircle v-else />
               </div>
-            </div>
+              <div class="crash-log-info">
+                <div class="crash-log-name text-ellipsis">{{ l.filename }}</div>
+                <div class="crash-log-meta">
+                  <span>{{ l.kind === "crash" ? "崩溃报告" : "JVM 日志" }}</span>
+                  <span>·</span>
+                  <span>{{ fmtSize(l.size) }}</span>
+                  <span>·</span>
+                  <span>{{ fmtTime(l.modified) }}</span>
+                </div>
+              </div>
+            </button>
             <button
               class="crash-log-del"
               title="删除"
-              @click.stop="deleteLog(l.filename)"
+              @click="deleteLog(l.filename)"
             >
               <IconTrash />
             </button>
-          </button>
+          </div>
         </div>
       </div>
 
@@ -401,6 +402,16 @@ function handleSelect(filename: string) {
   gap: 16px;
 }
 
+/* 磨砂玻璃适配：卡片与卡片式按钮统一加上背景模糊，跟随主题 --glass-blur */
+.crash-result,
+.crash-log-item,
+.crash-excerpt,
+.crash-raw,
+.crash-advice {
+  backdrop-filter: blur(var(--glass-blur, 8px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 8px));
+}
+
 .crash-loading,
 .crash-analyzing,
 .crash-prompt {
@@ -475,15 +486,25 @@ function handleSelect(filename: string) {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--panel);
-  cursor: pointer;
   transition: all 0.12s;
-  text-align: left;
-  font-family: inherit;
+}
+/* 选择区：撑满条目并承载 padding，使条目内除删除键外的区域都可点击 */
+.crash-log-select {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
   color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 .crash-log-item:hover {
   background: var(--panel-hover);
@@ -518,6 +539,7 @@ function handleSelect(filename: string) {
 }
 .crash-log-del {
   flex-shrink: 0;
+  margin-right: 12px;
   width: 24px;
   height: 24px;
   border: none;

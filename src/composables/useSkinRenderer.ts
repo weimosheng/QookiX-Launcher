@@ -44,7 +44,7 @@ export function useSkinRenderer(canvasRef: Ref<HTMLCanvasElement | null>) {
     viewer.autoRotate = autoRotate.value;
   }
 
-  async function loadSkinFromSrc(src: string | null): Promise<boolean> {
+  async function loadSkinFromSrc(src: string | null, modelOverride?: ModelKind): Promise<boolean> {
     if (!viewer) init();
     if (!viewer) return false;
     currentSrc = src;
@@ -52,8 +52,13 @@ export function useSkinRenderer(canvasRef: Ref<HTMLCanvasElement | null>) {
       viewer.loadSkin(null);
       return true;
     }
+    const m = modelOverride ?? model.value;
+    model.value = m;
     try {
-      await viewer.loadSkin(src, { model: model.value });
+      // 先清空再带 model 重新加载，强制 skinview3d 重建几何体，
+      // 否则同源皮肤会早退、model（纤细/经典胳膊宽度）不会生效。
+      viewer.loadSkin(null);
+      await viewer.loadSkin(src, { model: m });
       return true;
     } catch {
       return false;

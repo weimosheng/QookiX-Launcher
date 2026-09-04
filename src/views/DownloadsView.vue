@@ -417,10 +417,6 @@ function onExpandLeave(el: Element, done: () => void) {
 </template>
 
 <style scoped>
-.dl-view {
-  max-width: 980px;
-  margin: 0 auto;
-}
 .tabs {
   position: relative;
   display: flex;
@@ -501,9 +497,16 @@ function onExpandLeave(el: Element, done: () => void) {
   opacity: 0.6;
 }
 .task-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 12px;
+  align-items: start;
+}
+/* 宽屏：任务卡片两列排布 */
+@media (min-width: 1500px) {
+  .task-list {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 .task-card {
   padding: 14px 16px;

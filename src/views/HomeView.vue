@@ -125,9 +125,9 @@ function openPicker() {
 }
 
 // —— 固定快捷启动 ——
-// 仅展示仍存在的实例；实例被删除后自动隐藏对应固定项
+// 只展示固定到首页的项（侧边栏固定不在此显示）；实例被删除后自动隐藏对应固定项
 const validPins = computed(() =>
-  pinsStore.items.filter((p) => instances.get(p.instanceId))
+  pinsStore.items.filter((p) => p.target === "home" && instances.get(p.instanceId))
 );
 
 function latencyInfo(latency: number | null | undefined): { count: number; tier: string } {
@@ -362,8 +362,6 @@ onMounted(() => {
   flex-direction: column;
   gap: 18px;
   min-height: 100%;
-  max-width: 1080px;
-  margin: 0 auto;
 }
 .hero {
   position: relative;
@@ -467,8 +465,14 @@ onMounted(() => {
   border-radius: 24px;
   object-fit: contain;
 }
+/* 页面整体不再限宽；只有下方这张实例启动卡片保持限宽居中，
+   否则超宽屏上会被拉成一条很长的横条 */
 .section {
   margin-top: auto;
+  width: 100%;
+  max-width: 1080px;
+  margin-left: auto;
+  margin-right: auto;
 }
 /* 固定快捷启动 */
 .pin-block {

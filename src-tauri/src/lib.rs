@@ -12,6 +12,7 @@ mod mcmod;
 mod mirror;
 mod models;
 mod modpack;
+mod pins;
 mod modrinth;
 mod paths;
 mod servers;
@@ -229,6 +230,9 @@ pub fn run() {
             commands::list_crash_logs,
             commands::analyze_crash_log,
             commands::get_crash_report_content,
+            // pinned items (首页 / 侧边栏)
+            commands::get_pins,
+            commands::set_pins,
             // news
             commands::fetch_news,
             // app self-update (dynamic update source)

@@ -11,6 +11,8 @@ export const useServersStore = defineStore("servers", {
     createRequest: 0,
     // 仅在“服务器”标签页时标题栏才显示创建按钮
     canCreate: true,
+    /** 最近一次成功拉取的时间戳，用于短 TTL 内跳过重复请求 */
+    lastLoadedAt: 0,
   }),
   getters: {
     count: (state) => state.servers.length,
@@ -18,7 +20,8 @@ export const useServersStore = defineStore("servers", {
     isRunning: (state) => (id: string) => !!state.runningIds[id],
   },
   actions: {
-    async load() {
+    /** 后台静默刷新服务器列表 + 运行状态，失败保留旧数据 */
+    async refresh() {
       try {
         this.servers = await api.listHostedServers();
         this.loaded = true;
@@ -33,9 +36,25 @@ export const useServersStore = defineStore("servers", {
           }),
         );
         this.runningIds = next;
+        this.lastLoadedAt = Date.now();
       } catch {
         /* ignore */
       }
+    },
+    /**
+     * 拉取服务器列表与运行状态。
+     * - 已有数据时采用 stale-while-revalidate：立即返回旧数据，后台静默刷新替换。
+     * - `force=true` 时始终前台拉取（用于创建/删除/启停后强制刷新）。
+     */
+    async load(force = false) {
+      const now = Date.now();
+      if (!force && this.lastLoadedAt && now - this.lastLoadedAt < 3000) return;
+      const hasData = this.servers.length > 0;
+      if (hasData && !force) {
+        void this.refresh();
+        return;
+      }
+      await this.refresh();
     },
     async create(name: string, core: string, mcVersion: string): Promise<ServerConfig> {
       const s = await api.createHostedServer(name, core, mcVersion);

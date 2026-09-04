@@ -557,8 +557,6 @@ onMounted(async () => {
 
 <style scoped>
 .browse {
-  max-width: 1160px;
-  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 16px;

@@ -8,6 +8,7 @@ import LoadingBarBridge from "./components/LoadingBarBridge.vue";
 import LaunchProgress from "./components/LaunchProgress.vue";
 import CrashDialog from "./components/CrashDialog.vue";
 import UpdaterCheck from "./components/UpdaterCheck.vue";
+import SplashScreen from "./components/SplashScreen.vue";
 import { useSettingsStore } from "./stores/settings";
 import { initDeepLink } from "./composables/deepLink";
 import { MessageBridge } from "./composables/notify";
@@ -15,6 +16,7 @@ import { MessageBridge } from "./composables/notify";
 import { useAccountsStore } from "./stores/accounts";
 import { useInstancesStore } from "./stores/instances";
 import { useTasksStore } from "./stores/tasks";
+import { usePinsStore } from "./stores/pins";
 import {
   buildDarkOverrides,
   buildLightOverrides,
@@ -29,6 +31,7 @@ const settings = useSettingsStore();
 const accounts = useAccountsStore();
 const instances = useInstancesStore();
 const tasks = useTasksStore();
+const pins = usePinsStore();
 
 const isDark = computed(() => settings.settings?.theme !== "light");
 const activeTheme = computed(() => (isDark.value ? darkTheme : lightTheme));
@@ -92,17 +95,50 @@ watch(() => settings.settings?.background_image, (p) => {
   document.documentElement.classList.toggle("has-bg", !!p);
 }, { immediate: true });
 
-onMounted(() => {
-  void initDeepLink();
-  tasks.init();
-  settings.load();
-  accounts.load();
-  instances.load();
-});
-
 // 供 TitleBar 的“新建分组”按钮触发实例页的分组对话框
 const groupDialogRequest = ref(0);
 provide("groupDialogRequest", groupDialogRequest);
+
+// —— 启动加载流程 ——
+// 在 splash 期间预加载核心数据，让首屏直接有数据可渲染；
+// 各 store 的 load() 已是「已有数据则后台静默刷新」模式，这里首次加载会真正拉取。
+const bootProgress = ref(0);
+const bootStatus = ref("正在启动…");
+const booted = ref(false);
+
+async function boot() {
+  bootStatus.value = "加载设置…";
+  try {
+    await settings.load();
+  } catch {
+    /* 设置加载失败不阻塞启动 */
+  }
+  bootProgress.value = 24;
+
+  bootStatus.value = "读取实例与账号…";
+  await Promise.all([
+    instances.load().catch(() => {}),
+    accounts.load().catch(() => {}),
+  ]);
+  bootProgress.value = 72;
+
+  bootStatus.value = "初始化任务系统…";
+  tasks.init();
+  await pins.init().catch(() => {});
+  void initDeepLink();
+  bootProgress.value = 92;
+
+  bootStatus.value = "即将就绪…";
+  bootProgress.value = 100;
+  // 让 100% 短暂展示后再淡出，避免进度条一闪而过
+  setTimeout(() => {
+    booted.value = true;
+  }, 340);
+}
+
+onMounted(() => {
+  void boot();
+});
 </script>
 
 <template>
@@ -129,6 +165,7 @@ provide("groupDialogRequest", groupDialogRequest);
                 <LaunchProgress />
                 <CrashDialog />
                 <UpdaterCheck />
+                <SplashScreen :progress="bootProgress" :status="bootStatus" :done="booted" />
               </n-notification-provider>
           </n-message-provider>
         </n-dialog-provider>

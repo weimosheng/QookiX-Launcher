@@ -388,10 +388,6 @@ async function moveTo(groupId: string | null) {
 </template>
 
 <style scoped>
-.instances-view {
-  max-width: 1080px;
-  margin: 0 auto;
-}
 .toolbar {
   display: flex;
   align-items: center;

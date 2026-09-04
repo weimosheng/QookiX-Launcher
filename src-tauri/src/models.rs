@@ -671,3 +671,38 @@ fn default_server_min_mem() -> u32 {
 fn default_server_motd() -> String {
     "A Minecraft Server".into()
 }
+
+// ---------------------------------------------------------------------------
+// Pinned items (首页快捷卡片 / 侧边栏图标)
+// ---------------------------------------------------------------------------
+
+/// 固定项：可固定到「首页」(home) 或「侧边栏」(sidebar)，两者各自独立。
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PinItem {
+    /// 唯一标识：`instanceId:type:key:target`
+    pub id: String,
+    /// "server" | "world" | "instance"
+    #[serde(rename = "type", default)]
+    pub pin_type: String,
+    /// 固定位置："home" | "sidebar"
+    pub target: String,
+    #[serde(default)]
+    pub instance_id: String,
+    #[serde(default)]
+    pub instance_name: String,
+    #[serde(default)]
+    pub instance_icon: Option<String>,
+    #[serde(default)]
+    pub mc_version: String,
+    #[serde(default)]
+    pub loader: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub address: Option<String>,
+    #[serde(default)]
+    pub world: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
+}

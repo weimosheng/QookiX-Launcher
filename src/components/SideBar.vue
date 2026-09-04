@@ -16,6 +16,7 @@ import {
   IconGrid,
   IconHome,
   IconList,
+  IconClose,
   IconNewspaper,
   IconSettings,
   IconSkin,
@@ -50,13 +51,13 @@ const nav = computed(() => {
 });
 
 // —— 侧边栏固定实例 ——
-// 复用 pins store（实例卡片上的「固定到首页」用的同一份数据），
-// 只取 type === "instance" 的项，并跟随实例列表拿到最新的名称/图标。
+// 与「固定到首页」共用 pins store，但只取 target === "sidebar" 的实例项，
+// 两者互不干扰；名称/图标跟随实例列表实时更新。
 const pins = usePinsStore();
 const pinnedInstances = computed(() => {
   const byId = new Map(instances.instances.map((i) => [i.id, i]));
   return pins.items
-    .filter((p) => p.type === "instance")
+    .filter((p) => p.type === "instance" && p.target === "sidebar")
     .map((p) => {
       const inst = byId.get(p.instanceId);
       return {
@@ -83,10 +84,11 @@ function isActive(n: { to: string }) {
 const navBox = ref<HTMLElement | null>(null);
 const { indicatorStyle, refresh, snap } = useSlidingIndicator(
   sidebarRef,
-  () => Array.from(sidebarRef.value?.querySelectorAll<HTMLElement>(".nav-item") ?? []),
+  // 排除 .pin-item（固定实例）与底部导航，索引顺序与 nav.value 一一对应
+  () => Array.from(sidebarRef.value?.querySelectorAll<HTMLElement>(".nav-item:not(.pin-item)") ?? []),
   () => {
-    // 用 nav.value（现在是 computed）。查询范围是整个 sidebar 的 .nav-item；
-    // 固定实例用独立的 .pin-item 类名，不会被计入，索引顺序保持稳定。
+    // 用 nav.value（现在是 computed）。固定实例已被选择器排除，不会被计入，
+    // 索引顺序保持稳定：0..nav.length-1 为主导航，nav.length 为底部「下载」。
     const idx = nav.value.findIndex((n) => isActive(n));
     if (idx >= 0) return idx;
     if (route.path.startsWith("/downloads")) return nav.value.length;
@@ -143,8 +145,9 @@ async function stopAll() {
 
     <!-- 固定实例：独立类名 .pin-item，避免被滑动指示器计入 .nav-item -->
     <div v-if="pinnedInstances.length" class="pin-section">
+      <!-- 与上方导航之间只有这一条分割线（.pin-section 不再自带 border-top） -->
+      <div class="pin-divider"></div>
       <div v-if="!collapsed" class="pin-section-title">固定</div>
-      <div v-else class="pin-divider"></div>
       <div class="pin-list">
         <router-link
           v-for="p in pinnedInstances"
@@ -164,7 +167,7 @@ async function stopAll() {
             title="取消固定"
             @click.prevent.stop="unpin(p.id)"
           >
-            <IconX />
+            <IconClose />
           </button>
         </router-link>
       </div>
@@ -233,8 +236,6 @@ async function stopAll() {
 /* —— 固定实例区域 —— */
 .pin-section {
   margin-top: 14px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -256,32 +257,53 @@ async function stopAll() {
 }
 .pin-divider {
   height: 1px;
-  margin: 0 8px 4px;
+  margin: 0 10px 8px;
   background: var(--border);
+  flex-shrink: 0;
 }
 .pin-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-.pin-item {
-  padding-right: 6px;
+/* 注意：这里必须用 .pin-list 提高优先级，否则会被下方同权重的
+   .nav-item { padding: 10px 14px } 覆盖（CSS 后写胜出） */
+.pin-list .pin-item {
+  padding: 4px 6px 4px 4px;
+  gap: 10px;
 }
 .pin-icon-wrap {
-  width: 22px;
-  height: 22px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 5px;
+  border-radius: 10px;
   overflow: hidden;
 }
+/* 折叠态按钮是 48×48，图标直接铺满 */
+.sidebar.collapsed .pin-icon-wrap {
+  width: 48px;
+  height: 48px;
+}
+/* 铺满后背景高亮被图标挡住，改用内描边表示选中、亮度表示悬停 */
+.sidebar.collapsed .pin-list .pin-item.active .pin-icon-wrap {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.sidebar.collapsed .pin-list .pin-item:hover .pin-icon-wrap {
+  filter: brightness(1.12);
+}
+.pin-icon-wrap :deep(.app-icon) {
+  width: 100%;
+  height: 100%;
+}
+/* 头像式展示，用 cover 保证任何比例的图片都能铺满方框（contain 会留白边） */
 .pin-icon-wrap :deep(img),
 .pin-icon-wrap :deep(svg) {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
 }
 .pin-label {
   flex: 1;

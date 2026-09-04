@@ -21,7 +21,18 @@ const info = ref<CrashInfo | null>(null);
 let unlisten: (() => void) | null = null;
 const router = useRouter();
 
+// 「查看日志」应跳到真正的游戏日志页（launch://log 流 + 持久化日志），
+// 而不是崩溃分析页；崩溃分析需要 crash-reports/*.txt 文件，很多错误（如
+// 模组加载失败、OOM）根本不会生成该文件，跳过去只会看到「暂无崩溃报告」。
 function openLogs() {
+  if (info.value?.instanceId) {
+    show.value = false;
+    router.push(`/instance/${info.value.instanceId}?tab=logs`);
+  }
+}
+
+// 仅当本次确实检测到崩溃报告文件时才提供「崩溃分析」入口
+function openCrash() {
   if (info.value?.instanceId) {
     show.value = false;
     router.push(`/instance/${info.value.instanceId}?tab=crash`);
@@ -92,6 +103,7 @@ onBeforeUnmount(() => {
         <span v-if="info?.crash_report" class="crash-path">{{ info.crash_report }}</span>
         <div class="footer-btns">
           <NButton @click="openLogs">查看日志</NButton>
+          <NButton v-if="info?.crash_report" @click="openCrash">崩溃分析</NButton>
           <NButton type="primary" @click="show = false">知道了</NButton>
         </div>
       </div>

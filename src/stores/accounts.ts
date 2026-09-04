@@ -15,6 +15,8 @@ export const useAccountsStore = defineStore("accounts", {
     showManager: false,
     /** Bumped after skin apply to force avatar refresh */
     avatarVersion: 0,
+    /** 最近一次成功拉取的时间戳，用于短 TTL 内跳过重复请求 */
+    lastLoadedAt: 0,
   }),
   getters: {
     /** The currently playing account: settings.selected_account, else first */
@@ -29,8 +31,30 @@ export const useAccountsStore = defineStore("accounts", {
     },
   },
   actions: {
-    async load() {
+    /** 后台静默刷新账号列表，失败保留旧数据 */
+    async refresh() {
+      try {
+        this.accounts = await api.listAccounts();
+        this.lastLoadedAt = Date.now();
+      } catch {
+        /* 后台刷新失败保留旧数据 */
+      }
+    },
+    /**
+     * 拉取账号列表。
+     * - 已有数据时采用 stale-while-revalidate：立即返回旧数据，后台静默刷新替换。
+     * - `force=true` 时始终前台拉取（用于登录/登出后强制刷新）。
+     */
+    async load(force = false) {
+      const now = Date.now();
+      if (!force && this.lastLoadedAt && now - this.lastLoadedAt < 3000) return;
+      const hasData = this.accounts.length > 0;
+      if (hasData && !force) {
+        void this.refresh();
+        return;
+      }
       this.accounts = await api.listAccounts();
+      this.lastLoadedAt = Date.now();
     },
     /** Select the current playing account (persisted globally). */
     async select(uuid: string) {
@@ -61,7 +85,7 @@ export const useAccountsStore = defineStore("accounts", {
             const acc = await api.loginMsPoll();
             this.msFlow = null;
             this.msError = "";
-            await this.load();
+            await this.load(true);
             await this.select(acc.uuid);
             this.msSuccess = `${acc.username} 登录成功`;
             return;
@@ -89,7 +113,7 @@ export const useAccountsStore = defineStore("accounts", {
         this.msFlow = null;
         this.msError = "";
         this.msPolling = false;
-        await this.load();
+        await this.load(true);
         await this.select(acc.uuid);
         this.msSuccess = `${acc.username} 登录成功`;
       } catch (e: unknown) {

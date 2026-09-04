@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useInstancesStore } from "../stores/instances";
 import { useAccountsStore } from "../stores/accounts";
 import { useSettingsStore } from "../stores/settings";
-import { usePinsStore } from "../stores/pins";
+import { usePinsStore, type PinTarget } from "../stores/pins";
 import { useMessage, NModal, NSelect, NButton } from "naive-ui";
 import { supportsQuickPlay } from "../version";
 import { api } from "../api";
@@ -33,6 +33,7 @@ import {
   IconFolder,
   IconImage,
   IconLayers,
+  IconLayout,
   IconPlay,
   IconPlus,
   IconRefresh,
@@ -204,7 +205,7 @@ const tabs = computed(() =>
   })
 );
 
-// 支持通过 URL query 切换 tab（如崩溃弹窗「查看日志」跳转）
+// 支持通过 URL query 切换 tab（崩溃弹窗「查看日志」跳转到日志页、「崩溃分析」跳转到崩溃分析页）
 watch(
   () => route.query.tab,
   (v) => {
@@ -348,12 +349,31 @@ async function launchServer(entry: ServerEntry) {
   }
 }
 
-// —— 固定到首页 ——
+// —— 固定到首页（存档 / 服务器只会出现在首页）——
+// 实例本体可以分别固定到首页和侧边栏
+const homePinId = computed(() => pins.makeId("instance", instanceId, instanceId, "home"));
+const sidebarPinId = computed(() => pins.makeId("instance", instanceId, instanceId, "sidebar"));
+function toggleInstancePin(target: PinTarget) {
+  const i = instance.value;
+  if (!i) return;
+  pins.toggle({
+    id: pins.makeId("instance", instanceId, instanceId, target),
+    type: "instance",
+    target,
+    instanceId,
+    instanceName: i.name,
+    instanceIcon: i.icon,
+    mcVersion: i.mc_version,
+    loader: i.loader,
+    name: i.name,
+    icon: null,
+  });
+}
 function worldPinId(name: string) {
-  return pins.makeId("world", instanceId, name);
+  return pins.makeId("world", instanceId, name, "home");
 }
 function serverPinId(address: string) {
-  return pins.makeId("server", instanceId, address);
+  return pins.makeId("server", instanceId, address, "home");
 }
 function toggleWorldPin(w: { name: string; icon: string | null }) {
   const i = instance.value;
@@ -361,6 +381,7 @@ function toggleWorldPin(w: { name: string; icon: string | null }) {
   pins.toggle({
     id: worldPinId(w.name),
     type: "world",
+    target: "home",
     instanceId,
     instanceName: i.name,
     instanceIcon: i.icon,
@@ -377,6 +398,7 @@ function toggleServerPin(entry: ServerEntry) {
   pins.toggle({
     id: serverPinId(entry.address),
     type: "server",
+    target: "home",
     instanceId,
     instanceName: i.name,
     instanceIcon: i.icon,
@@ -1027,6 +1049,22 @@ watch(
           <IconPlay />
           启动游戏
         </button>
+        <button
+          class="btn ghost pin"
+          :class="{ active: pins.isPinned(homePinId) }"
+          :title="pins.isPinned(homePinId) ? '取消固定到首页' : '固定到首页'"
+          @click="toggleInstancePin('home')"
+        >
+          <IconMapPin />
+        </button>
+        <button
+          class="btn ghost pin"
+          :class="{ active: pins.isPinned(sidebarPinId) }"
+          :title="pins.isPinned(sidebarPinId) ? '取消固定到侧边栏' : '固定到侧边栏'"
+          @click="toggleInstancePin('sidebar')"
+        >
+          <IconLayout />
+        </button>
         <button class="btn ghost" title="打开游戏目录" @click="openFolder()">
           <IconFolder />
         </button>
@@ -1565,8 +1603,6 @@ watch(
 
 <style scoped>
 .detail {
-  max-width: 1080px;
-  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -1679,6 +1715,11 @@ watch(
 }
 .btn.ghost:hover {
   background: rgba(255, 255, 255, 0.1);
+}
+.btn.ghost.pin.active {
+  color: var(--accent);
+  border-color: var(--accent-04);
+  background: var(--accent-soft);
 }
 .btn.danger {
   background: rgba(255, 255, 255, 0.06);
@@ -2203,7 +2244,7 @@ watch(
 }
 .settings-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 14px;
 }
 .set-card {

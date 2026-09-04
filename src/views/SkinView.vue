@@ -36,6 +36,8 @@ interface SkinEntry {
 const tab = ref("saved");
 const skins = ref<SkinEntry[]>([]);
 const skinDataUrls = ref<Record<string, string>>({});
+/** 每张已保存皮肤的模型（classic/slim），供缩略图与切换时直接取用，避免重复检测 */
+const skinModels = ref<Record<string, "classic" | "slim">>({});
 const loadingSkins = ref(false);
 const uploading = ref(false);
 
@@ -70,14 +72,16 @@ function detectSkinModel(dataUrl: string): Promise<"classic" | "slim"> {
       const canvas = document.createElement("canvas");
       canvas.width = img.width;
       canvas.height = img.height;
-      const ctx = canvas.getContext("2d");
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
       if (!ctx) return resolve("classic");
       ctx.drawImage(img, 0, 0);
       if (img.width < 64 || img.height < 32) return resolve("classic");
       try {
+        // 右臂背面最右两列：classic 4px 宽（x=52-55），slim 3px 宽（x=52-54），
+        // 故 x=54/55 在 classic 有像素、slim 为空。任一不透明即判定 classic。
         for (let y = 20; y < 32; y++) {
-          const px = ctx.getImageData(47, y, 1, 1).data;
-          if (px[3] > 0) return resolve("classic");
+          if (ctx.getImageData(54, y, 1, 1).data[3] > 0) return resolve("classic");
+          if (ctx.getImageData(55, y, 1, 1).data[3] > 0) return resolve("classic");
         }
         resolve("slim");
       } catch {
@@ -160,9 +164,7 @@ function writeMsSkinCache(uuid: string, c: MsSkinCache) {
 /** 用一份 Microsoft 皮肤数据渲染预览 + 披风列表（缓存命中与网络拉取共用） */
 async function applyMsSkin(c: MsSkinCache, username: string) {
   const variant = c.model === "slim" ? "slim" : "classic";
-  skinVariant.value = variant;
-  renderer.setModel(variant === "slim" ? "slim" : "default");
-  await previewSkin(c.data_url, username, "official");
+  await previewSkin(c.data_url, username, "official", variant);
   const capeList: CapeEntry[] = [{ id: "none", name: "无披风", dataUrl: null }];
   for (const cc of c.capes) {
     capeList.push({ id: cc.id, name: cc.name, dataUrl: cc.data_url });
@@ -179,6 +181,9 @@ async function applyMsSkin(c: MsSkinCache, username: string) {
     renderer.loadCape(null);
   }
   lastAppliedSrc.value = c.data_url;
+  // 保底高亮：把获取的正版皮肤落到本地列表，使其在「已保存皮肤」中高亮；
+  // 本地已有相同内容则跳过，换皮肤后会新增一张，以此类推。
+  void ensureSkinSavedLocally(c.data_url, username);
 }
 
 async function loadCurrentAccountSkin(force = false) {
@@ -240,9 +245,7 @@ async function loadCurrentAccountSkin(force = false) {
     if (saved) {
       if (token !== skinLoadToken) return;
       const variant = saved.variant ?? (await detectSkinModel(saved.src));
-      skinVariant.value = variant;
-      renderer.setModel(variant === "slim" ? "slim" : "default");
-      await previewSkin(saved.src, acc.username, "local");
+      await previewSkin(saved.src, acc.username, "local", variant);
       lastAppliedSrc.value = saved.src;
       return;
     }
@@ -360,6 +363,10 @@ async function loadSkins() {
           /* ignore */
         }
       }
+      const url = skinDataUrls.value[s.filename];
+      if (url && !skinModels.value[s.filename]) {
+        skinModels.value[s.filename] = await detectSkinModel(url);
+      }
     }
   } catch (e) {
     message.error(String(e));
@@ -368,11 +375,29 @@ async function loadSkins() {
   }
 }
 
-async function previewSkin(src: string, name: string, kind: "local" | "official") {
+/**
+ * 确保某张皮肤已保存到本地：若本地已有相同内容则跳过，否则保存并刷新列表。
+ * 用于正版账号拉取皮肤后「保底高亮」——让获取的皮肤出现在已保存列表并高亮。
+ */
+async function ensureSkinSavedLocally(dataUrl: string, name: string) {
+  const exists = Object.values(skinDataUrls.value).includes(dataUrl);
+  if (exists) return;
+  try {
+    const entry = await api.saveSkinFromData(name, dataUrl);
+    skinDataUrls.value[entry.filename] = dataUrl;
+    skinModels.value[entry.filename] = await detectSkinModel(dataUrl);
+    await loadSkins();
+  } catch {
+    /* 保存失败不阻塞预览 */
+  }
+}
+
+async function previewSkin(src: string, name: string, kind: "local" | "official", model: "classic" | "slim") {
   currentSrc.value = src;
   currentName.value = name;
   currentKind.value = kind;
-  await renderer.loadSkinFromSrc(src);
+  skinVariant.value = model;
+  await renderer.loadSkinFromSrc(src, model === "slim" ? "slim" : "default");
   // 所有渲染路径的公共出口：渲染完成后套用用户的手动选择（若有的话）。
   // 主动换皮肤时会先 clearVariantOverride() 再走到这里，所以不会误套用；
   // 而切页面/重启后自动加载皮肤时，用户上次的选择会被正确还原。
@@ -384,17 +409,13 @@ async function selectLocal(s: SkinEntry) {
   if (!url) return;
   // 主动换了皮肤：清除手动选择，按这张皮肤自身的模型显示
   clearVariantOverride();
-  const variant = await detectSkinModel(url);
-  skinVariant.value = variant;
-  renderer.setModel(variant === "slim" ? "slim" : "default");
-  await previewSkin(url, s.name, "local");
+  const variant = skinModels.value[s.filename] ?? (await detectSkinModel(url));
+  await previewSkin(url, s.name, "local", variant);
 }
 
 async function selectOfficial(s: (typeof BUILTIN_SKINS)[number]) {
   clearVariantOverride();
-  skinVariant.value = s.model === "slim" ? "slim" : "classic";
-  renderer.setModel(s.model === "slim" ? "slim" : "default");
-  await previewSkin(s.dataUrl, s.name, "official");
+  await previewSkin(s.dataUrl, s.name, "official", s.model === "slim" ? "slim" : "classic");
 }
 
 async function fetchPlayerAndSave() {
@@ -489,7 +510,7 @@ async function deleteSkin(s: SkinEntry) {
   try {
     await api.deleteSkin(s.filename);
     // 先取内容再删映射：用皮肤内容判断是否为当前预览的皮肤（名字比对不可靠）
-    const wasCurrent = currentKind.value === "local" && isCurrentSkin(skinDataUrls.value[s.filename]);
+    const wasCurrent = isCurrentSkin(skinDataUrls.value[s.filename]);
     delete skinDataUrls.value[s.filename];
     skins.value = skins.value.filter((x) => x.filename !== s.filename);
     if (wasCurrent) {
@@ -638,13 +659,13 @@ onMounted(async () => {
                 v-for="s in skins"
                 :key="s.filename"
                 class="skin-card"
-                :class="{ active: currentKind === 'local' && isCurrentSkin(skinDataUrls[s.filename]) }"
+                :class="{ active: isCurrentSkin(skinDataUrls[s.filename]) }"
                 @click="selectLocal(s)"
               >
                 <div class="thumb-wrap">
                   <SkinThumb
                     :src="skinDataUrls[s.filename] ?? null"
-                    :slim="currentKind === 'local' && isCurrentSkin(skinDataUrls[s.filename]) && skinVariant === 'slim'"
+                    :slim="skinModels[s.filename] === 'slim'"
                   />
                 </div>
                 <div class="skin-meta">
@@ -771,18 +792,22 @@ onMounted(async () => {
 
 <style scoped>
 .skin-view {
-  max-width: 1120px;
-  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 18px;
 }
 
+/* 预览区固定、皮肤画廊自适应列数；超宽屏下预览区再放宽一些 */
 .skin-body {
   display: grid;
   grid-template-columns: 360px 1fr;
   gap: 16px;
   min-height: 540px;
+}
+@media (min-width: 1600px) {
+  .skin-body {
+    grid-template-columns: 440px 1fr;
+  }
 }
 .preview-pane {
   display: flex;

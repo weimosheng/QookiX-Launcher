@@ -1,5 +1,6 @@
 import { invoke as rawInvoke } from "@tauri-apps/api/core";
 import { trackStart, trackEnd, trackError } from "./loadingBar";
+import type { PinItem } from "./stores/pins";
 import type {
   Account,
   CacheClearResult,
@@ -74,6 +75,10 @@ export const api = {
   // settings & java
   getSettings: () => invoke<Settings>("get_settings"),
   setSettings: (patch: Record<string, unknown>) => invoke<Settings>("set_settings", { patch }),
+
+  // pinned items (首页 / 侧边栏)
+  getPins: () => invoke<PinItem[]>("get_pins"),
+  setPins: (items: PinItem[]) => invoke<void>("set_pins", { items }),
   listMirrors: () => invoke<MirrorPreset[]>("list_mirrors"),
   testMirror: (base: string) => invoke<MirrorTestResult>("test_mirror", { base }),
   testProxy: (proxyMode: string, proxy: string | null) =>

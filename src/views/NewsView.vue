@@ -67,10 +67,6 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.news-view {
-  max-width: 980px;
-  margin: 0 auto;
-}
 .news-header {
   display: flex;
   align-items: center;
@@ -183,6 +179,23 @@ onMounted(async () => {
 .meta-author {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* 宽屏：单列长条改成多列卡片，充分利用横向空间 */
+@media (min-width: 1180px) {
+  .news-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 16px;
+    align-items: start;
+  }
+  .news-card {
+    flex-direction: column;
+  }
+  .news-image {
+    width: 100%;
+    height: 170px;
+  }
 }
 
 @media (max-width: 640px) {

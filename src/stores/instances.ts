@@ -12,6 +12,8 @@ export const useInstancesStore = defineStore("instances", {
     installStage: "",
     installDone: 0,
     installTotal: 0,
+    /** 最近一次成功拉取的时间戳，用于短 TTL 内跳过重复请求 */
+    lastLoadedAt: 0,
   }),
   getters: {
     /** 分组名 -> 分组对象，便于 UI 快速取色 */
@@ -29,12 +31,37 @@ export const useInstancesStore = defineStore("instances", {
       state.instances.filter((i) => i.group === groupId),
   },
   actions: {
-    async load() {
+    /** 后台静默刷新（不改动 loading），失败保留旧数据 */
+    async refresh() {
+      try {
+        const [list, groups] = await Promise.all([api.listInstances(), api.listGroups()]);
+        this.instances = list;
+        this.groups = groups;
+        this.lastLoadedAt = Date.now();
+      } catch {
+        /* 后台刷新失败保留旧数据 */
+      }
+    },
+    /**
+     * 拉取实例列表。
+     * - 已有数据时采用 stale-while-revalidate：立即返回旧数据，后台静默刷新替换。
+     * - `force=true` 时始终前台拉取并设 loading（用于写操作后强制刷新）。
+     */
+    async load(force = false) {
+      const now = Date.now();
+      // 3 秒内刚拉过，直接跳过，避免切换页面时重复请求
+      if (!force && this.lastLoadedAt && now - this.lastLoadedAt < 3000) return;
+      const hasData = this.instances.length > 0 || this.groups.length > 0;
+      if (hasData && !force) {
+        void this.refresh();
+        return;
+      }
       this.loading = true;
       try {
         const [list, groups] = await Promise.all([api.listInstances(), api.listGroups()]);
         this.instances = list;
         this.groups = groups;
+        this.lastLoadedAt = Date.now();
       } finally {
         this.loading = false;
       }
@@ -63,7 +90,7 @@ export const useInstancesStore = defineStore("instances", {
     async deleteGroup(id: string) {
       await api.deleteGroup(id);
       // 组内实例被后端移回未分组，重新拉取保持一致
-      await this.load();
+      await this.load(true);
     },
     async reorderGroups(ids: string[]) {
       this.groups = await api.reorderGroups(ids);
@@ -77,7 +104,7 @@ export const useInstancesStore = defineStore("instances", {
     },
     async create(name: string, mc: string, loader: string, loaderVersion: string | null) {
       const inst = await api.createInstance(name, mc, loader, loaderVersion);
-      await this.load();
+      await this.load(true);
       return inst;
     },
     async patch(patch: Record<string, unknown>) {
@@ -88,7 +115,7 @@ export const useInstancesStore = defineStore("instances", {
     },
     async remove(id: string) {
       await api.deleteInstance(id);
-      await this.load();
+      await this.load(true);
     },
     async installGame(id: string) {
       this.installingId = id;
@@ -97,7 +124,7 @@ export const useInstancesStore = defineStore("instances", {
       this.installTotal = 0;
       try {
         await api.installGame(id);
-        await this.load();
+        await this.load(true);
       } finally {
         this.installingId = null;
       }
