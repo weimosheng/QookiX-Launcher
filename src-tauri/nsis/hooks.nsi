@@ -31,6 +31,16 @@ Var /GLOBAL QXOldInstallDir
   ${If} $0 = 1
     !insertmacro SetShortcutTarget "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
   ${EndIf}
+  ; --- qookix:// protocol registration (runs on every install AND upgrade) ---
+  ; The template's deep_link_protocols loop is not reliably executed on
+  ; silent in-app upgrades (observed: 0.5.4 -> 0.5.5 lost the association),
+  ; so register it explicitly here as belt-and-braces. Idempotent: each run
+  ; overwrites with identical values, so upgrades stay correct after the
+  ; install dir changes.
+  WriteRegStr SHCTX "Software\Classes\qookix" "URL Protocol" ""
+  WriteRegStr SHCTX "Software\Classes\qookix" "" "URL:qookix protocol"
+  WriteRegStr SHCTX "Software\Classes\qookix\DefaultIcon" "" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\",0"
+  WriteRegStr SHCTX "Software\Classes\qookix\shell\open\command" "" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\" $\"%1$\""
 !macroend
 
 ; ----------------------------------------------------------------------------

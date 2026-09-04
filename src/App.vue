@@ -10,6 +10,7 @@ import CrashDialog from "./components/CrashDialog.vue";
 import UpdaterCheck from "./components/UpdaterCheck.vue";
 import { useSettingsStore } from "./stores/settings";
 import { initDeepLink } from "./composables/deepLink";
+import { MessageBridge } from "./composables/notify";
 
 import { useAccountsStore } from "./stores/accounts";
 import { useInstancesStore } from "./stores/instances";
@@ -110,6 +111,7 @@ provide("groupDialogRequest", groupDialogRequest);
       <LoadingBarBridge>
         <n-dialog-provider>
           <n-message-provider>
+            <MessageBridge />
             <n-notification-provider>
                 <div class="app app-bg" :class="{ light: !isDark }" :style="bgStyle">
                 <TitleBar />

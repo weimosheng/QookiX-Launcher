@@ -749,8 +749,11 @@ const edit = ref({
   account_id: "",
   resolution_w: "",
   resolution_h: "",
-  alias: "",
 });
+// 别名不进自动保存的 edit 对象：每敲一个字符触发一次 patch + 列表重载
+// 会非常卡。改为独立草稿 + 显式保存按钮。
+const aliasDraft = ref("");
+const savingAlias = ref(false);
 
 const memTotal = ref(0);
 const memUsed = ref(0);
@@ -838,8 +841,8 @@ watch(
       account_id: i.account_id ?? "",
       resolution_w: i.resolution?.[0]?.toString() ?? "",
       resolution_h: i.resolution?.[1]?.toString() ?? "",
-      alias: i.alias ?? "",
     };
+    aliasDraft.value = i.alias ?? "";
   },
   { immediate: true }
 );
@@ -919,18 +922,31 @@ async function saveSettings() {
       game_args: edit.value.game_args,
       java_path: edit.value.java_path,
       account_id: edit.value.account_id,
-      alias: edit.value.alias,
       resolution:
         edit.value.resolution_w && edit.value.resolution_h
           ? [Number(edit.value.resolution_w), Number(edit.value.resolution_h)]
           : null,
     });
   } catch (e) {
-    message.error(String(e));
+  message.error(String(e));
   }
-}
+  }
 
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 显式保存实例别名（点按钮触发，不走自动保存） */
+  async function saveAlias() {
+  if (savingAlias.value) return;
+  savingAlias.value = true;
+  try {
+  await instances.patch({ id: instanceId, alias: aliasDraft.value });
+  message.success("别名已保存");
+  } catch (e) {
+  message.error(String(e));
+  } finally {
+  savingAlias.value = false;
+  }
+  }
+
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let skipFirstSave = true;
 watch(
   edit,
@@ -1398,13 +1414,23 @@ watch(
 
           <div class="set-card glass">
             <h4>实例别名（协议启动）</h4>
-            <input
-              v-model="edit.alias"
-              class="text-input mono"
-              placeholder="例如 my-sky（仅小写字母、数字、- 和 _）"
-            />
+            <div class="alias-row">
+              <input
+                v-model="aliasDraft"
+                class="text-input mono"
+                placeholder="例如 my-sky（仅小写字母、数字、- 和 _）"
+                @keydown.enter="saveAlias"
+              />
+              <button
+                class="mini-btn"
+                :disabled="savingAlias || aliasDraft === (instance?.alias ?? '')"
+                @click="saveAlias"
+              >
+                {{ savingAlias ? "保存中…" : "保存" }}
+              </button>
+            </div>
             <p class="hint">
-              设置后可用 <code>qookix://launch/{{ edit.alias || "别名" }}</code> 从浏览器或命令行直接启动本实例。
+              设置后可用 <code>qookix://launch/{{ aliasDraft || "别名" }}</code> 从浏览器或命令行直接启动本实例。
             </p>
           </div>
 
@@ -2186,6 +2212,19 @@ watch(
 .set-card h4 {
   margin: 0 0 12px;
   font-size: 14px;
+}
+.alias-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.alias-row .text-input {
+  flex: 1;
+  min-width: 0;
+}
+.alias-row .mini-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .java-req {
   display: flex;

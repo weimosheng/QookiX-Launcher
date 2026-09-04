@@ -79,6 +79,27 @@ pub fn run() {
     };
 
     tauri::Builder::default()
+        // single-instance 必须最先注册：二次唤起（如 qookix:// 链接）时把
+        // 参数转发给已运行实例，而不是开出第二个窗口。
+        // 转发方式：deep-link 的 JS 端 onOpenUrl 监听 "deep-link://new-url"
+        // 事件（载荷为 URL 字符串数组，见 tauri-plugin-deep-link 源码），
+        // 从二次实例的 argv 中取出 qookix:// 链接原样重发该事件即可。
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            println!("[single-instance] 二次启动 args={:?}", args);
+            // 官方范式：交给 deep-link 插件处理 argv——它自己找出 qookix://
+            // 链接、更新内部状态并 emit 一次 deep-link://new-url。
+            // （此前手写 emit 与之重复，导致同一链接被处理多次、实例连开三次）
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                app.deep_link().handle_cli_arguments(args.iter());
+            }
+            // 无论是否带链接，二次启动都把已有窗口拉到前台
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
