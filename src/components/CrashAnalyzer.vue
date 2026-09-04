@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { NButton, NSpin, useMessage } from "naive-ui";
 import { api } from "../api";
+import { fmtDateLocale as fmtTime, fmtSize } from "../utils/format";
 import type { CrashDiagnosis } from "../types";
 import {
   IconAlertCircle,
@@ -173,16 +174,6 @@ function copyRaw() {
   } catch {
     message.error("复制失败");
   }
-}
-
-function fmtSize(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function fmtTime(t: number): string {
-  return new Date(t * 1000).toLocaleString();
 }
 
 const severityColor = computed(() => {

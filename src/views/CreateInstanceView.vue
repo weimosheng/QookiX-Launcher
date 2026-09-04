@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { fmtBytes } from "../utils/format";
 import { useRouter } from "vue-router";
 import { NSelect, NInput, NModal, useMessage } from "naive-ui";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -182,13 +183,6 @@ const scan = ref<{
   download_bytes: number;
   assets_known: boolean;
 } | null>(null);
-
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
 
 async function pickMcFolder() {
   const dir = await open({ multiple: false, directory: true });

@@ -4,16 +4,11 @@ import { useMessage } from "naive-ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IconRefresh } from "../components/icons";
 import { useNewsStore } from "../stores/news";
+import { fmtDateShort as fmtDate } from "../utils/format";
 
 const message = useMessage();
 const newsStore = useNewsStore();
 
-function fmtDate(ts: number) {
-  if (!ts) return "";
-  const d = new Date(ts * 1000);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
 
 async function refresh() {
   try {

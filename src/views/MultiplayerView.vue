@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { fmtBytes } from "../utils/format";
 import { useRouter } from "vue-router";
 import { NModal, NInput, NProgress, useMessage } from "naive-ui";
 import { listen } from "@tauri-apps/api/event";
@@ -100,13 +101,6 @@ const installHasBytes = computed(() => {
   const ins = installing.value;
   return !!ins && ins.total > 1;
 });
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
-
 function openCreate() {
   versionCat.value = "release";
   dialog.value = { name: "", core: "paper", mc_version: "" };

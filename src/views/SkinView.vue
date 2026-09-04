@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { NTabs, NTabPane, NInput, NButton, NSwitch, NModal, useMessage } from "naive-ui";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
+import { fmtSize as formatSize } from "../utils/format";
 import { useSkinRenderer, type AnimationKind } from "../composables/useSkinRenderer";
 import { loadOfflineSkin, saveOfflineSkinCache } from "../composables/useOfflineSkin";
 import { useAccountsStore } from "../stores/accounts";
@@ -546,11 +547,6 @@ async function refreshAccountSkin() {
 
 function setAnim(a: AnimationKind) {
   renderer.setAnimation(a);
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  return `${(bytes / 1024).toFixed(1)} KB`;
 }
 
 onMounted(async () => {

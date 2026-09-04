@@ -6,6 +6,7 @@ import { useInstancesStore } from "../stores/instances";
 import { useAccountsStore } from "../stores/accounts";
 import { usePinsStore, type PinItem } from "../stores/pins";
 import { useSettingsStore } from "../stores/settings";
+import { latencyInfo, loaderBadge } from "../utils/format";
 import { api } from "../api";
 import { supportsQuickPlay } from "../version";
 import { useMessage, NModal } from "naive-ui";
@@ -72,10 +73,6 @@ const pickerSections = computed(() => {
   return list;
 });
 
-function loaderBadge(i: { loader: string }) {
-  return i.loader === "vanilla" ? "原版" : i.loader.charAt(0).toUpperCase() + i.loader.slice(1);
-}
-
 const greeting = computed(() => {
   const h = new Date().getHours();
   if (h >= 5 && h < 11) return "早上好";
@@ -129,15 +126,6 @@ function openPicker() {
 const validPins = computed(() =>
   pinsStore.items.filter((p) => p.target === "home" && instances.get(p.instanceId))
 );
-
-function latencyInfo(latency: number | null | undefined): { count: number; tier: string } {
-  if (latency == null) return { count: 0, tier: "off" };
-  if (latency <= 50) return { count: 5, tier: "good" };
-  if (latency <= 100) return { count: 4, tier: "good" };
-  if (latency <= 200) return { count: 3, tier: "mid" };
-  if (latency <= 300) return { count: 2, tier: "bad" };
-  return { count: 1, tier: "bad" };
-}
 
 function pinIconSrc(p: PinItem): string | undefined {
   if (p.type !== "server") return undefined;
@@ -296,7 +284,7 @@ onMounted(() => {
         <div class="resident-info">
           <div class="resident-name text-ellipsis">{{ selected.name }}</div>
           <div class="resident-meta">
-            <span class="badge">{{ loaderBadge(selected) }}</span>
+            <span class="badge">{{ loaderBadge(selected.loader) }}</span>
             <span class="ver-text">{{ selected.mc_version }}</span>
             <span v-if="selected.loader_version" class="ver-text">· {{ selected.loader_version }}</span>
             <span v-if="selected.last_played" class="ver-text">
@@ -343,7 +331,7 @@ onMounted(() => {
               <div class="pick-info">
                 <div class="pick-name text-ellipsis">{{ inst.name }}</div>
                 <div class="pick-meta">
-                  <span class="badge">{{ loaderBadge(inst) }}</span>
+                  <span class="badge">{{ loaderBadge(inst.loader) }}</span>
                   <span class="ver-text">{{ inst.mc_version }}</span>
                 </div>
               </div>

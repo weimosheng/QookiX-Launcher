@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import { IconBox, IconCheck, IconClock, IconCopy, IconDownload, IconHeart } from "./icons";
 import { translateCategory } from "../utils/categories";
+import { fmtRelative as fmtDate } from "../utils/format";
 import type { ProjectHit } from "../types";
 
 const props = withDefaults(defineProps<{ project: ProjectHit; view?: "grid" | "list" | "compact" }>(), {
@@ -27,32 +28,6 @@ function fmt(n: number) {
   return String(n);
 }
 
-function fmtDate(s: string) {
-  if (!s) return "";
-  const d = new Date(s);
-  if (isNaN(d.getTime())) return "";
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  if (diffMs < 0) return "刚刚";
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return "刚刚";
-  if (diffMin < 60) return `${diffMin} 分钟前`;
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const dayDiff = Math.floor((today.getTime() - target.getTime()) / 86400000);
-  const diffHour = Math.floor(diffMs / 3600000);
-  if (dayDiff === 0) return `${diffHour} 小时前`;
-  if (dayDiff === 1) return "昨天";
-  if (dayDiff === 2) return "前天";
-  if (dayDiff < 7) return `${dayDiff} 天前`;
-  const monthDiff = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
-  if (monthDiff <= 0) return `${dayDiff} 天前`;
-  if (monthDiff === 1) return "上个月";
-  if (monthDiff < 12) return `${monthDiff} 个月前`;
-  const yearDiff = now.getFullYear() - d.getFullYear();
-  if (yearDiff === 1) return "去年";
-  return `${yearDiff} 年前`;
-}
 </script>
 
 <template>

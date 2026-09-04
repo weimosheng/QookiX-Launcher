@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from "vue";
+import { fmtSize } from "../utils/format";
 import { useRoute, useRouter } from "vue-router";
 import { NInput, NInputNumber, NCheckbox, NSwitch, NSelect, NModal, useMessage } from "naive-ui";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -453,13 +454,6 @@ watch(tab, (t) => {
     loadConfigFiles();
   }
 });
-
-function fmtSize(n: number) {
-  if (n >= 1024 * 1024 * 1024) return (n / 1024 / 1024 / 1024).toFixed(2) + " GB";
-  if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB";
-  if (n >= 1024) return (n / 1024).toFixed(1) + " KB";
-  return n + " B";
-}
 
 // ---- 日志 ----
 type LogLine = { stream: "out" | "err"; line: string };

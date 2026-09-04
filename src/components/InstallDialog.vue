@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useRouter } from "vue-router";
 import { NModal, NSelect, NButton, useMessage } from "naive-ui";
 import { api } from "../api";
+import { fmtDateStr as fmtDate } from "../utils/format";
 import { useInstancesStore } from "../stores/instances";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import { IconCopy, IconExternal, IconGlobe } from "./icons";
@@ -225,11 +226,6 @@ async function install() {
   }
 }
 
-function fmtDate(s: string) {
-  if (!s) return "";
-  const d = new Date(s);
-  return d.toLocaleDateString();
-}
 </script>
 
 <template>

@@ -16,6 +16,7 @@ import CrashAnalyzer from "../components/CrashAnalyzer.vue";
 import AppIcon from "../components/AppIcon.vue";
 import IconPickerDialog from "../components/IconPickerDialog.vue";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
+import { fmtDateLocale as fmtDate, fmtMem, fmtSize, latencyInfo } from "../utils/format";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ContentItem, ProjectVersion, ServerEntry, ServerStatus, UpdateInfo } from "../types";
 
@@ -137,15 +138,6 @@ function serverIcon(entry: ServerEntry, st?: ServerStatus): string | undefined {
   if (st?.favicon) return st.favicon;
   if (entry.icon) return "data:image/png;base64," + entry.icon;
   return undefined;
-}
-
-function latencyInfo(latency: number | null | undefined): { count: number; tier: string } {
-  if (latency == null) return { count: 0, tier: "off" };
-  if (latency <= 50) return { count: 5, tier: "good" };
-  if (latency <= 100) return { count: 4, tier: "good" };
-  if (latency <= 200) return { count: 3, tier: "mid" };
-  if (latency <= 300) return { count: 2, tier: "bad" };
-  return { count: 1, tier: "bad" };
 }
 
 const instanceId = route.params.id as string;
@@ -283,18 +275,6 @@ async function loadFiles() {
   } finally {
     if (seq === loadSeq) loadingFiles.value = false;
   }
-}
-
-function fmtSize(n: number) {
-  if (n >= 1024 * 1024 * 1024) return (n / 1024 / 1024 / 1024).toFixed(2) + " GB";
-  if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB";
-  if (n >= 1024) return (n / 1024).toFixed(1) + " KB";
-  return n + " B";
-}
-
-function fmtDate(sec: number) {
-  if (!sec) return "";
-  return new Date(sec * 1000).toLocaleString();
 }
 
 function assetUrl(p: string) {
@@ -781,13 +761,6 @@ const memTotal = ref(0);
 const memUsed = ref(0);
 const memAvailable = ref(0);
 let memTimer: ReturnType<typeof setInterval> | null = null;
-
-/** Format MB into a readable "GB / MB" string. */
-function fmtMem(mb: number): string {
-  if (!mb || mb <= 0) return "0 MB";
-  if (mb >= 1024) return (mb / 1024).toFixed(mb % 1024 === 0 ? 0 : 1) + " GB";
-  return Math.round(mb) + " MB";
-}
 
 // The custom slider max is capped at the currently available (free) memory,
 // so the game allocation can never exceed the remaining space (fallback 16 GB).

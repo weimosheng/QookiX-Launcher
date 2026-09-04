@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useTasksStore, type TaskEntry } from "../stores/tasks";
+import { fmtBytes, fmtSpeed, fmtTimeMs as fmtTime } from "../utils/format";
 import { useInstancesStore } from "../stores/instances";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import {
@@ -57,26 +58,6 @@ const STAGE_LABELS: Record<string, string> = {
 
 function stageLabel(t: TaskEntry) {
   return STAGE_LABELS[t.stage] ?? t.stage;
-}
-
-function fmtBytes(n: number) {
-  if (n >= 1024 * 1024 * 1024) return (n / 1024 / 1024 / 1024).toFixed(2) + " GB";
-  if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB";
-  if (n >= 1024) return (n / 1024).toFixed(1) + " KB";
-  return n + " B";
-}
-
-function fmtSpeed(s: number) {
-  if (s <= 0) return "—";
-  if (s >= 1024 * 1024) return (s / 1024 / 1024).toFixed(1) + " MB/s";
-  if (s >= 1024) return (s / 1024).toFixed(0) + " KB/s";
-  return s.toFixed(0) + " B/s";
-}
-
-function fmtTime(ms: number) {
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 function pct(done: number, total: number) {

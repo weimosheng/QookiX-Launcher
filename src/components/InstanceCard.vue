@@ -6,6 +6,7 @@ import { useInstancesStore } from "../stores/instances";
 import { usePinsStore, type PinTarget } from "../stores/pins";
 import { useMessage, NModal, NButton } from "naive-ui";
 import { api } from "../api";
+import { loaderBadge } from "../utils/format";
 import AppIcon from "./AppIcon.vue";
 import {
   IconFolder,
@@ -36,10 +37,6 @@ async function handleConfirm() {
   } finally {
     confirmLoading.value = false;
   }
-}
-
-function loaderBadge() {
-  return props.instance.loader === "vanilla" ? "原版" : props.instance.loader.charAt(0).toUpperCase() + props.instance.loader.slice(1);
 }
 
 /** 上次游玩的相对时间（unix 秒）：刚刚 / N 分钟前 / N 小时前 / 昨天 / N 天前 / 日期 */
@@ -152,7 +149,7 @@ function confirmDelete() {
       <div class="title-wrap">
         <div class="name text-ellipsis">{{ instance.name }}</div>
         <div class="meta">
-          <span class="badge">{{ loaderBadge() }}</span>
+          <span class="badge">{{ loaderBadge(instance.loader) }}</span>
           <span class="mc">{{ instance.mc_version }}</span>
           <span v-if="instance.loader_version" class="lv">{{ instance.loader_version }}</span>
         </div>

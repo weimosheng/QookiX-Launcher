@@ -2,6 +2,7 @@
 import { computed, markRaw, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
 import { api } from "../api";
+import { fmtDate, fmtSize } from "../utils/format";
 import type { ContextMenuItem, FsEntry } from "../types";
 import CodeEditor from "./CodeEditor.vue";
 import ContextMenu from "./ContextMenu.vue";
@@ -35,20 +36,6 @@ const TEXT_EXT = new Set([
 function isEditable(e: FsEntry): boolean {
   if (e.is_dir || e.size > MAX_EDIT) return false;
   return TEXT_EXT.has(e.ext) || (e.ext === "" && e.size <= 256 * 1024);
-}
-
-function fmtSize(n: number): string {
-  if (n >= 1024 * 1024 * 1024) return (n / 1024 / 1024 / 1024).toFixed(2) + " GB";
-  if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB";
-  if (n >= 1024) return (n / 1024).toFixed(1) + " KB";
-  return n + " B";
-}
-
-function fmtDate(sec: number): string {
-  if (!sec) return "";
-  const d = new Date(sec * 1000);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 function badge(e: FsEntry): string {

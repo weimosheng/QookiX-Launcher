@@ -1,5 +1,6 @@
 ﻿<script setup lang="ts">
 import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { fmtMem, fmtSize, fmtTime } from "../utils/format";
 import { useRouter } from "vue-router";
 import { NButton, NModal, NTooltip, useMessage, useDialog } from "naive-ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -294,12 +295,6 @@ const memUsed = ref(0);
 const memAvailable = ref(0);
 let memTimer: ReturnType<typeof setInterval> | null = null;
 
-function fmtMem(mb: number): string {
-  if (!mb || mb <= 0) return "0 MB";
-  if (mb >= 1024) return (mb / 1024).toFixed(mb % 1024 === 0 ? 0 : 1) + " GB";
-  return Math.round(mb) + " MB";
-}
-
 const effectiveMemory = computed(() => {
   if (settings.settings?.memory_mode === "auto") {
     // Base: 40% of available (min 2048 MB), cap at 75% of available
@@ -457,26 +452,6 @@ const DONUT_COLORS: Record<string, string> = {
 };
 const DONUT_R = 74;
 const DONUT_C = 2 * Math.PI * DONUT_R;
-
-function fmtSize(bytes: number): string {
-  if (!bytes || bytes <= 0) return "0 B";
-  if (bytes < 1024) return bytes + " B";
-  const units = ["KB", "MB", "GB", "TB"];
-  let v = bytes / 1024;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return (v >= 100 ? v.toFixed(0) : v.toFixed(1)) + " " + units[i];
-}
-
-function fmtTime(ts: number): string {
-  if (!ts) return "—";
-  const d = new Date(ts * 1000);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
 function pct(size: number): number {
   if (!stats.value || !stats.value.total) return 0;
