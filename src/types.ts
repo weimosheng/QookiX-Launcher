@@ -396,8 +396,36 @@ export interface ServerConfig {
 }
 
 // 崩溃分析结果
+// 主因字段（severity/title/reason/advice）取自置信度最高的一条，兼容旧展示逻辑；
+// causes 里是全量命中原因，stacktrace/details 是报告结构化解析结果。
+export type CrashSeverity =
+  | "oom"
+  | "jvm"
+  | "lwjgl"
+  | "java_ver"
+  | "gl"
+  | "mod"
+  | "unknown";
+
+export interface CrashCause {
+  id: string;
+  severity: CrashSeverity;
+  title: string;
+  reason: string;
+  advice: string;
+  /** 命中该原因的证据（崩溃报告原文片段） */
+  evidence: string;
+  /** 置信度 0-100 */
+  confidence: number;
+}
+
+export interface CrashDetail {
+  key: string;
+  value: string;
+}
+
 export interface CrashDiagnosis {
-  severity: "oom" | "jvm" | "lwjgl" | "java_ver" | "gl" | "mod" | "unknown";
+  severity: CrashSeverity;
   title: string;
   reason: string;
   advice: string;
@@ -405,4 +433,12 @@ export interface CrashDiagnosis {
   exit_code: number | null;
   crash_report: string | null;
   affected_mods: string[];
+  /** 全部命中原因，按置信度降序 */
+  causes: CrashCause[];
+  /** 关键堆栈帧 */
+  stacktrace: string[];
+  /** 环境信息（Minecraft / Java / 内存 / 显卡 / 系统） */
+  details: CrashDetail[];
+  /** 主因置信度 0-100，0 表示未能定位 */
+  confidence: number;
 }

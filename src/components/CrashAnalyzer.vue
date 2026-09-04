@@ -51,7 +51,7 @@ function readDiagCache(instanceId: string, filename: string): CrashDiagnosis | n
     if (!raw) return null;
     const c = JSON.parse(raw) as DiagCache;
     if (Date.now() - c.ts > DIAG_TTL) return null;
-    return c.d;
+    return normalize(c.d);
   } catch {
     return null;
   }
@@ -105,7 +105,7 @@ async function analyze(force = false) {
   diagnosis.value = null;
   rawContent.value = "";
   try {
-    const d = await api.analyzeCrash(props.instanceId, selected.value);
+    const d = normalize(await api.analyzeCrash(props.instanceId, selected.value));
     diagnosis.value = d;
     writeDiagCache(props.instanceId, selected.value, d);
   } catch (e) {
@@ -176,9 +176,56 @@ function copyRaw() {
   }
 }
 
-const severityColor = computed(() => {
-  if (!diagnosis.value) return "";
-  switch (diagnosis.value.severity) {
+function copyStack() {
+  if (!diagnosis.value?.stacktrace.length) return;
+  try {
+    navigator.clipboard.writeText(diagnosis.value.stacktrace.join("\n"));
+    message.success("已复制");
+  } catch {
+    message.error("复制失败");
+  }
+}
+
+/** 主因已在上方单独展示，这里列出其余命中原因 */
+const otherCauses = computed(() => (diagnosis.value?.causes ?? []).slice(1));
+
+/**
+ * 兼容旧缓存：7 天 TTL 内可能存着没有 causes/stacktrace/details 的旧结构，
+ * 直接读字段会在模板里炸，这里统一补齐默认值。
+ */
+function normalize(d: CrashDiagnosis): CrashDiagnosis {
+  return {
+    ...d,
+    causes: d.causes ?? [],
+    stacktrace: d.stacktrace ?? [],
+    details: d.details ?? [],
+    affected_mods: d.affected_mods ?? [],
+    confidence: typeof d.confidence === "number" ? d.confidence : 0,
+  };
+}
+
+// 严重度 → 中文名 / 前景色 / 背景色。主因与分因共用同一套配色。
+function severityLabel(s: string): string {
+  switch (s) {
+    case "oom":
+      return "内存不足";
+    case "jvm":
+      return "JVM 崩溃";
+    case "gl":
+      return "显卡问题";
+    case "mod":
+      return "模组问题";
+    case "lwjgl":
+      return "依赖缺失";
+    case "java_ver":
+      return "Java 版本";
+    default:
+      return "未知";
+  }
+}
+
+function severityColor(s: string): string {
+  switch (s) {
     case "oom":
       return "#e5534b";
     case "jvm":
@@ -194,11 +241,10 @@ const severityColor = computed(() => {
     default:
       return "#8b8e9c";
   }
-});
+}
 
-const severityBg = computed(() => {
-  if (!diagnosis.value) return "";
-  switch (diagnosis.value.severity) {
+function severityBg(s: string): string {
+  switch (s) {
     case "oom":
       return "rgba(229,83,75,0.12)";
     case "jvm":
@@ -214,7 +260,15 @@ const severityBg = computed(() => {
     default:
       return "rgba(139,142,156,0.12)";
   }
-});
+}
+
+/** 置信度 → 文案 */
+function confidenceLabel(c: number): string {
+  if (c >= 85) return "很确定";
+  if (c >= 60) return "较可能";
+  if (c > 0) return "可能";
+  return "未能定位";
+}
 
 watch(
   () => props.instanceId,
@@ -306,12 +360,18 @@ function handleSelect(filename: string) {
 
         <!-- 已出诊断：优先于「分析」按钮展示，否则点完按钮结果永远不显示 -->
         <div v-else-if="diagnosis" class="crash-diagnosis">
-          <!-- 严重度标签 -->
-          <div class="crash-severity" :style="{ background: severityBg, color: severityColor }">
-            <span class="crash-severity-dot" :style="{ background: severityColor }" />
-            <span class="crash-severity-text">
-              {{ diagnosis.severity === 'oom' ? '内存不足' : diagnosis.severity === 'jvm' ? 'JVM 崩溃' : diagnosis.severity === 'gl' ? '显卡问题' : diagnosis.severity === 'mod' ? '模组问题' : diagnosis.severity === 'lwjgl' ? '依赖缺失' : diagnosis.severity === 'java_ver' ? '版本问题' : '未知' }}
-            </span>
+          <!-- 严重度 + 置信度标签 -->
+          <div class="crash-severity-row">
+            <div
+              class="crash-severity"
+              :style="{ background: severityBg(diagnosis.severity), color: severityColor(diagnosis.severity) }"
+            >
+              <span class="crash-severity-dot" :style="{ background: severityColor(diagnosis.severity) }" />
+              <span class="crash-severity-text">{{ severityLabel(diagnosis.severity) }}</span>
+            </div>
+            <div class="crash-confidence">
+              {{ confidenceLabel(diagnosis.confidence) }}（{{ diagnosis.confidence }}%）
+            </div>
           </div>
 
           <!-- 标题 -->
@@ -346,6 +406,52 @@ function handleSelect(filename: string) {
           <div class="crash-section">
             <div class="crash-section-label">修复建议</div>
             <p class="crash-advice">{{ diagnosis.advice }}</p>
+          </div>
+
+          <!-- 其他可能原因（引擎会收集全部命中的规则，不只是主因） -->
+          <div v-if="otherCauses.length" class="crash-section">
+            <div class="crash-section-label">其他可能原因（{{ otherCauses.length }}）</div>
+            <div class="crash-other-causes">
+              <div v-for="c in otherCauses" :key="c.id" class="crash-other-cause">
+                <div class="crash-other-head">
+                  <span
+                    class="crash-other-tag"
+                    :style="{ background: severityBg(c.severity), color: severityColor(c.severity) }"
+                  >
+                    {{ severityLabel(c.severity) }}
+                  </span>
+                  <span class="crash-other-title">{{ c.title }}</span>
+                  <span class="crash-other-conf">{{ c.confidence }}%</span>
+                </div>
+                <p class="crash-other-advice">{{ c.advice }}</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 环境信息（Minecraft / Java / 内存 / 显卡…） -->
+          <div v-if="diagnosis.details.length" class="crash-section">
+            <div class="crash-section-label">运行环境</div>
+            <div class="crash-details">
+              <div v-for="d in diagnosis.details" :key="d.key" class="crash-detail">
+                <span class="crash-detail-key">{{ d.key }}</span>
+                <span class="crash-detail-value text-ellipsis">{{ d.value }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 关键堆栈 -->
+          <div v-if="diagnosis.stacktrace.length" class="crash-section">
+            <div class="crash-section-label">
+              关键堆栈
+              <NButton quaternary size="tiny" @click="copyStack">
+                <IconCopy />
+              </NButton>
+            </div>
+            <div class="crash-stack">
+              <div v-for="(f, i) in diagnosis.stacktrace" :key="i" class="crash-stack-line">
+                {{ f }}
+              </div>
+            </div>
           </div>
 
           <!-- 操作 -->
@@ -567,6 +673,12 @@ function handleSelect(filename: string) {
   padding: 16px;
 }
 
+.crash-severity-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .crash-severity {
   display: inline-flex;
   align-items: center;
@@ -576,6 +688,105 @@ function handleSelect(filename: string) {
   font-size: 12px;
   font-weight: 600;
   width: fit-content;
+}
+.crash-confidence {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* 其他可能原因 */
+.crash-other-causes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.crash-other-cause {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--panel);
+}
+.crash-other-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.crash-other-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  flex-shrink: 0;
+}
+.crash-other-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  flex: 1;
+  min-width: 0;
+}
+.crash-other-conf {
+  font-size: 11px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.crash-other-advice {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+/* 运行环境 */
+.crash-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--panel);
+}
+.crash-detail {
+  display: flex;
+  gap: 10px;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+.crash-detail:nth-child(odd) {
+  background: rgba(128, 128, 128, 0.04);
+}
+.crash-detail-key {
+  flex-shrink: 0;
+  width: 140px;
+  color: var(--text-3);
+}
+.crash-detail-value {
+  color: var(--text-1);
+  min-width: 0;
+}
+
+/* 关键堆栈 */
+.crash-stack {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--panel);
+  max-height: 220px;
+  overflow: auto;
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+.crash-stack-line {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.crash-stack-line:first-child {
+  color: var(--text-1);
+  font-weight: 600;
 }
 .crash-severity-dot {
   width: 6px;
