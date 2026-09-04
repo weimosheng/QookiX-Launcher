@@ -235,6 +235,43 @@ pub struct Instance {
     pub group: Option<String>,
 }
 
+impl Default for Instance {
+    /// 中性占位实例：id/name 为空、未安装、无任何覆盖配置。
+    ///
+    /// 用于下载进度事件里的占位实例（Java 运行时、整合包安装）等场景。
+    /// 有了它，结构体新增字段时只需改这里，而不用同步改散落各处的
+    /// 手写构造（否则每加一个字段就要 4~5 处连改，极易漏）。
+    /// 真实创建实例时在 `..Default::default()` 之上覆盖有意义的字段即可。
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            mc_version: String::new(),
+            loader: LoaderType::Vanilla,
+            loader_version: None,
+            created: 0,
+            last_played: None,
+            total_play_time: 0,
+            installed: false,
+            icon: None,
+            alias: None,
+            max_memory_mb: None,
+            memory_mode: None,
+            jvm_args: None,
+            game_args: None,
+            java_path: None,
+            account_id: None,
+            resolution: None,
+            mods: Vec::new(),
+            resource_packs: Vec::new(),
+            shaders: Vec::new(),
+            is_symlink: false,
+            source_path: None,
+            group: None,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Instance groups
 // ---------------------------------------------------------------------------

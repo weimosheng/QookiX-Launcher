@@ -1,4 +1,4 @@
-use crate::models::{InstalledContent, Instance, LoaderType};
+use crate::models::{InstalledContent, Instance};
 use crate::state::AppState;
 use crate::util::{extract_zip, extract_zip_strip, file_sha1};
 use serde_json::{json, Value};
@@ -470,30 +470,8 @@ async fn install_modpack_inner(
     let pack_name = index_name_hint(&pack_path);
     let source = format!("整合包：{pack_name}");
     let placeholder = Instance {
-        id: String::new(),
         name: pack_name.clone(),
-        mc_version: String::new(),
-        loader: LoaderType::Vanilla,
-        loader_version: None,
-        created: 0,
-        last_played: None,
-        total_play_time: 0,
-        installed: false,
-        icon: None,
-        alias: None,
-        max_memory_mb: None,
-        memory_mode: None,
-        jvm_args: None,
-        game_args: None,
-        java_path: None,
-        account_id: None,
-        resolution: None,
-        mods: Vec::new(),
-        resource_packs: Vec::new(),
-        shaders: Vec::new(),
-        is_symlink: false,
-        source_path: None,
-        group: None,
+        ..Default::default()
     };
     crate::install::emit_progress(
         &app,

@@ -502,25 +502,7 @@ mod smoke {
             mc_version: "1.20.1".into(),
             loader: LoaderType::Fabric,
             loader_version: Some("0.15.11".into()),
-            created: 0,
-            last_played: None,
-            total_play_time: 0,
-            alias: None,
-            installed: false,
-            icon: None,
-            max_memory_mb: None,
-            memory_mode: None,
-            jvm_args: None,
-            game_args: None,
-            java_path: None,
-            account_id: None,
-            resolution: None,
-            mods: vec![],
-            resource_packs: vec![],
-            shaders: vec![],
-            is_symlink: false,
-            source_path: None,
-            group: None,
+            ..Default::default()
         };
         let vanilla = crate::mcmeta::fetch_version_json(&state, "1.20.1").await.unwrap();
         let patched = crate::install::fabric_patch(&state, &vanilla, &instance).await.unwrap();

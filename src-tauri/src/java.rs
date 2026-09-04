@@ -262,28 +262,7 @@ fn instance_placeholder(_state: &crate::state::AppState) -> crate::models::Insta
     crate::models::Instance {
         id: "runtime".into(),
         name: "Java 运行时".into(),
-        mc_version: String::new(),
-        loader: crate::models::LoaderType::Vanilla,
-        loader_version: None,
-        created: 0,
-        last_played: None,
-        total_play_time: 0,
-        installed: false,
-        icon: None,
-        alias: None,
-        max_memory_mb: None,
-        memory_mode: None,
-        jvm_args: None,
-        game_args: None,
-        java_path: None,
-        account_id: None,
-        resolution: None,
-        mods: Vec::new(),
-        resource_packs: Vec::new(),
-        shaders: Vec::new(),
-        is_symlink: false,
-        source_path: None,
-        group: None,
+        ..Default::default()
     }
 }
 

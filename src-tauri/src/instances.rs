@@ -97,24 +97,8 @@ pub fn create_instance(
         loader,
         loader_version,
         created: now(),
-        last_played: None,
-        total_play_time: 0,
         installed: true,
-        icon: None,
-        alias: None,
-        max_memory_mb: None,
-        memory_mode: None,
-        jvm_args: None,
-        game_args: None,
-        java_path: None,
-        account_id: None,
-        resolution: None,
-        mods: Vec::new(),
-        resource_packs: Vec::new(),
-        shaders: Vec::new(),
-        is_symlink: false,
-        source_path: None,
-        group: None,
+        ..Default::default()
     };
     // game dir
     std::fs::create_dir_all(state.instances_dir().join(&instance.id)).map_err(|e| e.to_string())?;
