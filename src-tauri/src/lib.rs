@@ -348,12 +348,17 @@ mod smoke {
         assert!(version.libraries.len() > 10);
         assert!(version.asset_index.is_some());
         assert!(version.downloads.client.is_some());
-        // modern natives come as separate `...:natives-windows` entries
+        // modern natives come as separate `...:natives-<os>` entries。
+        // 注意：按「当前平台可解析出分类器」来找条目——硬编码 natives-windows
+        // 会让 macOS/Linux runner 的 CI 必挂（那个条目没有本平台的分类器）。
         let native = version
             .libraries
             .iter()
-            .find(|l| l.name.contains("natives-windows"))
-            .expect("no modern natives entries");
+            .find(|l| {
+                l.name.contains("natives-")
+                    && crate::install::platform_native_classifier(l).is_some()
+            })
+            .expect("no natives entries applicable to this platform");
         assert!(crate::install::is_native_entry(native));
         assert!(crate::install::platform_native_classifier(native).is_some());
     }
