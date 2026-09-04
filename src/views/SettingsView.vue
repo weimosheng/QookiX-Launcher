@@ -7,6 +7,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { useMemoryInfo } from "../composables/useMemoryInfo";
 import { useSettingsStore } from "../stores/settings";
 import { api } from "../api";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
@@ -290,10 +291,7 @@ const tabs = [
   { key: "about", label: "关于", icon: IconFile },
 ];
 
-const memTotal = ref(0);
-const memUsed = ref(0);
-const memAvailable = ref(0);
-let memTimer: ReturnType<typeof setInterval> | null = null;
+const { memTotal, memUsed, memAvailable, startPolling, stopPolling } = useMemoryInfo();
 
 const effectiveMemory = computed(() => {
   if (settings.settings?.memory_mode === "auto") {
@@ -315,17 +313,6 @@ const allocStart = computed(() => usedPercent.value);
 const allocWidth = computed(() =>
   Math.max(0, Math.min(allocPercent.value, 100 - usedPercent.value))
 );
-
-async function loadMemoryInfo() {
-  try {
-    const res = await api.autoDetectMemory();
-    memTotal.value = res.total_mb;
-    memUsed.value = res.used_mb;
-    memAvailable.value = res.available_mb ?? Math.max(0, res.total_mb - res.used_mb);
-  } catch {
-    /* ignore */
-  }
-}
 
 async function detect() {
   detecting.value = true;
@@ -524,12 +511,11 @@ onMounted(() => {
   loadMirrors();
   // cached scan: no full rescan if another view already fetched recently
   settings.loadJava().then((c) => (javaCandidates.value = c));
-  loadMemoryInfo();
-  memTimer = setInterval(loadMemoryInfo, 10000);
+  startPolling();
   loadStats();
 });
 onUnmounted(() => {
-  if (memTimer) clearInterval(memTimer);
+  stopPolling();
   if (saveTimer) clearTimeout(saveTimer);
 });
 </script>

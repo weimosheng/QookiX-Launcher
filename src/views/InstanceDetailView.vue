@@ -17,6 +17,7 @@ import AppIcon from "../components/AppIcon.vue";
 import IconPickerDialog from "../components/IconPickerDialog.vue";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import { fmtDateLocale as fmtDate, fmtMem, fmtSize, latencyInfo } from "../utils/format";
+import { useMemoryInfo } from "../composables/useMemoryInfo";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ContentItem, ProjectVersion, ServerEntry, ServerStatus, UpdateInfo } from "../types";
 
@@ -597,7 +598,6 @@ onBeforeUnmount(() => {
   unlistenUpdate = null;
   unlistenIdentify?.();
   unlistenIdentify = null;
-  if (memTimer) clearInterval(memTimer);
   if (saveTimer) clearTimeout(saveTimer);
 });
 
@@ -757,10 +757,7 @@ const edit = ref({
 const aliasDraft = ref("");
 const savingAlias = ref(false);
 
-const memTotal = ref(0);
-const memUsed = ref(0);
-const memAvailable = ref(0);
-let memTimer: ReturnType<typeof setInterval> | null = null;
+const { memTotal, memUsed, memAvailable, startPolling, stopPolling } = useMemoryInfo();
 
 // The custom slider max is capped at the currently available (free) memory,
 // so the game allocation can never exceed the remaining space (fallback 16 GB).
@@ -805,17 +802,6 @@ const allocStart = computed(() => usedPercent.value);
 const allocWidth = computed(() =>
   Math.max(0, Math.min(allocPercent.value, 100 - usedPercent.value))
 );
-
-async function loadMemoryInfo() {
-  try {
-    const res = await api.autoDetectMemory();
-    memTotal.value = res.total_mb;
-    memUsed.value = res.used_mb;
-    memAvailable.value = res.available_mb ?? Math.max(0, res.total_mb - res.used_mb);
-  } catch {
-    /* ignore, fall back to defaults */
-  }
-}
 
 let skipNextEditSync = false;
 watch(
@@ -963,8 +949,7 @@ watch(
       // nothing to load
     } else if (t === "settings") {
       detectJava();
-      loadMemoryInfo();
-      memTimer = setInterval(loadMemoryInfo, 10000);
+      startPolling();
     } else if (t === "screenshots" || t === "saves") {
       loadFiles();
       if (t === "saves" && !loadingServers.value) loadServers();
@@ -974,10 +959,7 @@ watch(
       loadContent();
       updates.value = {};
     }
-    if (t !== "settings" && memTimer) {
-      clearInterval(memTimer);
-      memTimer = null;
-    }
+    if (t !== "settings") stopPolling();
   },
   { immediate: true }
 );
