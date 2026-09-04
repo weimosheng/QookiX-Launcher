@@ -248,8 +248,26 @@ const RULE_SPECS: &[RuleSpec] = &[
         title: "加载器给出的错误：{reason}",
         reason: "Forge 在加载某个模组文件时失败。",
         advice: "请根据上面的错误信息处理对应模组（多为版本不匹配或文件损坏）。",
-        pattern: r"\tFailure message: (?P<reason>[^\n]+)",
+        pattern: r"\s*Failure message:\s*(?P<reason>[^\n]+)",
         confidence: 70,
+    },
+    RuleSpec {
+        id: "forge_mod_block",
+        severity: "mod",
+        title: "模组 {id} 加载失败",
+        reason: "Forge 在加载 {id}（{file}）时报错：{reason}",
+        advice: "请根据上面的提示处理模组 {id}：通常是缺少它要求的前置模组，或前置版本不够新。安装/更新对应前置后重新启动游戏。",
+        pattern: r"-- MOD (?P<id>[^\s]+) --[\s\S]{0,400}?Mod File:\s*(?P<file>[^\n]+)[\s\S]{0,400}?Failure message:\s*(?P<reason>[^\n]+)",
+        confidence: 90,
+    },
+    RuleSpec {
+        id: "javaagent_failed",
+        severity: "jvm",
+        title: "Java Agent（-javaagent）加载失败",
+        reason: "JVM 无法加载启动参数中指定的 Java Agent（常见于 log4j 补丁、性能优化类代理）。",
+        advice: "请检查实例设置里的 JVM 参数，删除或修正 -javaagent 相关配置（这类代理常随旧版安全补丁添加，如今大多已不需要）。",
+        pattern: r"processing of -javaagent failed|Error opening zip file or JAR manifest missing|ClassNotFoundException: [\w.\-]*[Aa]gent",
+        confidence: 85,
     },
     // ---------------------------------------------------------------- 模组：环境类
     RuleSpec {
@@ -547,6 +565,15 @@ const RULE_SPECS: &[RuleSpec] = &[
         advice: "请更新相关模组；这类问题常见于旧模组搭配新版本 Java。",
         pattern: r"IllegalAccessError: tried to access class [^\n]+ from class (?P<class>[^\n]+)",
         confidence: 58,
+    },
+    RuleSpec {
+        id: "rtss_sodium",
+        severity: "mod",
+        title: "RivaTuner Statistics Server 与 Sodium 不兼容",
+        reason: "RTSS（常随 MSI Afterburner 安装）的钩子与 Sodium 冲突。",
+        advice: "请关闭 RivaTuner Statistics Server / MSI Afterburner 的屏幕显示（OSD）功能，或卸载它们后再启动游戏。也可以改用别的帧率显示方式。",
+        pattern: r"RivaTuner Statistics Server \(RTSS\) is not compatible with Sodium",
+        confidence: 92,
     },
     RuleSpec {
         id: "stack_overflow",
@@ -1006,12 +1033,19 @@ pub fn analyze_text(text: &str, exit_code: Option<i32>) -> CrashDiagnosis {
     if affected.is_empty() {
         affected = attribute_mods(&parsed.keywords, &parsed.mod_lines);
     }
-
-    // 既有高置信模组结论时，不再叠加「猜测类」原因，避免噪音
-    let has_solid_mod_cause = causes
+    // 去重：同一模组可能同时以「名称」「Mod ID」「名称 (id)」三种形式出现，
+    // 保留信息量最大的那条（若 A 是 B 的子串，则 A 冗余）。
+    let redundant: Vec<String> = affected
         .iter()
-        .any(|c| c.severity == "mod" && c.confidence >= 80);
-    if !has_solid_mod_cause {
+        .filter(|a| affected.iter().any(|b| b != *a && b.contains(a.as_str())))
+        .cloned()
+        .collect();
+    affected.retain(|a| !redundant.contains(a));
+
+    // 已经得到高置信结论时，不再叠加「猜测类」原因，避免给用户制造噪音
+    // （PCL 的分层思路：精准匹配命中后就不再做堆栈猜测）
+    let has_solid_answer = causes.iter().any(|c| c.confidence >= 70);
+    if !has_solid_answer {
         if !affected.is_empty() {
             let list = affected.join("、");
             causes.push(CrashCause {
@@ -1097,6 +1131,7 @@ fn named_mods(text: &str, rule_id: &str) -> Vec<String> {
         "mod_config" => &[r"for modid (?P<v>\S+)"],
         "mod_mixin_apply" => &[r"Mixin apply for mod (?P<v>\S+) failed"],
         "mod_mixin_from" => &[r"from mod (?P<v>[^./\s]+)\] from"],
+        "forge_mod_block" => &[r"-- MOD (?P<v>[^\s]+) --"],
         "file_already_exists" | "file_changed" | "lwjgl_missing" => &[],
         _ => &[],
     };
@@ -1291,6 +1326,65 @@ Details:
         assert_eq!(d.severity, "unknown");
         assert_eq!(d.confidence, 0);
         assert!(d.advice.contains("排查"));
+    }
+
+    /// Forge 的「-- MOD xxx --」错误块：应点名模组并给出它要求的前置
+    #[test]
+    fn detects_forge_mod_error_block() {
+        let log = r#"---- Minecraft Crash Report ----
+Description: Mod loading error has occurred
+
+java.lang.Exception: Mod Loading has failed
+
+-- MOD iceandfire --
+Details:
+        Mod File: iceandfire-2.1.9-1.16.5.jar
+        Failure message: Mod iceandfire requires citadel 1.8.1 or above
+                Currently, citadel is not installed
+        Mod Version: 2.1.9-1.16.5
+"#;
+        let d = analyze_text(log, None);
+        assert_eq!(d.severity, "mod");
+        assert!(
+            d.title.contains("iceandfire"),
+            "应点名模组，实际：{}",
+            d.title
+        );
+        assert!(d.reason.contains("citadel 1.8.1"), "应给出前置要求：{}", d.reason);
+        assert!(d.affected_mods.iter().any(|m| m == "iceandfire"));
+    }
+
+    #[test]
+    fn detects_javaagent_failure() {
+        let log = "Exception in thread \"main\" java.lang.ClassNotFoundException: org.glavo.log4j.patch.agent.Log4jAgent\nFATAL ERROR in native method: processing of -javaagent failed";
+        let d = analyze_text(log, None);
+        assert_eq!(d.severity, "jvm");
+        assert!(d.title.contains("javaagent"), "实际标题：{}", d.title);
+    }
+
+    /// 已有高置信结论时不应再叠加 25% 的「可疑关键词」噪音
+    #[test]
+    fn no_speculative_cause_when_solid_answer_exists() {
+        let log = "Description: Manually triggered debug crash\n\tat xaero.pvp.BetterPVP.preInit(BetterPVP.java:105)";
+        let d = analyze_text(log, None);
+        assert!(
+            !d.causes.iter().any(|c| c.id == "suspect_keyword"),
+            "调试崩溃不该再猜测模组：{:?}",
+            d.causes.iter().map(|c| c.id.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    /// 同一模组的不同写法（名称 / Mod ID / 名称 (id)）只保留信息量最大的一条
+    #[test]
+    fn affected_mods_are_deduplicated() {
+        let d = analyze_text(FORGE_MOD_CRASH, Some(1));
+        assert!(
+            !d.affected_mods.iter().any(|m| m == "xaerobetterpvp")
+                && !d.affected_mods.iter().any(|m| m == "Better PvP"),
+            "冗余项应被去掉，实际：{:?}",
+            d.affected_mods
+        );
+        assert_eq!(d.affected_mods.len(), 1);
     }
 
     #[test]
