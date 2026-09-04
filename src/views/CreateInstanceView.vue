@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { fmtBytes } from "../utils/format";
+import { isAprilFools } from "../utils/versions";
 import { useRouter } from "vue-router";
 import { NSelect, NInput, NModal, useMessage } from "naive-ui";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -46,12 +47,6 @@ const loaders: { value: Loader; label: string }[] = [
   { value: "forge", label: "Forge" },
   { value: "quilt", label: "Quilt" },
 ];
-
-function isAprilFools(v: { id: string; releaseTime: string }) {
-  if (/april|fools/i.test(v.id)) return true;
-  const d = v.releaseTime;
-  return d.length >= 10 && d.slice(5, 7) === "04" && d.slice(8, 10) === "01";
-}
 
 const filteredVersions = computed(() => {
   return versions.value.filter((v) => {

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { fmtBytes } from "../utils/format";
+import { CORE_COLORS, CORE_LABELS } from "../utils/cores";
+import { isAprilFools } from "../utils/versions";
 import { useRouter } from "vue-router";
 import { NModal, NInput, NProgress, useMessage } from "naive-ui";
 import { listen } from "@tauri-apps/api/event";
@@ -37,12 +39,6 @@ const tab = ref<"servers" | "rooms">("servers");
 const versions = ref<{ id: string; type: string; releaseTime: string }[]>([]);
 const versionCat = ref<string>("release");
 
-function isAprilFools(v: { id: string; releaseTime: string }) {
-  if (/april|fools/i.test(v.id)) return true;
-  const d = v.releaseTime;
-  return d.length >= 10 && d.slice(5, 7) === "04" && d.slice(8, 10) === "01";
-}
-
 const filteredVersions = computed(() =>
   versions.value.filter((v) => {
     if (versionCat.value === "release") return v.type === "release" || v.type.startsWith("old_");
@@ -60,24 +56,6 @@ const CORES: { value: ServerCore; label: string; desc: string }[] = [
   { value: "forge", label: "Forge", desc: "模组服务端" },
   { value: "fabric", label: "Fabric", desc: "轻量模组服务端" },
 ];
-
-const CORE_LABELS: Record<ServerCore, string> = {
-  vanilla: "Vanilla",
-  paper: "Paper",
-  spigot: "Spigot",
-  purpur: "Purpur",
-  forge: "Forge",
-  fabric: "Fabric",
-};
-
-const CORE_COLORS: Record<ServerCore, string> = {
-  vanilla: "#a0a4b8",
-  paper: "#5aa2f0",
-  spigot: "#4ecdc4",
-  purpur: "#c78aff",
-  forge: "#e89a4b",
-  fabric: "#b48ead",
-};
 
 // ---- 创建对话框（仅名称 / 核心 / 版本）----
 type ServerDialog = {
