@@ -600,8 +600,12 @@ fn rules() -> &'static [CompiledRule] {
                 .iter()
                 .map(|spec| CompiledRule {
                     spec,
-                    // 正则编译失败不应让整个诊断崩掉：退化成永不匹配的空规则
-                    re: Regex::new(spec.pattern).unwrap_or_else(|_| Regex::new(r"(?!x)x").unwrap()),
+                    // 正则编译失败不应让整个诊断崩掉：退化成永不匹配的空规则。
+                    // 注意：Rust 的 regex 不支持 lookaround，所以不能用 `(?!x)x` 这种
+                    // 常见写法（clippy 的 invalid_regex 属 correctness 组，编译期即报错）；
+                    // `[^\s\S]` 表示「既非空白也非非空白」，永远无法匹配任何字符。
+                    re: Regex::new(spec.pattern)
+                        .unwrap_or_else(|_| Regex::new(r"[^\s\S]").unwrap()),
                 })
                 .collect()
         })
