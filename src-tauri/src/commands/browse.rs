@@ -347,7 +347,7 @@ pub async fn apply_update(
                 _ => return Err("未知内容源".into()),
             };
             // remove the old file + record only after the new one succeeded
-            let _ = modrinth::uninstall(&state2, &instance, &kind2, &old_filename2);
+            let _ = crate::util::log_best_effort("uninstall_content", modrinth::uninstall(&state2, &instance, &kind2, &old_filename2));
             Ok(result)
         }
         .await;
@@ -438,7 +438,7 @@ pub fn list_content(
         new_records.push(rec);
     }
     if !new_records.is_empty() {
-        let _ = crate::instances::add_content_batch(&state, &instance_id, &kind, new_records.clone());
+        let _ = crate::util::log_best_effort("add_content_batch", crate::instances::add_content_batch(&state, &instance_id, &kind, new_records.clone()));
         records.extend(new_records);
     }
     let mut updated = false;
@@ -454,7 +454,7 @@ pub fn list_content(
     }
 
     if updated {
-        let _ = crate::instances::add_content_batch(&state, &instance_id, &kind, records.clone());
+        let _ = crate::util::log_best_effort("add_content_batch", crate::instances::add_content_batch(&state, &instance_id, &kind, records.clone()));
     }
     let items: Vec<Value> = records
         .iter()
@@ -527,7 +527,7 @@ pub async fn identify_content(
                     if let Some(d) = &desc { rec.description = Some(d.clone()); }
                     if let Some(ic) = &icon { rec.icon = Some(ic.clone()); }
                     if !authors.is_empty() { rec.authors = Some(authors); }
-                    let _ = crate::instances::add_content_batch(&state, &instance_id, &kind, vec![rec.clone()]);
+                    let _ = crate::util::log_best_effort("add_content_batch", crate::instances::add_content_batch(&state, &instance_id, &kind, vec![rec.clone()]));
                 }
                 let _ = app.emit("content::identified", json!({
                     "instanceId": instance_id, "kind": kind, "filename": filename,
@@ -566,7 +566,7 @@ pub async fn identify_content(
                     if let Some(d) = &desc { rec.description = Some(d.clone()); }
                     if let Some(ic) = &icon { rec.icon = Some(ic.clone()); }
                     if let Some(a) = &author { rec.authors = Some(a.clone()); }
-                    let _ = crate::instances::add_content_batch(&state, &instance_id, &kind, vec![rec.clone()]);
+                    let _ = crate::util::log_best_effort("add_content_batch", crate::instances::add_content_batch(&state, &instance_id, &kind, vec![rec.clone()]));
                 }
                 let _ = app.emit("content::identified", json!({
                     "instanceId": instance_id, "kind": kind, "filename": filename,

@@ -2,7 +2,7 @@
 import { ref } from "vue";
 import { IconBox, IconCheck, IconClock, IconCopy, IconDownload, IconHeart } from "./icons";
 import { translateCategory } from "../utils/categories";
-import { fmtRelative as fmtDate } from "../utils/format";
+import { fmtRelative as fmtDate, fmtCount as fmt } from "../utils/format";
 import type { ProjectHit } from "../types";
 
 const props = withDefaults(defineProps<{ project: ProjectHit; view?: "grid" | "list" | "compact" }>(), {
@@ -20,12 +20,6 @@ async function copyName() {
   } catch {
     /* 剪贴板不可用时忽略 */
   }
-}
-
-function fmt(n: number) {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
-  return String(n);
 }
 
 </script>

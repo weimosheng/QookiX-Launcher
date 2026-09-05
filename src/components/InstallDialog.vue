@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useRouter } from "vue-router";
 import { NModal, NSelect, NButton, useMessage } from "naive-ui";
 import { api } from "../api";
-import { fmtDateStr as fmtDate } from "../utils/format";
+import { fmtDateStr as fmtDate, instanceLabel } from "../utils/format";
 import { useInstancesStore } from "../stores/instances";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import { IconCopy, IconExternal, IconGlobe } from "./icons";
@@ -99,7 +99,7 @@ async function loadMcWikiUrl() {
 
 const instanceOptions = () =>
   instances.instances.filter((i) => i.loader !== "vanilla").map((i) => ({
-    label: `${i.name} (${i.mc_version} ${i.loader})`,
+    label: instanceLabel(i),
     value: i.id,
   }));
 

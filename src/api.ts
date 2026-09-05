@@ -26,38 +26,17 @@ import type {
   UpdateInfo,
 } from "./types";
 
-const SILENT_COMMANDS = new Set([
-  "install_game",
-  "install_content",
-  "download_java",
-  "mc_wiki_url",
-  "project_dependencies",
-  "launch_instance",
-  "apply_update",
-  "identify_content",
-  "read_instance_file",
-  "write_instance_file",
-  "list_instance_dir",
-  "install_hosted_server_core",
-  "start_hosted_server",
-  "read_hosted_server_file",
-  "write_hosted_server_file",
-  // 镜像测速：页面内已有独立加载态，不触发顶部加载条
-  "list_mirrors",
-  "test_mirror",
-  // 陶瓦联机：高频轮询与状态操作，页面内已有独立加载反馈，不触发顶部加载条
-  "terracotta_detect",
-  "terracotta_download",
-  "terracotta_launch",
-  "terracotta_stop",
-  "terracotta_status",
-  "terracotta_create_room",
-  "terracotta_join_room",
-  "terracotta_leave",
-]);
-
-function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const silent = SILENT_COMMANDS.has(cmd);
+/**
+ * 包装 tauri invoke：默认触发顶部加载条（trackStart/trackEnd）。
+ * 页面内已有独立加载反馈的高频/长任务命令，须在调用点显式传 { silent: true }——
+ * 显式声明替代旧的 SILENT_COMMANDS 全局黑名单，新命令默认有加载条，静默必须声明。
+ */
+function invoke<T>(
+  cmd: string,
+  args?: Record<string, unknown>,
+  opts?: { silent?: boolean }
+): Promise<T> {
+  const silent = opts?.silent ?? false;
   if (!silent) trackStart();
   return rawInvoke<T>(cmd, args).then(
     (res) => {
@@ -82,8 +61,9 @@ export const api = {
   // pinned items (首页 / 侧边栏)
   getPins: () => invoke<PinItem[]>("get_pins"),
   setPins: (items: PinItem[]) => invoke<void>("set_pins", { items }),
-  listMirrors: () => invoke<MirrorPreset[]>("list_mirrors"),
-  testMirror: (base: string) => invoke<MirrorTestResult>("test_mirror", { base }),
+  // 镜像测速：页面内已有独立加载态，不触发顶部加载条
+  listMirrors: () => invoke<MirrorPreset[]>("list_mirrors", undefined, { silent: true }),
+  testMirror: (base: string) => invoke<MirrorTestResult>("test_mirror", { base }, { silent: true }),
   testProxy: (proxyMode: string, proxy: string | null) =>
     invoke<MirrorTestResult>("test_proxy", { proxyMode, proxy }),
   changeDataDir: (newDir: string, mode: "move" | "copy" | "pointer") =>
@@ -97,7 +77,7 @@ export const api = {
     invoke<{ candidates: JavaInfo[]; selected: JavaInfo | null }>("detect_java", {
       refresh: refresh ?? false,
     }),
-  downloadJava: (major: number) => invoke<JavaInfo>("download_java", { major }),
+  downloadJava: (major: number) => invoke<JavaInfo>("download_java", { major }, { silent: true }),
   recommendJava: (instanceId: string) =>
     invoke<{ required: number; java: JavaInfo | null; needDownload: boolean }>("recommend_java", {
       instanceId,
@@ -129,14 +109,18 @@ export const api = {
   deleteGroup: (id: string) => invoke<void>("delete_instance_group", { id }),
   reorderGroups: (ids: string[]) => invoke<InstanceGroup[]>("reorder_instance_groups", { ids }),
   installGame: (instanceId: string) =>
-    invoke<{ instance_id: string; total_bytes: number; file_count: number }>("install_game", { instanceId }),
+    invoke<{ instance_id: string; total_bytes: number; file_count: number }>("install_game", { instanceId }, { silent: true }),
   cancelInstall: () => invoke<void>("cancel_install"),
   launchInstance: (instanceId: string, world?: string, server?: string) =>
-    invoke<{ pid: number; command: string[] }>("launch_instance", {
-      instanceId,
-      world: world ?? null,
-      server: server ?? null,
-    }),
+    invoke<{ pid: number; command: string[] }>(
+      "launch_instance",
+      {
+        instanceId,
+        world: world ?? null,
+        server: server ?? null,
+      },
+      { silent: true }
+    ),
   stopGame: () => invoke<void>("stop_game"),
   isGameRunning: () => invoke<boolean>("is_game_running"),
   openInstanceFolder: (instanceId: string, sub?: string) =>
@@ -231,12 +215,17 @@ export const api = {
       loader,
     }),
   projectDependencies: (provider: string, projectId: string, versionId: string) =>
-    invoke<ProjectDependency[]>("project_dependencies", {
-      provider,
-      projectId,
-      versionId,
-    }),
-  mcWikiUrl: (name: string, slug?: string, provider?: string) => invoke<string>("mc_wiki_url", { name, slug, provider }),
+    invoke<ProjectDependency[]>(
+      "project_dependencies",
+      {
+        provider,
+        projectId,
+        versionId,
+      },
+      { silent: true }
+    ),
+  mcWikiUrl: (name: string, slug?: string, provider?: string) =>
+    invoke<string>("mc_wiki_url", { name, slug, provider }, { silent: true }),
   curseforgeCategories: (projectType: string) =>
     invoke<{ categories: { id: number; name: string }[] }>("curseforge_categories", { projectType }),
   projectInfo: (provider: string, projectId: string) =>
@@ -248,13 +237,17 @@ export const api = {
     versionId: string,
     kind: string
   ) =>
-    invoke<{ ok: boolean; filename?: string; mods?: number }>("install_content", {
-      instanceId,
-      provider,
-      projectId,
-      versionId,
-      kind,
-    }),
+    invoke<{ ok: boolean; filename?: string; mods?: number }>(
+      "install_content",
+      {
+        instanceId,
+        provider,
+        projectId,
+        versionId,
+        kind,
+      },
+      { silent: true }
+    ),
   checkUpdates: (instanceId: string, kind: string) =>
     invoke<UpdateInfo[]>("check_updates", { instanceId, kind }),
   applyUpdate: (
@@ -264,20 +257,25 @@ export const api = {
     provider: string,
     projectId: string,
     newVersionId: string
-  ) => invoke<{ ok: boolean; filename?: string }>("apply_update", {
-    instanceId,
-    kind,
-    oldFilename,
-    provider,
-    projectId,
-    newVersionId,
-  }),
+  ) =>
+    invoke<{ ok: boolean; filename?: string }>(
+      "apply_update",
+      {
+        instanceId,
+        kind,
+        oldFilename,
+        provider,
+        projectId,
+        newVersionId,
+      },
+      { silent: true }
+    ),
   uninstallContent: (instanceId: string, kind: string, filename: string) =>
     invoke<void>("uninstall_content", { instanceId, kind, filename }),
   listContent: (instanceId: string, kind: string) =>
     invoke<{ items: ContentItem[]; onDisk: string[] }>("list_content", { instanceId, kind }),
   identifyContent: (instanceId: string, kind: string) =>
-    invoke<void>("identify_content", { instanceId, kind }),
+    invoke<void>("identify_content", { instanceId, kind }, { silent: true }),
   toggleContentEnabled: (instanceId: string, kind: string, filename: string, enabled: boolean) =>
     invoke<void>("toggle_content_enabled", { instanceId, kind, filename, enabled }),
   importLocalFile: (instanceId: string, kind: string, sourcePath: string) =>
@@ -286,18 +284,19 @@ export const api = {
 
   // instance file manager
   listInstanceDir: (instanceId: string, rel: string) =>
-    invoke<{ rel: string; entries: FsEntry[] }>("list_instance_dir", { instanceId, rel }),
+    invoke<{ rel: string; entries: FsEntry[] }>("list_instance_dir", { instanceId, rel }, { silent: true }),
   readInstanceFile: (instanceId: string, rel: string) =>
-    invoke<{ rel: string; content: string; size: number; modified: number }>("read_instance_file", {
-      instanceId,
-      rel,
-    }),
+    invoke<{ rel: string; content: string; size: number; modified: number }>(
+      "read_instance_file",
+      { instanceId, rel },
+      { silent: true }
+    ),
   writeInstanceFile: (instanceId: string, rel: string, content: string) =>
-    invoke<{ rel: string; size: number; modified: number }>("write_instance_file", {
-      instanceId,
-      rel,
-      content,
-    }),
+    invoke<{ rel: string; size: number; modified: number }>(
+      "write_instance_file",
+      { instanceId, rel, content },
+      { silent: true }
+    ),
   createInstanceEntry: (instanceId: string, rel: string, isDir: boolean) =>
     invoke<{ rel: string; is_dir: boolean }>("create_instance_entry", { instanceId, rel, isDir }),
   deleteInstancePath: (instanceId: string, rel: string) =>
@@ -358,8 +357,9 @@ export const api = {
     invoke<ServerConfig>("update_hosted_server", { patch }),
   deleteHostedServer: (id: string) => invoke<void>("delete_hosted_server", { id }),
   installHostedServerCore: (id: string) =>
-    invoke<void>("install_hosted_server_core", { id }),
-  startHostedServer: (id: string) => invoke<{ pid: number }>("start_hosted_server", { id }),
+    invoke<void>("install_hosted_server_core", { id }, { silent: true }),
+  startHostedServer: (id: string) =>
+    invoke<{ pid: number }>("start_hosted_server", { id }, { silent: true }),
   stopHostedServer: (id: string) => invoke<void>("stop_hosted_server", { id }),
   isHostedServerRunning: (id: string) => invoke<boolean>("is_hosted_server_running", { id }),
   readHostedServerLog: (id: string) => invoke<string[]>("read_hosted_server_log", { id }),
@@ -376,26 +376,34 @@ export const api = {
   revealHostedServerPath: (id: string, rel: string) =>
     invoke<void>("reveal_hosted_server_path", { id, rel }),
   readHostedServerFile: (id: string, rel: string) =>
-    invoke<{ rel: string; content: string; size: number; modified: number }>("read_hosted_server_file", { id, rel }),
+    invoke<{ rel: string; content: string; size: number; modified: number }>(
+      "read_hosted_server_file",
+      { id, rel },
+      { silent: true }
+    ),
   writeHostedServerFile: (id: string, rel: string, content: string) =>
-    invoke<{ rel: string; size: number; modified: number }>("write_hosted_server_file", { id, rel, content }),
+    invoke<{ rel: string; size: number; modified: number }>(
+      "write_hosted_server_file",
+      { id, rel, content },
+      { silent: true }
+    ),
   listHostedServerConfigFiles: (id: string) =>
     invoke<{ name: string; rel: string; size: number; modified: number }[]>(
       "list_hosted_server_config_files",
       { id },
     ),
 
-  // terracotta (陶瓦联机)
-  terracottaDetect: () => invoke<TerracottaInfo>("terracotta_detect"),
-  terracottaDownload: () => invoke<string>("terracotta_download"),
-  terracottaLaunch: () => invoke<TerracottaLaunch>("terracotta_launch"),
-  terracottaStop: () => invoke<void>("terracotta_stop"),
-  terracottaStatus: () => invoke<Record<string, unknown>>("terracotta_status"),
+  // terracotta (陶瓦联机)：高频轮询与状态操作，页面内已有独立加载反馈，不触发顶部加载条
+  terracottaDetect: () => invoke<TerracottaInfo>("terracotta_detect", undefined, { silent: true }),
+  terracottaDownload: () => invoke<string>("terracotta_download", undefined, { silent: true }),
+  terracottaLaunch: () => invoke<TerracottaLaunch>("terracotta_launch", undefined, { silent: true }),
+  terracottaStop: () => invoke<void>("terracotta_stop", undefined, { silent: true }),
+  terracottaStatus: () => invoke<Record<string, unknown>>("terracotta_status", undefined, { silent: true }),
   terracottaCreateRoom: (player?: string) =>
-    invoke<Record<string, unknown>>("terracotta_create_room", { player: player ?? null }),
+    invoke<Record<string, unknown>>("terracotta_create_room", { player: player ?? null }, { silent: true }),
   terracottaJoinRoom: (room: string, player?: string) =>
-    invoke<Record<string, unknown>>("terracotta_join_room", { room, player: player ?? null }),
-  terracottaLeave: () => invoke<Record<string, unknown>>("terracotta_leave"),
+    invoke<Record<string, unknown>>("terracotta_join_room", { room, player: player ?? null }, { silent: true }),
+  terracottaLeave: () => invoke<Record<string, unknown>>("terracotta_leave", undefined, { silent: true }),
 
   // storage
   getStorageStats: () => invoke<StorageStats>("get_storage_stats"),

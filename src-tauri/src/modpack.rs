@@ -274,7 +274,7 @@ pub async fn apply(
     }
 
     for rec in records {
-        let _ = crate::instances::add_content(state, &instance.id, "mod", rec);
+        let _ = crate::util::log_best_effort("add_content", crate::instances::add_content(state, &instance.id, "mod", rec));
     }
     crate::install::emit_progress(
         app,

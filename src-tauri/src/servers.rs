@@ -843,7 +843,7 @@ pub async fn start_server(
             jvm_content.push('\n');
             jvm_content.push_str(extra);
         }
-        let _ = std::fs::write(&user_jvm, &jvm_content);
+        let _ = crate::util::fs_best_effort("write", &user_jvm, std::fs::write(&user_jvm, &jvm_content));
         let mut c = Command::new(&java.path);
         c.arg(format!("@{}", user_jvm.to_string_lossy()))
             .arg(format!("@{}", args.display()))
@@ -911,7 +911,7 @@ pub async fn start_server(
     {
         if let Ok(mut s) = get_server(state, id) {
             s.last_started = Some(now());
-            let _ = save_server(state, &s);
+            let _ = crate::util::log_best_effort("save_server", save_server(state, &s));
         }
     }
 

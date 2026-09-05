@@ -560,7 +560,7 @@ async fn install_modpack_inner(
     if let Some(icon_path) = icon_path {
         let mut inst = instance.clone();
         inst.icon = Some(format!("img:{icon_path}"));
-        let _ = crate::instances::save_instance(state, &inst);
+        let _ = crate::util::log_best_effort("save_instance", crate::instances::save_instance(state, &inst));
     }
 
     let index_bytes = crate::util::read_zip_entry(&pack_path, "modrinth.index.json")
@@ -717,7 +717,7 @@ async fn install_modpack_inner(
     }
     // auto-install game files (client jar, libraries, assets...)
     let _ = crate::install::install_game(app.clone(), state, &instance).await;
-    let _ = crate::instances::mark_installed(state, &instance.id);
+    let _ = crate::util::log_best_effort("mark_installed", crate::instances::mark_installed(state, &instance.id));
 
     crate::install::emit_progress(
         &app,

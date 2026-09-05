@@ -54,6 +54,18 @@ pub fn fs_best_effort<T>(op: &str, path: &Path, result: std::io::Result<T>) -> O
     }
 }
 
+/// 非 io::Result 版本的 best-effort 兜底（错误类型为 String 的领域函数用）。
+/// 用于替代 `let _ = save_instance(...)` 这类静默吞掉的数据完整性操作。
+pub fn log_best_effort<T>(what: &str, result: Result<T, String>) -> Option<T> {
+    match result {
+        Ok(v) => Some(v),
+        Err(e) => {
+            eprintln!("[best-effort] {what} 失败: {e}");
+            None
+        }
+    }
+}
+
 /// True when `name` is a plain, single file name (no path separators, no `.` /
 /// `..`, no drive-letter prefix). Used before joining API/user-supplied names
 /// onto a filesystem path to block path traversal.

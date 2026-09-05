@@ -16,6 +16,7 @@ import {
 } from "../components/icons";
 import { cnCfName, CN_CATS } from "../utils/categories";
 import { cacheGet, cacheSet } from "../utils/cache";
+import { instanceLabel } from "../utils/format";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import type { Instance, ProjectDependency, ProjectHit } from "../types";
 
@@ -92,7 +93,7 @@ const selectedInstanceId = ref<string | null>(null);
 const instanceOptions = computed(() => [
   { label: "不关联实例", value: "" },
   ...instances.value.map((i) => ({
-    label: `${i.name} (${i.mc_version}${i.loader !== "vanilla" ? ` ${i.loader}` : ""})`,
+    label: instanceLabel(i),
     value: i.id,
   })),
 ]);
@@ -101,7 +102,7 @@ const showLoaderFilter = computed(() => type.value === "mod" || type.value === "
 const instanceSelectWidth = computed(() => {
   const inst = instances.value.find((i) => i.id === selectedInstanceId.value);
   if (!inst) return 140;
-  const label = `${inst.name} (${inst.mc_version}${inst.loader !== "vanilla" ? ` ${inst.loader}` : ""})`;
+  const label = instanceLabel(inst);
   return Math.max(140, Math.min(label.length * 8 + 40, 300));
 });
 // 实例下拉：按名字 / MC 版本 / 加载器 任一匹配即可搜到对应实例，

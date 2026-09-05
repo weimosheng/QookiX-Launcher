@@ -122,6 +122,25 @@ export function latencyInfo(
   return { count: 1, tier: "bad" };
 }
 
+// ---------------------------------------------------------------- 计数 ----
+
+/** 数量 → "247.8K" / "1.2M"（下载量/收藏数计数口径） */
+export function fmtCount(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
+  return String(n);
+}
+
+// ---------------------------------------------------------------- 实例 ----
+
+/**
+ * 实例下拉/列表的统一标签："实例名 (1.20.1 fabric)"。
+ * 原版实例不带加载器后缀。此前 BrowseView / InstallDialog 各写了一份且口径不一。
+ */
+export function instanceLabel(i: { name: string; mc_version: string; loader: string }): string {
+  return `${i.name} (${i.mc_version}${i.loader !== "vanilla" ? ` ${i.loader}` : ""})`;
+}
+
 // ---------------------------------------------------------------- 加载器 ----
 
 /** 加载器徽标文字：vanilla → 原版，其余首字母大写（Forge/Fabric/…） */

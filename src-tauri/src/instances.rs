@@ -115,7 +115,7 @@ pub fn delete_instance(state: &AppState, id: &str) -> Result<(), String> {
     // remove cached version json/jar
     let ver_dir = state.versions_dir().join(id);
     if ver_dir.exists() {
-        let _ = std::fs::remove_dir_all(&ver_dir);
+        let _ = crate::util::fs_best_effort("remove_dir_all", &ver_dir, std::fs::remove_dir_all(&ver_dir));
     }
     Ok(())
 }
@@ -204,7 +204,7 @@ pub fn update_instance(state: &AppState, patch: serde_json::Value) -> Result<Ins
 pub fn touch_last_played(state: &AppState, id: &str) {
     if let Ok(mut inst) = get_instance(state, id) {
         inst.last_played = Some(now());
-        let _ = save_instance(state, &inst);
+        let _ = crate::util::log_best_effort("save_instance", save_instance(state, &inst));
     }
 }
 
@@ -216,7 +216,7 @@ pub fn add_play_time(state: &AppState, id: &str, secs: u64) {
     }
     if let Ok(mut inst) = get_instance(state, id) {
         inst.total_play_time = inst.total_play_time.saturating_add(secs);
-        let _ = save_instance(state, &inst);
+        let _ = crate::util::log_best_effort("save_instance", save_instance(state, &inst));
     }
 }
 
@@ -320,7 +320,7 @@ pub fn delete_group(state: &AppState, id: &str) -> Result<(), String> {
         if inst.group.as_deref() == Some(id) {
             if let Ok(mut i) = get_instance(state, &inst.id) {
                 i.group = None;
-                let _ = save_instance(state, &i);
+                let _ = crate::util::log_best_effort("save_instance", save_instance(state, &i));
             }
         }
     }
@@ -1024,7 +1024,7 @@ async fn import_one(
 
     // make sure standard folders exist
     for sub in ["mods", "shaderpacks", "resourcepacks", "saves", "screenshots", "config"] {
-        let _ = std::fs::create_dir_all(dest.join(sub));
+        let _ = crate::util::fs_best_effort("create_dir_all", &dest.join(sub), std::fs::create_dir_all(dest.join(sub)));
     }
 
     // ---- reuse libraries & assets from source to avoid re-downloading ----
@@ -1041,7 +1041,7 @@ async fn import_one(
 /// Used to reuse libraries/assets from the source .minecraft so install_game doesn't re-download them.
 fn reuse_runtime_files(src: &std::path::Path, dst: &std::path::Path) {
     if !src.is_dir() { return; }
-    let _ = std::fs::create_dir_all(dst);
+    let _ = crate::util::fs_best_effort("create_dir_all", &dst, std::fs::create_dir_all(&dst));
     let entries = match std::fs::read_dir(src) { Ok(e) => e, Err(_) => return };
     for entry in entries.flatten() {
         let p = entry.path();
@@ -1055,8 +1055,8 @@ fn reuse_runtime_files(src: &std::path::Path, dst: &std::path::Path) {
                 Err(_) => true,
             };
             if need_copy {
-                let _ = std::fs::create_dir_all(target.parent().unwrap_or(dst));
-                let _ = std::fs::copy(&p, &target);
+                let _ = crate::util::fs_best_effort("create_dir_all", &target, std::fs::create_dir_all(target.parent().unwrap_or(dst)));
+                let _ = crate::util::fs_best_effort("copy", &target, std::fs::copy(&p, &target));
             }
         }
     }
