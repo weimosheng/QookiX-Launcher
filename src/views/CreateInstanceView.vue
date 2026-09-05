@@ -433,79 +433,98 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="field">
-        <label>实例名称</label>
-        <n-input v-model:value="name" placeholder="留空则自动用版本号命名" maxlength="40" />
-      </div>
+      <!-- 左列：实例配置 -->
+      <div class="fresh-left">
+        <div class="field">
+          <label>实例名称</label>
+          <n-input v-model:value="name" placeholder="留空则自动用版本号命名" maxlength="40" />
+        </div>
 
-      <div v-if="instances.groups.length" class="field">
-        <label>分组</label>
-        <n-select
-          v-model:value="newGroup"
-          :options="groupOptions"
-          placeholder="未分组"
-          clearable
-        />
-      </div>
+        <div v-if="instances.groups.length" class="field">
+          <label>分组</label>
+          <n-select
+            v-model:value="newGroup"
+            :options="groupOptions"
+            placeholder="未分组"
+            clearable
+          />
+        </div>
 
-      <div class="field">
-        <label>游戏版本</label>
-        <div class="ver-cats">
-          <button
-            v-for="c in [
-              { key: 'release', label: '正式版' },
-              { key: 'snapshot', label: '快照版' },
-              { key: 'april', label: '愚人节版' },
-            ]"
-            :key="c.key"
-            :class="{ active: versionCat === c.key }"
-            @click="versionCat = c.key"
-          >
-            {{ c.label }}
+        <div class="field">
+          <label>加载器</label>
+          <div class="loader-row">
+            <button
+              v-for="l in loaders"
+              :key="l.value"
+              class="loader-btn"
+              :class="{ active: loader === l.value }"
+              @click="loader = l.value"
+            >
+              {{ l.label }}
+            </button>
+          </div>
+          <n-select
+            v-if="loader !== 'vanilla'"
+            v-model:value="loaderVersion"
+            :options="loaderOptions"
+            :loading="loadingLoader"
+            :disabled="!mcVersion"
+            :placeholder="mcVersion ? '选择加载器版本（留空使用最新稳定版）' : '请先在右侧选择游戏版本'"
+            class="loader-select"
+          />
+        </div>
+
+        <!-- 配置摘要：宽屏贴左列底部，也是创建前的最后确认 -->
+        <div class="fresh-summary">
+          <div class="sum-icon">
+            <AppIcon :name="iconStr" />
+          </div>
+          <div class="sum-text">
+            <div class="sum-name">
+              {{ name.trim() || (mcVersion ? `${mcVersion} ${loaderLabel(loader)}` : "未命名实例") }}
+            </div>
+            <div class="sum-meta">
+              {{ mcVersion || "未选择游戏版本" }} · {{ loaderLabel(loader) }}<template v-if="loader !== 'vanilla'"> · {{ loaderVersion || "最新稳定版" }}</template>
+            </div>
+          </div>
+          <button class="btn primary" :disabled="creating || !mcVersion" @click="create">
+            <IconPlus /> {{ creating ? "创建中…" : "创建实例" }}
           </button>
         </div>
-        <div class="ver-list">
-          <button
-            v-for="v in filteredVersions"
-            :key="v.id"
-            class="ver-item"
-            :class="{ active: mcVersion === v.id }"
-            @click="mcVersion = v.id"
-          >
-            <span class="ver-id mono">{{ v.id }}</span>
-            <span class="ver-type">{{ v.type === 'release' || v.type.startsWith('old_') ? '正式' : '快照' }}</span>
-          </button>
-          <div v-if="!filteredVersions.length" class="ver-empty">该分类下暂无版本</div>
-        </div>
       </div>
 
-      <div class="field">
-        <label>加载器</label>
-        <div class="loader-row">
-          <button
-            v-for="l in loaders"
-            :key="l.value"
-            class="loader-btn"
-            :class="{ active: loader === l.value }"
-            @click="loader = l.value"
-          >
-            {{ l.label }}
-          </button>
+      <!-- 右列：游戏版本选择 -->
+      <div class="fresh-right">
+        <div class="field">
+          <label>游戏版本</label>
+          <div class="ver-cats">
+            <button
+              v-for="c in [
+                { key: 'release', label: '正式版' },
+                { key: 'snapshot', label: '快照版' },
+                { key: 'april', label: '愚人节版' },
+              ]"
+              :key="c.key"
+              :class="{ active: versionCat === c.key }"
+              @click="versionCat = c.key"
+            >
+              {{ c.label }}
+            </button>
+          </div>
+          <div class="ver-list">
+            <button
+              v-for="v in filteredVersions"
+              :key="v.id"
+              class="ver-item"
+              :class="{ active: mcVersion === v.id }"
+              @click="mcVersion = v.id"
+            >
+              <span class="ver-id mono">{{ v.id }}</span>
+              <span class="ver-type">{{ v.type === 'release' || v.type.startsWith('old_') ? '正式' : '快照' }}</span>
+            </button>
+            <div v-if="!filteredVersions.length" class="ver-empty">该分类下暂无版本</div>
+          </div>
         </div>
-        <n-select
-          v-if="loader !== 'vanilla'"
-          v-model:value="loaderVersion"
-          :options="loaderOptions"
-          :loading="loadingLoader"
-          placeholder="选择加载器版本（留空使用最新稳定版）"
-          class="loader-select"
-        />
-      </div>
-
-      <div class="create-actions">
-        <button class="btn primary" :disabled="creating" @click="create">
-          <IconPlus /> {{ creating ? "创建中…" : "创建实例" }}
-        </button>
       </div>
     </div>
 
@@ -684,16 +703,49 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 18px;
 }
-/* 宽屏：创建表单由单列改双列，避免在超宽屏上被拉成又宽又长的一条 */
-@media (min-width: 1200px) {
+/* 窄屏：单列流式。
+   列容器用 display:contents 让子项直接参与父级 flex 排序，
+   顺序为「名称 → 分组 → 加载器 → 版本 → 摘要」；版本列 order:1、摘要 order:2，
+   避免版本选择被挤到创建按钮之后。 */
+.fresh-left {
+  display: contents;
+}
+.fresh-right {
+  order: 1;
+}
+.fresh-summary {
+  order: 2;
+}
+
+/* 宽屏：左右两列。
+   关键：两列是「列容器」而非跨行网格区域——列容器内部自己控制间距，
+   不会像跨行 grid 那样把版本列表的多余高度摊进左列各字段之间。
+   左列与右列同高（align-items 默认 stretch），摘要卡用 margin-top:auto
+   贴左列底部，正好吃掉原先的空白。 */
+@media (min-width: 1100px) {
   .fresh {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    align-items: start;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    column-gap: 28px;
   }
-  .fresh > .fresh-head,
-  .fresh > .create-actions {
+  .fresh-head {
     grid-column: 1 / -1;
+  }
+  .fresh-left,
+  .fresh-right {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    order: 0;
+  }
+  .fresh-summary {
+    margin-top: auto;
+  }
+  /* 右列版本列表拉高，让两列高度相当、视觉重量平衡；
+     高度随视口自适应：默认 1200×780 窗口下整页正好无滚动条，
+     更矮的窗口继续收缩（下限 260px），大屏上限 560px */
+  .fresh-right .ver-list {
+    max-height: clamp(260px, calc(100vh - 400px), 560px);
   }
 }
 .fresh-head {
@@ -877,9 +929,48 @@ onUnmounted(() => {
 .loader-select {
   max-width: 320px;
 }
-.create-actions {
+/* 配置摘要卡：创建前的最后确认，宽屏下贴左列底部 */
+.fresh-summary {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.sum-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+  background: rgba(255, 255, 255, 0.05);
+}
+.sum-icon :deep(.app-icon) {
+  position: absolute;
+  inset: 0;
+}
+.sum-text {
+  flex: 1;
+  min-width: 0;
+}
+.sum-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sum-meta {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+.fresh-summary .btn {
+  flex-shrink: 0;
 }
 .btn {
   display: inline-flex;

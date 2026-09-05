@@ -78,8 +78,10 @@ function fmt(n: number) {
         <div v-else class="p-icon ph"><IconBox /></div>
       </div>
       <div class="p-body">
-        <div class="p-title text-ellipsis" :title="project.title">{{ project.title }}</div>
-        <div class="p-author">{{ project.author }}</div>
+        <div class="p-meta">
+          <div class="p-title text-ellipsis" :title="project.title">{{ project.title }}</div>
+          <div class="p-author">{{ project.author }}</div>
+        </div>
         <div v-if="view === 'list'" class="p-desc">{{ project.description }}</div>
         <div class="p-cats">
           <span v-for="c in project.categories.slice(0, 3)" :key="c" class="cat">{{ translateCategory(c) }}</span>
@@ -154,8 +156,8 @@ function fmt(n: number) {
   gap: 14px;
 }
 .p-card.view-compact {
-  padding: 10px 14px;
-  gap: 12px;
+  padding: 5px 12px;
+  gap: 10px;
 }
 .p-card.view-list .p-icon,
 .p-card.view-compact .p-icon {
@@ -163,21 +165,40 @@ function fmt(n: number) {
   height: 46px;
 }
 .p-card.view-compact .p-icon {
-  width: 38px;
-  height: 38px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
 }
-.p-card.view-compact .p-desc {
-  display: none;
+.p-card.view-compact .p-icon.ph {
+  font-size: 15px;
 }
 .p-card.view-compact .p-cats {
   display: none;
 }
+.p-card.view-compact .p-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
 .p-card.view-compact .p-title {
-  font-size: 13px;
-  margin-bottom: 2px;
+  font-size: 12px;
+  margin-bottom: 0;
 }
 .p-card.view-compact .p-author {
-  margin-bottom: 4px;
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+.p-card.view-compact .install-btn {
+  padding: 4px 9px;
+  font-size: 11px;
+  border-radius: 6px;
+}
+.p-card.view-compact .copy-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  font-size: 12px;
 }
 .p-side {
   display: flex;
@@ -189,7 +210,11 @@ function fmt(n: number) {
 .p-card.view-compact .p-side {
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+}
+.p-card.view-compact .p-stats {
+  gap: 6px;
+  font-size: 10px;
 }
 .p-main {
   display: flex;
