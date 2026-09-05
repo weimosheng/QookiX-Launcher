@@ -1084,7 +1084,7 @@ onUnmounted(() => {
           <AboutShowcase />
           <div class="about-hero-title">
             <span class="about-name about-hero-name">QookiX Launcher</span>
-            <span class="about-ver">v0.5.12</span>
+            <span class="about-ver">v0.5.13</span>
           </div>
           <p class="about-hero-slogan">现代化、简洁、无广告的 Minecraft 启动器</p>
         </div>
