@@ -1,12 +1,13 @@
 use sha1::{Digest, Sha1};
-use sha2::Sha512;
+use sha2::{Sha256, Sha512};
+use std::fmt::Write as _;
 use std::io::Read;
 use std::path::Path;
 
-/// sha1 of a file (hex lowercase)
-pub fn file_sha1(path: &Path) -> Option<String> {
+/// 用任意 `Digest` 哈希器计算文件摘要（64 KiB 分块流式读取，hex 小写）。
+fn file_hash<D: Digest>(path: &Path) -> Option<String> {
     let mut f = std::fs::File::open(path).ok()?;
-    let mut hasher = Sha1::new();
+    let mut hasher = D::new();
     let mut buf = [0u8; 65536];
     loop {
         let n = f.read(&mut buf).ok()?;
@@ -15,37 +16,42 @@ pub fn file_sha1(path: &Path) -> Option<String> {
         }
         hasher.update(&buf[..n]);
     }
-    Some(format!("{:x}", hasher.finalize()))
+    // 注意：不能直接 format!("{:x}", hasher.finalize())——泛型 D 下
+    // GenericArray 的 LowerHex 约束无法成立。write! 逐字节写入预分配的
+    // String，全程零额外分配。
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for b in digest {
+        let _ = write!(hex, "{b:02x}");
+    }
+    Some(hex)
+}
+
+/// sha1 of a file (hex lowercase)
+pub fn file_sha1(path: &Path) -> Option<String> {
+    file_hash::<Sha1>(path)
 }
 
 /// sha512 of a file (hex lowercase)
 pub fn file_sha512(path: &Path) -> Option<String> {
-    let mut f = std::fs::File::open(path).ok()?;
-    let mut hasher = Sha512::new();
-    let mut buf = [0u8; 65536];
-    loop {
-        let n = f.read(&mut buf).ok()?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Some(format!("{:x}", hasher.finalize()))
+    file_hash::<Sha512>(path)
 }
 
 /// sha256 of a file (hex lowercase)
 pub fn file_sha256(path: &Path) -> Option<String> {
-    let mut f = std::fs::File::open(path).ok()?;
-    let mut hasher = sha2::Sha256::new();
-    let mut buf = [0u8; 65536];
-    loop {
-        let n = f.read(&mut buf).ok()?;
-        if n == 0 {
-            break;
+    file_hash::<Sha256>(path)
+}
+
+/// Best-effort 文件系统操作兜底：失败仅记录日志（操作 + 路径 + 原因），不中断流程。
+/// 用于替代完全吞掉错误的 `let _ = std::fs::xxx(...)`，让故障可排查。
+pub fn fs_best_effort<T>(op: &str, path: &Path, result: std::io::Result<T>) -> Option<T> {
+    match result {
+        Ok(v) => Some(v),
+        Err(e) => {
+            eprintln!("[fs] {op} {} 失败: {e}", path.display());
+            None
         }
-        hasher.update(&buf[..n]);
     }
-    Some(format!("{:x}", hasher.finalize()))
 }
 
 /// True when `name` is a plain, single file name (no path separators, no `.` /
@@ -182,6 +188,18 @@ pub fn jar_class_version(path: &Path) -> Option<u32> {
     None
 }
 
+/// Extract a zip archive into `dest`, skipping entries whose path starts with
+/// any of `skip_prefixes`. Returns the number of files written.
+pub fn extract_zip(path: &Path, dest: &Path, skip_prefixes: &[&str]) -> Result<usize, String> {
+    extract_zip_inner(path, dest, skip_prefixes, None, None)
+}
+
+/// Like `extract_zip`, but also strips `strip` from each entry's path
+/// (used to unpack an `overrides/` folder to the archive root).
+pub fn extract_zip_strip(path: &Path, dest: &Path, strip: &str, skip_prefixes: &[&str]) -> Result<usize, String> {
+    extract_zip_inner(path, dest, skip_prefixes, Some(strip), None)
+}
+
 /// Like `extract_zip`, but reports `(done, total)` through `on_file`
 /// as files are written (used for install-phase progress).
 pub fn extract_zip_progress(
@@ -190,50 +208,7 @@ pub fn extract_zip_progress(
     skip_prefixes: &[&str],
     on_file: &mut dyn FnMut(usize, usize),
 ) -> Result<usize, String> {
-    let file = std::fs::File::open(path).map_err(|e| format!("打开 {} 失败: {e}", path.display()))?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("解析 zip 失败: {e}"))?;
-    std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
-    let mut count = 0usize;
-    let total = archive.len();
-    for i in 0..archive.len() {
-        let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
-        let name = entry.name().to_string();
-        if entry.is_dir() {
-            continue;
-        }
-        if skip_prefixes.iter().any(|p| name.starts_with(p)) {
-            continue;
-        }
-        let rel = name.replace('\\', "/");
-        let clean: Vec<&str> = rel.split('/').filter(|s| !s.is_empty() && *s != "..").collect();
-        if clean.is_empty() {
-            continue;
-        }
-        let out = dest.join(clean.join(std::path::MAIN_SEPARATOR_STR));
-        if let Some(p) = out.parent() {
-            std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
-        }
-        let mut f = std::fs::File::create(&out).map_err(|e| format!("创建 {} 失败: {e}", out.display()))?;
-        std::io::copy(&mut entry, &mut f).map_err(|e| e.to_string())?;
-        count += 1;
-        if count % 25 == 0 || count == total {
-            on_file(count, total);
-        }
-    }
-    on_file(count, total);
-    Ok(count)
-}
-
-/// Extract a zip archive into `dest`, skipping entries whose path starts with
-/// any of `skip_prefixes`. Returns the number of files written.
-pub fn extract_zip(path: &Path, dest: &Path, skip_prefixes: &[&str]) -> Result<usize, String> {
-    extract_zip_inner(path, dest, skip_prefixes, None)
-}
-
-/// Like `extract_zip`, but also strips `strip` from each entry's path
-/// (used to unpack an `overrides/` folder to the archive root).
-pub fn extract_zip_strip(path: &Path, dest: &Path, strip: &str, skip_prefixes: &[&str]) -> Result<usize, String> {
-    extract_zip_inner(path, dest, skip_prefixes, Some(strip))
+    extract_zip_inner(path, dest, skip_prefixes, None, Some(on_file))
 }
 
 fn extract_zip_inner(
@@ -241,10 +216,12 @@ fn extract_zip_inner(
     dest: &Path,
     skip_prefixes: &[&str],
     strip: Option<&str>,
+    mut on_file: Option<&mut dyn FnMut(usize, usize)>,
 ) -> Result<usize, String> {
     let file = std::fs::File::open(path).map_err(|e| format!("打开 {} 失败: {e}", path.display()))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("解析 zip 失败: {e}"))?;
     std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+    let total = archive.len();
     let mut count = 0usize;
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
@@ -273,6 +250,14 @@ fn extract_zip_inner(
         let mut f = std::fs::File::create(&out).map_err(|e| format!("创建 {} 失败: {e}", out.display()))?;
         std::io::copy(&mut entry, &mut f).map_err(|e| e.to_string())?;
         count += 1;
+        if let Some(cb) = on_file.as_mut() {
+            if count % 25 == 0 || count == total {
+                cb(count, total);
+            }
+        }
+    }
+    if let Some(cb) = on_file.as_mut() {
+        cb(count, total);
     }
     Ok(count)
 }
@@ -349,14 +334,6 @@ pub fn extract_archive_icon(path: &std::path::Path, kind: &str) -> Option<String
         "shader" => &["icon.png", "pack.png"],
         _ => &["icon.png", "pack.png"],
     };
-    let save_icon = |buf: Vec<u8>| -> Option<String> {
-        if buf.len() < 8 {
-            return None;
-        }
-        let f = std::env::temp_dir().join(format!("qookix-icon-{}.png", uuid::Uuid::new_v4().simple()));
-        std::fs::write(&f, &buf).ok()?;
-        Some(f.to_string_lossy().to_string())
-    };
     for name in image_candidates {
         if let Ok(mut entry) = archive.by_name(name) {
             if entry.is_dir() {
@@ -364,7 +341,7 @@ pub fn extract_archive_icon(path: &std::path::Path, kind: &str) -> Option<String
             }
             let mut buf = Vec::new();
             Read::read_to_end(&mut entry, &mut buf).ok()?;
-            if let Some(p) = save_icon(buf) {
+            if let Some(p) = save_icon_buf(buf) {
                 return Some(p);
             }
         }
@@ -392,7 +369,7 @@ pub fn extract_archive_icon(path: &std::path::Path, kind: &str) -> Option<String
         if let Ok(mut icon_entry) = archive.by_name(&icon) {
             let mut ibuf = Vec::new();
             Read::read_to_end(&mut icon_entry, &mut ibuf).ok()?;
-            if let Some(p) = save_icon(ibuf) {
+            if let Some(p) = save_icon_buf(ibuf) {
                 return Some(p);
             }
         }

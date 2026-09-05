@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import { NButton, NSpin, useMessage } from "naive-ui";
 import { api } from "../api";
 import { fmtDateLocale as fmtTime, fmtSize } from "../utils/format";
+import { error as devError } from "../utils/logger";
 import type { CrashDiagnosis } from "../types";
 import {
   IconAlertCircle,
@@ -76,7 +77,7 @@ async function loadLogs() {
       diagnosis.value = readDiagCache(props.instanceId, selected.value);
     }
   } catch (e) {
-    console.error("[CrashAnalyzer] loadLogs failed:", e);
+    devError("[CrashAnalyzer] loadLogs failed:", e);
     message.error("加载崩溃报告失败：" + errText(e));
   } finally {
     loading.value = false;
@@ -109,7 +110,7 @@ async function analyze(force = false) {
     diagnosis.value = d;
     writeDiagCache(props.instanceId, selected.value, d);
   } catch (e) {
-    console.error("[CrashAnalyzer] analyze failed:", e);
+    devError("[CrashAnalyzer] analyze failed:", e);
     message.error("分析失败：" + errText(e));
   } finally {
     analyzing.value = false;
@@ -124,7 +125,7 @@ async function loadRaw() {
   try {
     rawContent.value = await api.getCrashReportContent(props.instanceId, selected.value);
   } catch (e) {
-    console.error("[CrashAnalyzer] loadRaw failed:", e);
+    devError("[CrashAnalyzer] loadRaw failed:", e);
     message.error("读取报告失败：" + errText(e));
   }
 }

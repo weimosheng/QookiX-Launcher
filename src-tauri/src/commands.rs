@@ -220,13 +220,11 @@ pub async fn get_loader_versions(
     loader: String,
     mc_version: String,
 ) -> Result<Vec<String>, String> {
-    let l = match loader.as_str() {
-        "fabric" => LoaderType::Fabric,
-        "quilt" => LoaderType::Quilt,
-        "forge" => LoaderType::Forge,
-        "neoforge" => LoaderType::NeoForge,
-        _ => return Err("未知加载器".into()),
-    };
+    let l: LoaderType = loader.parse()?;
+    // vanilla 没有独立版本列表，保持与旧实现一致返回错误
+    if matches!(l, LoaderType::Vanilla) {
+        return Err("未知加载器".into());
+    }
     install::loader_versions(&state, l, &mc_version).await
 }
 
@@ -253,14 +251,7 @@ pub fn create_instance(
     loader: String,
     loader_version: Option<String>,
 ) -> Result<Instance, String> {
-    let l = match loader.as_str() {
-        "vanilla" => LoaderType::Vanilla,
-        "fabric" => LoaderType::Fabric,
-        "quilt" => LoaderType::Quilt,
-        "forge" => LoaderType::Forge,
-        "neoforge" => LoaderType::NeoForge,
-        _ => return Err("未知加载器".into()),
-    };
+    let l: LoaderType = loader.parse()?;
     let mc = mc_version.clone();
     let instance = crate::instances::create_instance(&state, name, mc_version, l, loader_version)?;
 
@@ -831,26 +822,37 @@ pub async fn import_modpack(
     Ok(instance)
 }
 
+/// 把用户选择的图片复制到 `state.root/<dir>/` 下（uuid 命名），返回绝对路径。
+/// `image_exts` 为允许的扩展名，`err_prefix` 用于拼接复制失败的错误信息。
+fn import_image_into(
+    state: &AppState,
+    source_path: &str,
+    dir_name: &str,
+    image_exts: &[&str],
+    err_prefix: &str,
+) -> Result<String, String> {
+    let source = std::path::Path::new(source_path);
+    let ext = source
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_else(|| "png".into());
+    if !image_exts.contains(&ext.as_str()) {
+        return Err("不支持的图片格式".into());
+    }
+    let dir = state.root.join(dir_name);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dest = dir.join(format!("{}.{}", uuid::Uuid::new_v4().simple(), ext));
+    std::fs::copy(source, &dest).map_err(|e| format!("{err_prefix}失败: {e}"))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
 /// Copy an image file into the launcher icons dir; returns the absolute path.
 #[tauri::command]
 pub fn import_instance_image(
     state: State<AppState>,
     source_path: String,
 ) -> Result<String, String> {
-    const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico"];
-    let source = std::path::Path::new(&source_path);
-    let ext = source
-        .extension()
-        .map(|e| e.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_else(|| "png".into());
-    if !IMAGE_EXTS.contains(&ext.as_str()) {
-        return Err("不支持的图片格式".into());
-    }
-    let dir = state.root.join("icons");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let dest = dir.join(format!("{}.{}", uuid::Uuid::new_v4().simple(), ext));
-    std::fs::copy(source, &dest).map_err(|e| format!("复制图片失败: {e}"))?;
-    Ok(dest.to_string_lossy().to_string())
+    import_image_into(&state, &source_path, "icons", &["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico"], "复制图片")
 }
 
 /// Copy a user-selected image into the launcher backgrounds dir; returns the absolute path.
@@ -859,20 +861,7 @@ pub fn import_background_image(
     state: State<AppState>,
     source_path: String,
 ) -> Result<String, String> {
-    const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp"];
-    let source = std::path::Path::new(&source_path);
-    let ext = source
-        .extension()
-        .map(|e| e.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_else(|| "png".into());
-    if !IMAGE_EXTS.contains(&ext.as_str()) {
-        return Err("不支持的图片格式".into());
-    }
-    let dir = state.root.join("backgrounds");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let dest = dir.join(format!("{}.{}", uuid::Uuid::new_v4().simple(), ext));
-    std::fs::copy(source, &dest).map_err(|e| format!("复制背景图片失败: {e}"))?;
-    Ok(dest.to_string_lossy().to_string())
+    import_image_into(&state, &source_path, "backgrounds", &["png", "jpg", "jpeg", "gif", "webp", "bmp"], "复制背景图片")
 }
 
 /// Scan a `.minecraft` folder. Returns immediately; the actual work is streamed
@@ -1059,6 +1048,94 @@ fn apply_chinese_names(hits: &mut [Value]) {
     }
 }
 
+/// "全部来源"搜索：Modrinth 与 CurseForge 各自独立分页、各取当前页，
+/// 合并后按所选排序维度统一排序并截取一页。CurseForge 失败不影响整体
+/// 结果（仅第一页时上报 `cf_error` 供前端提示）。分类只作用于 Modrinth。
+async fn browse_all_sources(
+    state: &AppState,
+    query: &str,
+    project_type: &str,
+    category: &str,
+    page: u32,
+    game_version: &str,
+    loader: &str,
+    sort: &str,
+    ps: usize,
+) -> Result<Value, String> {
+    let offset = (page as usize) * ps;
+    let m = modrinth::search(
+        state,
+        query,
+        project_type,
+        category,
+        sort,
+        offset,
+        ps,
+        game_version,
+        loader,
+    )
+    .await?;
+    let mut hits = m
+        .get("hits")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let mr_total = m.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+    let mut cf_total = 0u64;
+    let mut cf_error: Option<String> = None;
+    let mut cf_count = 0u64;
+    match curseforge::search(
+        state,
+        query,
+        project_type,
+        0,
+        page as usize,
+        ps,
+        game_version,
+        loader,
+        sort,
+    )
+    .await
+    {
+        Ok(c) => {
+            cf_total = c.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+            if let Some(ch) = c.get("hits").and_then(|v| v.as_array()) {
+                cf_count = ch.len() as u64;
+                hits.extend(ch.iter().cloned());
+            }
+        }
+        Err(e) => {
+            if page == 0 {
+                cf_error = Some(e);
+            }
+        }
+    }
+    let total = mr_total.max(cf_total);
+    // 合并后按所选排序维度统一排序（relevance 无可比性，保持平台各自顺序）
+    match sort {
+        "follows" => hits.sort_by(|a, b| {
+            let fa = a.get("follows").and_then(|v| v.as_u64()).unwrap_or(0);
+            let fb = b.get("follows").and_then(|v| v.as_u64()).unwrap_or(0);
+            fb.cmp(&fa)
+        }),
+        "newest" | "updated" => hits.sort_by(|a, b| {
+            let ta = a.get("_sort_ts").and_then(|v| v.as_str()).unwrap_or("");
+            let tb = b.get("_sort_ts").and_then(|v| v.as_str()).unwrap_or("");
+            tb.cmp(ta)
+        }),
+        _ => hits.sort_by(|a, b| {
+            let da = a.get("downloads").and_then(|v| v.as_u64()).unwrap_or(0);
+            let db = b.get("downloads").and_then(|v| v.as_u64()).unwrap_or(0);
+            db.cmp(&da)
+        }),
+    }
+    if hits.len() > ps {
+        hits.truncate(ps);
+    }
+    apply_chinese_names(&mut hits);
+    Ok(json!({ "hits": hits, "total": total, "cf_error": cf_error, "cf_count": cf_count }))
+}
+
 #[tauri::command]
 pub async fn browse(
     state: State<'_, AppState>,
@@ -1100,81 +1177,9 @@ pub async fn browse(
             }
             Ok(result)
         }
-        // "全部来源"：各平台独立分页，各取当前页 ps 条，合并排序后取前 ps 条。
-        // total 为两平台真实总数之和。分类只作用于 Modrinth。
+        // "全部来源"：合并多源结果（见 browse_all_sources）
         "all" => {
-            let offset = (page as usize) * ps;
-            let m = modrinth::search(
-                &state,
-                &query,
-                &project_type,
-                &category,
-                &sort,
-                offset,
-                ps,
-                &game_version,
-                &loader,
-            )
-            .await?;
-            let mut hits = m
-                .get("hits")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default();
-            let mr_total = m.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
-            let mut cf_total = 0u64;
-            let mut cf_error: Option<String> = None;
-            let mut cf_count = 0u64;
-            match curseforge::search(
-                &state,
-                &query,
-                &project_type,
-                0,
-                page as usize,
-                ps,
-                &game_version,
-                &loader,
-                &sort,
-            )
-            .await
-            {
-                Ok(c) => {
-                    cf_total = c.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
-                    if let Some(ch) = c.get("hits").and_then(|v| v.as_array()) {
-                        cf_count = ch.len() as u64;
-                        hits.extend(ch.iter().cloned());
-                    }
-                }
-                Err(e) => {
-                    if page == 0 {
-                        cf_error = Some(e);
-                    }
-                }
-            }
-            let total = mr_total.max(cf_total);
-            // 合并后按所选排序维度统一排序（relevance 无可比性，保持平台各自顺序）
-            match sort.as_str() {
-                "follows" => hits.sort_by(|a, b| {
-                    let fa = a.get("follows").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let fb = b.get("follows").and_then(|v| v.as_u64()).unwrap_or(0);
-                    fb.cmp(&fa)
-                }),
-                "newest" | "updated" => hits.sort_by(|a, b| {
-                    let ta = a.get("_sort_ts").and_then(|v| v.as_str()).unwrap_or("");
-                    let tb = b.get("_sort_ts").and_then(|v| v.as_str()).unwrap_or("");
-                    tb.cmp(ta)
-                }),
-                _ => hits.sort_by(|a, b| {
-                    let da = a.get("downloads").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let db = b.get("downloads").and_then(|v| v.as_u64()).unwrap_or(0);
-                    db.cmp(&da)
-                }),
-            }
-            if hits.len() > ps {
-                hits.truncate(ps);
-            }
-            apply_chinese_names(&mut hits);
-            Ok(json!({ "hits": hits, "total": total, "cf_error": cf_error, "cf_count": cf_count }))
+            browse_all_sources(&state, &query, &project_type, &category, page, &game_version, &loader, &sort, ps).await
         }
         _ => Err("未知内容源".into()),
     }

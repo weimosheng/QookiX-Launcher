@@ -26,6 +26,7 @@ import {
   updateInstalling,
   applyUpdateNow,
 } from "../updater";
+import { error as devError } from "../utils/logger";
 
 const route = useRoute();
 const router = useRouter();
@@ -68,7 +69,7 @@ const maximized = ref(false);
  */
 function doApplyUpdate() {
   void applyUpdateNow().catch((err) => {
-    console.error("[updater] apply failed:", err);
+    devError("[updater] apply failed:", err);
   });
 }
 

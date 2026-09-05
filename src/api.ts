@@ -4,6 +4,7 @@ import type { PinItem } from "./stores/pins";
 import type {
   Account,
   CacheClearResult,
+  ContentItem,
   CrashDiagnosis,
   FsEntry,
   Instance,
@@ -12,6 +13,7 @@ import type {
   MirrorPreset,
   MirrorTestResult,
   NewsItem,
+  ProjectDependency,
   ProjectHit,
   ProjectVersion,
   ServerConfig,
@@ -21,6 +23,7 @@ import type {
   StorageStats,
   TerracottaInfo,
   TerracottaLaunch,
+  UpdateInfo,
 } from "./types";
 
 const SILENT_COMMANDS = new Set([
@@ -228,7 +231,7 @@ export const api = {
       loader,
     }),
   projectDependencies: (provider: string, projectId: string, versionId: string) =>
-    invoke<import("./types").ProjectDependency[]>("project_dependencies", {
+    invoke<ProjectDependency[]>("project_dependencies", {
       provider,
       projectId,
       versionId,
@@ -253,7 +256,7 @@ export const api = {
       kind,
     }),
   checkUpdates: (instanceId: string, kind: string) =>
-    invoke<import("./types").UpdateInfo[]>("check_updates", { instanceId, kind }),
+    invoke<UpdateInfo[]>("check_updates", { instanceId, kind }),
   applyUpdate: (
     instanceId: string,
     kind: string,
@@ -272,7 +275,7 @@ export const api = {
   uninstallContent: (instanceId: string, kind: string, filename: string) =>
     invoke<void>("uninstall_content", { instanceId, kind, filename }),
   listContent: (instanceId: string, kind: string) =>
-    invoke<{ items: import("./types").ContentItem[]; onDisk: string[] }>("list_content", { instanceId, kind }),
+    invoke<{ items: ContentItem[]; onDisk: string[] }>("list_content", { instanceId, kind }),
   identifyContent: (instanceId: string, kind: string) =>
     invoke<void>("identify_content", { instanceId, kind }),
   toggleContentEnabled: (instanceId: string, kind: string, filename: string, enabled: boolean) =>

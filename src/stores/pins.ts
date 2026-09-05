@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { api } from "../api";
+import { error as devError } from "../utils/logger";
 
 export type PinType = "server" | "world" | "instance";
 
@@ -95,7 +96,7 @@ export const usePinsStore = defineStore("pins", {
       try {
         await api.setPins(this.items);
       } catch (e) {
-        console.error("保存固定项失败", e);
+        devError("保存固定项失败", e);
       }
     },
     /** target 参与 id 组成，首页与侧边栏的固定项互不覆盖 */

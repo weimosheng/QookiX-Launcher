@@ -337,7 +337,6 @@ mod smoke {
         let text = crate::download::get_text(&client, url).await.unwrap_or_else(|e| {
             panic!("fetch failed: {e}");
         });
-        eprintln!("first 200 chars: {:?}", &text[..text.len().min(200)]);
         let manifest: VersionManifest = serde_json::from_str(&text).unwrap_or_else(|e| {
             panic!("manifest json parse failed: {e} at pos {}", e.line());
         });

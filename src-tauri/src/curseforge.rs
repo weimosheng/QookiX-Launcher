@@ -593,7 +593,7 @@ async fn install_modpack_inner(
     let dl_dir = state.root.join("runtimes");
     std::fs::create_dir_all(&dl_dir).map_err(|e| e.to_string())?;
     let pack_path = dl_dir.join(&filename);
-    let _ = std::fs::remove_file(&pack_path);
+    crate::util::fs_best_effort("remove_file", &pack_path, std::fs::remove_file(&pack_path));
     let items = vec![crate::download::DownloadItem {
         url,
         dest: pack_path.clone(),
@@ -770,7 +770,8 @@ async fn install_modpack_inner(
         "overrides/",
         &["manifest.json", "META-INF/"],
     )?;
-    let _ = std::fs::remove_dir_all(instance_dir.join("overrides"));
+    let overrides_dir = instance_dir.join("overrides");
+    crate::util::fs_best_effort("remove_dir_all", &overrides_dir, std::fs::remove_dir_all(&overrides_dir));
     crate::install::emit_progress(
         &app,
         task_id,

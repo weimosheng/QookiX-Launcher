@@ -283,7 +283,8 @@ fn load_cache(root: &Path) -> Option<StorageStats> {
 
 fn save_cache(root: &Path, stats: &StorageStats) {
     if let Ok(json) = serde_json::to_string(stats) {
-        let _ = std::fs::write(cache_path(root), json);
+        let p = cache_path(root);
+        crate::util::fs_best_effort("write", &p, std::fs::write(&p, json));
     }
 }
 
@@ -322,14 +323,14 @@ pub fn clear_cache(state: &AppState) -> Result<CacheClearResult, String> {
     let java_cache = state.root.join("java-cache.json");
     if java_cache.exists() {
         freed += java_cache.metadata().map(|m| m.len()).unwrap_or(0);
-        let _ = std::fs::remove_file(&java_cache);
+        crate::util::fs_best_effort("remove_file", &java_cache, std::fs::remove_file(&java_cache));
     }
 
     // 3. 本统计缓存（删除后下次访问会重新扫描）
     let stat_cache = cache_path(&state.root);
     if stat_cache.exists() {
         freed += stat_cache.metadata().map(|m| m.len()).unwrap_or(0);
-        let _ = std::fs::remove_file(&stat_cache);
+        crate::util::fs_best_effort("remove_file", &stat_cache, std::fs::remove_file(&stat_cache));
     }
 
     Ok(CacheClearResult { freed })

@@ -147,7 +147,7 @@ pub async fn install_game(
         for entry in std::fs::read_dir(&natives_dir).map_err(|e| e.to_string())? {
             let p = entry.map_err(|e| e.to_string())?.path();
             if p.is_file() {
-                let _ = std::fs::remove_file(&p);
+                crate::util::fs_best_effort("remove_file", &p, std::fs::remove_file(&p));
             }
         }
         for (i, (jar, exclude)) in native_jars.iter().enumerate() {
@@ -228,7 +228,8 @@ pub async fn install_game(
         .unwrap_or(0);
     // create standard game folders so the instance detail tabs show up
     for sub in ["mods", "shaderpacks", "resourcepacks", "saves", "screenshots", "config"] {
-        let _ = std::fs::create_dir_all(state.instances_dir().join(&instance.id).join(sub));
+        let dir = state.instances_dir().join(&instance.id).join(sub);
+        crate::util::fs_best_effort("create_dir_all", &dir, std::fs::create_dir_all(&dir));
     }
     let plan = InstallPlan {
         instance_id: instance.id.clone(),

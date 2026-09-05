@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { NButton, useDialog, useMessage } from "naive-ui";
 import { peekUpdate, downloadUpdate, updateReady } from "../updater";
 import { useSettingsStore } from "../stores/settings";
+import { error as devError } from "../utils/logger";
 
 const dialog = useDialog();
 const message = useMessage();
@@ -110,7 +111,7 @@ async function doInstall(auto = false) {
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     message.error(detail || "更新失败，请稍后重试或手动下载");
-    console.error("[updater] install error:", err);
+    devError("[updater] install error:", err);
   }
 }
 </script>

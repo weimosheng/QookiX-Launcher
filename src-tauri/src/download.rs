@@ -294,12 +294,14 @@ fn load_chunk_state(part: &Path, chunk_count: usize) -> Vec<bool> {
 /// Persist which chunks are complete (one byte per chunk).
 fn save_chunk_state(part: &Path, done: &[bool]) {
     let bytes: Vec<u8> = done.iter().map(|&b| if b { 1 } else { 0 }).collect();
-    let _ = std::fs::write(chunk_state_path(part), bytes);
+    let p = chunk_state_path(part);
+    crate::util::fs_best_effort("write", &p, std::fs::write(&p, bytes));
 }
 
 /// Remove the chunk-completion sidecar (used when switching sources / restarting clean).
 fn remove_chunk_state(part: &Path) {
-    let _ = std::fs::remove_file(chunk_state_path(part));
+    let p = chunk_state_path(part);
+    crate::util::fs_best_effort("remove_file", &p, std::fs::remove_file(&p));
 }
 
 /// Download a single file (streamed, with `.part` staging), verify sha1 when given.
@@ -349,7 +351,7 @@ async fn download_one(
     let mut result =
         fetch_and_verify(client, item, &target, &part, on_progress, chunk_threads).await;
     if result.is_err() && target != item.url {
-        let _ = std::fs::remove_file(&part);
+        crate::util::fs_best_effort("remove_file", &part, std::fs::remove_file(&part));
         remove_chunk_state(&part);
         result =
             fetch_and_verify(client, item, &item.url, &part, on_progress, chunk_threads).await;
@@ -384,7 +386,7 @@ async fn fetch_and_verify(
             Ok(()) => {}
             Err(_) => {
                 // Fallback: some CDNs claim range support but 404 on actual Range requests.
-                let _ = std::fs::remove_file(part);
+                crate::util::fs_best_effort("remove_file", part, std::fs::remove_file(part));
                 remove_chunk_state(part);
                 download_streamed(client, url, part, on_progress).await?;
             }

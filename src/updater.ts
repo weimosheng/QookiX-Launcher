@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { useTasksStore } from "./stores/tasks";
+import { error as devError } from "./utils/logger";
 
 /**
  * 应用自更新检查结果（由 Rust 端 `updater::check_for_update` 返回）。
@@ -153,7 +154,7 @@ export async function downloadUpdate(onStatus?: ProgressFn): Promise<boolean> {
   } catch (err) {
     // Surface the real reason (404, signature mismatch, permissions...) so the
     // UI can show something actionable instead of a generic "update failed".
-    console.error("[updater] downloadUpdate failed:", err);
+    devError("[updater] downloadUpdate failed:", err);
     const detail = err instanceof Error && err.message ? err.message : String(err);
     if (registered) {
       tasks.upsert(taskId, (t) => {
@@ -187,7 +188,7 @@ export async function applyUpdateNow(): Promise<void> {
     await invoke("apply_app_update");
   } catch (err) {
     // 没有已下载的更新（或安装失败）→ 兜底直接重启，避免卡在旧版本
-    console.error("[updater] apply_update failed:", err);
+    devError("[updater] apply_update failed:", err);
   } finally {
     updateInstalling.value = false;
   }

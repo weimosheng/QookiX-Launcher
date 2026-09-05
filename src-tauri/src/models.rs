@@ -3,14 +3,18 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-fn encode_token<S>(token: &str, serializer: S) -> Result<S::Ok, S::Error>
+/// 注意：这只是 Base64 **编码**，不是加密！仅用于避免 token 以明文形式
+/// 一眼可见地躺在 accounts.json 里，任何能读到该文件的人都可以直接解码还原。
+/// 若需要真正的安全存储，应改用 OS 级凭据管理（Windows DPAPI / keychain）。
+fn obfuscate_token<S>(token: &str, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
     serializer.serialize_str(&STANDARD.encode(token.as_bytes()))
 }
 
-fn decode_token<'de, D>(deserializer: D) -> Result<String, D::Error>
+/// `obfuscate_token` 的逆操作；解码失败时原样返回，向后兼容历史明文数据。
+fn deobfuscate_token<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -151,6 +155,23 @@ impl LoaderType {
             LoaderType::Quilt => "quilt",
             LoaderType::Forge => "forge",
             LoaderType::NeoForge => "neoforge",
+        }
+    }
+}
+
+/// 前端传来的加载器字符串 → LoaderType 的统一解析入口，
+/// 替代散落在各命令里的重复 match 块。
+impl std::str::FromStr for LoaderType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "vanilla" => Ok(LoaderType::Vanilla),
+            "fabric" => Ok(LoaderType::Fabric),
+            "quilt" => Ok(LoaderType::Quilt),
+            "forge" => Ok(LoaderType::Forge),
+            "neoforge" => Ok(LoaderType::NeoForge),
+            _ => Err("未知加载器".into()),
         }
     }
 }
@@ -304,9 +325,9 @@ pub enum Account {
         uuid: String,
         username: String,
         created: u64,
-        #[serde(serialize_with = "encode_token", deserialize_with = "decode_token")]
+        #[serde(serialize_with = "obfuscate_token", deserialize_with = "deobfuscate_token")]
         msa_refresh_token: String,
-        #[serde(serialize_with = "encode_token", deserialize_with = "decode_token")]
+        #[serde(serialize_with = "obfuscate_token", deserialize_with = "deobfuscate_token")]
         msa_access_token: String,
         msa_expires_at: u64,
     },

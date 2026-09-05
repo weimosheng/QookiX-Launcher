@@ -123,7 +123,7 @@ pub async fn launch_game(
                         "line": "正在应用离线皮肤…",
                     }));
                     build_skin_resourcepack(&instance_dir, &skin_bytes)?;
-                    let _ = std::fs::write(&marker, current_hash);
+                    crate::util::fs_best_effort("write", &marker, std::fs::write(&marker, current_hash));
                 }
             }
         }
@@ -132,7 +132,7 @@ pub async fn launch_game(
         // override the server-provided skin.
         let skin_pack = instance_dir.join("resourcepacks").join("QookiX_Skin.zip");
         if skin_pack.exists() {
-            let _ = std::fs::remove_file(&skin_pack);
+            crate::util::fs_best_effort("remove_file", &skin_pack, std::fs::remove_file(&skin_pack));
             disable_resource_pack(&instance_dir, "QookiX_Skin.zip");
         }
     }
@@ -240,7 +240,7 @@ pub async fn launch_game(
     std::fs::create_dir_all(state.logs_dir()).map_err(|e| e.to_string())?;
     // Never write the raw access token into the launch log.
     let logged = mask_secret_args(&args);
-    let _ = std::fs::write(&log_path, format!("$ java {}\n", logged.join(" ")));
+    crate::util::fs_best_effort("write", &log_path, std::fs::write(&log_path, format!("$ java {}\n", logged.join(" "))));
 
     let _ = app.emit("launch://progress", serde_json::json!({ "step": "正在启动游戏进程…", "progress": 80 }));
 
@@ -603,9 +603,9 @@ fn set_chinese_lang(instance_dir: &std::path::Path, mc_version: &str) {
             return;
         }
         let result = format!("{text}\n{target_line}");
-        let _ = std::fs::write(&options_path, result);
+        crate::util::fs_best_effort("write", &options_path, std::fs::write(&options_path, result));
     } else {
-        let _ = std::fs::write(&options_path, target_line);
+        crate::util::fs_best_effort("write", &options_path, std::fs::write(&options_path, target_line));
     }
 }
 
@@ -695,7 +695,7 @@ fn enable_resource_pack(instance_dir: &std::path::Path, pack_file: &str) {
         lines.push(format!("resourcePacks:[{entry}]"));
     }
     if !already_enabled || !found {
-        let _ = std::fs::write(&options_path, lines.join("\n"));
+        crate::util::fs_best_effort("write", &options_path, std::fs::write(&options_path, lines.join("\n")));
     }
 }
 
@@ -723,7 +723,7 @@ fn disable_resource_pack(instance_dir: &std::path::Path, pack_file: &str) {
             lines.push(line.to_string());
         }
     }
-    let _ = std::fs::write(&options_path, lines.join("\n"));
+    crate::util::fs_best_effort("write", &options_path, std::fs::write(&options_path, lines.join("\n")));
 }
 
 // ---------------------------------------------------------------------------

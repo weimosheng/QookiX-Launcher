@@ -18,6 +18,7 @@ import { api } from "../api";
 import { useInstancesStore } from "../stores/instances";
 import { notifySuccess, notifyError, notifyWarning } from "./notify";
 import router from "../router";
+import { log as devLog, warn as devWarn, error as devError } from "../utils/logger";
 
 /** 页面级 scheme → 路由路径映射 */
 const PAGE_ROUTES: Record<string, string> = {
@@ -33,12 +34,12 @@ const PAGE_ROUTES: Record<string, string> = {
 };
 
 async function handleUrl(raw: string) {
-  console.log("[deeplink] handleUrl:", raw);
+  devLog("[deeplink] handleUrl:", raw);
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    console.warn("[deeplink] 无法解析:", raw);
+    devWarn("[deeplink] 无法解析:", raw);
     return;
   }
   if (url.protocol !== "qookix:") return;
@@ -54,7 +55,7 @@ async function handleUrl(raw: string) {
   const route = PAGE_ROUTES[host];
   if (route) {
     await router.push(route);
-    console.log("[deeplink] 已跳转:", route);
+    devLog("[deeplink] 已跳转:", route);
     return;
   }
   // 非页面命令：把 host 当作实例别名处理（qookix://<别名> 是
@@ -93,11 +94,11 @@ export async function initDeepLink() {
   let lastTs = 0;
   try {
     await onOpenUrl((urls) => {
-      console.log("[deeplink] 收到 URL:", urls);
+      devLog("[deeplink] 收到 URL:", urls);
       const now = Date.now();
       for (const u of urls) {
         if (u === lastUrl && now - lastTs < 2000) {
-          console.log("[deeplink] 2 秒内重复 URL，跳过:", u);
+          devLog("[deeplink] 2 秒内重复 URL，跳过:", u);
           continue;
         }
         lastUrl = u;
@@ -105,9 +106,9 @@ export async function initDeepLink() {
         void handleUrl(u);
       }
     });
-    console.log("[deeplink] 监听已注册");
+    devLog("[deeplink] 监听已注册");
   } catch (e) {
     // deep-link 权限缺失等情况不应阻塞应用启动
-    console.error("[deeplink] init failed:", e);
+    devError("[deeplink] init failed:", e);
   }
 }

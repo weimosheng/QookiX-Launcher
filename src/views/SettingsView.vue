@@ -33,6 +33,7 @@ import type { JavaInfo, MirrorPreset, StorageStats } from "../types";
 import devWeimoshengUrl from "../assets/dev-weimosheng.jpg";
 import devZhayiUrl from "../assets/dev-zhayi.jpg";
 import AboutShowcase from "../components/AboutShowcase.vue";
+import { error as devError } from "../utils/logger";
 
 const settings = useSettingsStore();
 const message = useMessage();
@@ -112,7 +113,7 @@ async function doInstall() {
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     message.error(detail || "更新失败，请稍后重试或手动下载");
-    console.error("[updater] install error:", err);
+    devError("[updater] install error:", err);
   }
 }
 

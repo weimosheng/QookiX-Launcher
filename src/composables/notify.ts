@@ -9,6 +9,7 @@
 
 import { defineComponent, h } from "vue";
 import { useMessage, type MessageApi } from "naive-ui";
+import { log as devLog, error as devError, warn as devWarn } from "../utils/logger";
 
 let holder: MessageApi | null = null;
 
@@ -29,7 +30,7 @@ export function notifySuccess(content: string) {
   try {
     holder?.success(content);
   } catch {
-    console.log("[notify]", content);
+    devLog("[notify]", content);
   }
 }
 
@@ -37,7 +38,7 @@ export function notifyError(content: string) {
   try {
     holder?.error(content);
   } catch {
-    console.error("[notify]", content);
+    devError("[notify]", content);
   }
 }
 
@@ -45,6 +46,6 @@ export function notifyWarning(content: string) {
   try {
     holder?.warning(content);
   } catch {
-    console.warn("[notify]", content);
+    devWarn("[notify]", content);
   }
 }

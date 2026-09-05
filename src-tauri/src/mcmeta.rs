@@ -31,7 +31,7 @@ pub async fn fetch_manifest(state: &AppState) -> Result<VersionManifest, String>
     };
     let manifest: VersionManifest = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(path.parent().unwrap()).ok();
-    let _ = std::fs::write(&path, &text);
+    crate::util::fs_best_effort("write", &path, std::fs::write(&path, &text));
     Ok(manifest)
 }
 
