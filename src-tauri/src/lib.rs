@@ -513,6 +513,57 @@ mod smoke {
         assert!(patched.libraries.iter().any(|l| l.name.contains("natives-windows")));
     }
 
+    /// 1.18.2 使用旧式 natives 写法：同一个 maven 坐标在原版 json 里成对出现
+    /// （普通构件 + 带 natives/extract 的构件）。去重曾按 name 折叠，
+    /// 把带 natives 的那条丢掉，导致 ≤1.18 的 Fabric 实例启动时报
+    /// 「缺少 natives 目录」。此测试锁定该回归。
+    #[tokio::test]
+    async fn fabric_patch_keeps_old_style_natives_entries() {
+        use crate::models::{Instance, LoaderType};
+        use std::sync::{Arc, Mutex, RwLock};
+
+        let root = std::env::temp_dir().join("qookix-test-patch-1182");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let state = crate::state::AppState {
+            root: root.clone(),
+            settings: RwLock::new(Default::default()),
+            client: crate::settings::http_client("system", None),
+            semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
+            game_pids: Arc::new(Mutex::new(HashMap::new())),
+            server_pids: Arc::new(Mutex::new(HashMap::new())),
+            server_senders: Arc::new(Mutex::new(HashMap::new())),
+            task_counter: std::sync::atomic::AtomicU64::new(1),
+            install_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            ms_flow: Arc::new(Mutex::new(None)),
+            java_cache: Mutex::new(None),
+            terracotta: Mutex::new(None),
+            pending_update: Mutex::new(None),
+        };
+        let vanilla = crate::mcmeta::fetch_version_json(&state, "1.18.2").await.unwrap();
+        let vanilla_natives = vanilla.libraries.iter().filter(|l| l.natives.is_some()).count();
+        assert_eq!(vanilla_natives, 16, "1.18.2 原版应有 16 条带 natives 的库");
+
+        let instance = Instance {
+            id: "test-fabric-1182".into(),
+            name: "test".into(),
+            mc_version: "1.18.2".into(),
+            loader: LoaderType::Fabric,
+            ..Default::default()
+        };
+        let patched = crate::install::fabric_patch(&state, &vanilla, &instance).await.unwrap();
+        let patched_natives = patched.libraries.iter().filter(|l| l.natives.is_some()).count();
+        assert_eq!(
+            patched_natives, vanilla_natives,
+            "打补丁后不得丢失任何带 natives 的库条目"
+        );
+        // lwjgl 的普通构件与 natives 构件都应同时存在
+        for name in ["org.lwjgl:lwjgl:3.2.2", "org.lwjgl:lwjgl-glfw:3.2.2"] {
+            let cnt = patched.libraries.iter().filter(|l| l.name == name).count();
+            assert_eq!(cnt, 2, "{name} 应有普通+natives 两条，实际 {cnt} 条");
+        }
+    }
+
     #[tokio::test]
     async fn modrinth_search_with_facets_works() {
         use std::sync::{Arc, Mutex, RwLock};

@@ -436,10 +436,16 @@ pub(crate) async fn fabric_patch(
     Ok(patched)
 }
 
-/// Remove duplicate libraries by maven name (keep first occurrence).
+/// Remove duplicate libraries (keep first occurrence per name + natives kind).
+///
+/// 注意：不能只按 maven name 去重！Mojang 对旧版本（≤1.18，LWJGL 3.2.x 时代）
+/// 会把同一个坐标列两条——一条是普通 classpath 构件，另一条带 `natives` 和
+/// `extract` 字段（用于 natives 的下载与解压）。两条语义不同、都必须保留；
+/// 曾经按 name 去重把带 natives 的那条整段丢掉，导致 ≤1.18 的 Fabric/Quilt/
+/// Forge 实例安装后没有 natives 目录，启动时报「缺少 natives 目录」。
 fn dedupe_libraries(libs: &mut Vec<Library>) {
     let mut seen = std::collections::HashSet::new();
-    libs.retain(|l| seen.insert(l.name.clone()));
+    libs.retain(|l| seen.insert((l.name.clone(), l.natives.is_some())));
 }
 
 async fn quilt_patch(
