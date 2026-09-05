@@ -3,7 +3,7 @@ use crate::state::AppState;
 use crate::util::{extract_zip, extract_zip_strip, file_sha1};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 /// Best-effort pack display name from the zip's index.json.
 fn index_name_hint(pack_path: &Path) -> String {
@@ -332,6 +332,51 @@ pub async fn install_version(
     crate::instances::add_content(state, &instance.id, kind, record)?;
     crate::install::emit_progress(&app, task_id, "done", "安装完成", 1, 1, instance, &format!("Modrinth：{project_name}（{version_number}）"));
     Ok(json!({ "ok": true, "filename": filename }))
+}
+
+/// Fabric API 在 Modrinth 上的项目 ID（全球唯一、长期不变）
+pub const FABRIC_API_PROJECT: &str = "P7dR8mSH";
+
+/// Fabric 实例创建后自动补装 Fabric API（best-effort，后台执行）。
+///
+/// 绝大多数 Fabric 模组都依赖 Fabric API，不装的话游戏内/加载时会成片报错，
+/// 因此创建 Fabric（及兼容的 Quilt）实例时自动按 MC 版本匹配最新 release 安装。
+/// 已手动装过（mods 里有 fabric-api 的任意形式）时不重复安装；
+/// 失败只记录日志，不影响实例本身的使用。
+pub async fn auto_install_fabric_api(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    mc_version: &str,
+) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let instance = crate::instances::get_instance(&state, instance_id)?;
+
+    // 已有 Fabric API 就不再装（按项目 id / slug / 文件名多种形态匹配）
+    let has_api = instance.mods.iter().any(|m| {
+        m.project_id.as_deref() == Some(FABRIC_API_PROJECT)
+            || m.slug.as_deref() == Some("fabric-api")
+            || m.filename.to_lowercase().starts_with("fabric-api")
+            || m.name
+                .as_deref()
+                .map(|n| n.to_lowercase().contains("fabric api"))
+                .unwrap_or(false)
+    });
+    if has_api {
+        return Ok(());
+    }
+
+    // 匹配当前 MC 版本、fabric 加载器的最新 release（没有 release 时退回第一个）
+    let list = versions(&state, FABRIC_API_PROJECT, mc_version, "fabric").await?;
+    let ver_id = list
+        .iter()
+        .find(|v| v.get("version_type").and_then(|x| x.as_str()) == Some("release"))
+        .or_else(|| list.first())
+        .and_then(|v| v.get("id").and_then(|x| x.as_str()))
+        .ok_or_else(|| format!("未找到适配 Minecraft {mc_version} 的 Fabric API 版本"))?
+        .to_string();
+
+    install_version(app.clone(), &state, &instance, &ver_id, "mod").await?;
+    Ok(())
 }
 
 /// Best-effort project icon URL (Modrinth).

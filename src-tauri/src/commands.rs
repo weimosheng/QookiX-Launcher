@@ -246,6 +246,7 @@ pub fn get_instance_info(state: State<AppState>, id: String) -> Result<Instance,
 
 #[tauri::command]
 pub fn create_instance(
+    app: tauri::AppHandle,
     state: State<AppState>,
     name: String,
     mc_version: String,
@@ -260,7 +261,21 @@ pub fn create_instance(
         "neoforge" => LoaderType::NeoForge,
         _ => return Err("未知加载器".into()),
     };
-    crate::instances::create_instance(&state, name, mc_version, l, loader_version)
+    let mc = mc_version.clone();
+    let instance = crate::instances::create_instance(&state, name, mc_version, l, loader_version)?;
+
+    // Fabric（及兼容的 Quilt）实例自动补装 Fabric API：绝大多数模组的前置，
+    // 后台 best-effort 安装，失败不影响实例创建。进度走通用 install://progress 事件。
+    if matches!(instance.loader, LoaderType::Fabric | LoaderType::Quilt) {
+        let app2 = app.clone();
+        let iid = instance.id.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = modrinth::auto_install_fabric_api(&app2, &iid, &mc).await {
+                eprintln!("[fabric-api] 自动安装失败（实例 {iid}，MC {mc}）: {e}");
+            }
+        });
+    }
+    Ok(instance)
 }
 
 #[tauri::command]

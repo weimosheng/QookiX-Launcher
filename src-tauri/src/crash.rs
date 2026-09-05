@@ -130,8 +130,17 @@ const RULE_SPECS: &[RuleSpec] = &[
         title: "模组 {id} 的入口点执行失败",
         reason: "Fabric 在执行模组 {id} 提供的入口点（entrypoint）时出错。",
         advice: "请更新或移除模组 {id}，并确认它与当前 Fabric Loader / 游戏版本兼容。",
-        pattern: r"Could not execute entrypoint stage '[^']*' due to errors, provided by '(?P<id>[^']+)'!",
+        pattern: r"Could not execute entrypoint stage '[^']*' due to errors, provided by '(?P<id>[^']+)'(?: at '[^']*')?!",
         confidence: 92,
+    },
+    RuleSpec {
+        id: "entrypoint_base_lib_missing",
+        severity: "lwjgl",
+        title: "基础依赖库缺失，导致模组 {id} 启动失败",
+        reason: "模组 {id} 的入口点执行时找不到类 {class}（被抑制的 NoClassDefFoundError）。",
+        advice: "根因通常不是模组本身，而是 LWJGL 等基础库没有完整安装（常见于导入的实例或 libraries 目录被手动删改）。请先尝试重新安装一次加载器；若仍失败，新建一个相同版本的游戏实例，再把 mods 和存档（saves）目录迁移过去。注意不要手动清理 libraries 目录。",
+        pattern: r"Could not execute entrypoint stage '[^']*' due to errors, provided by '(?P<id>[^']+)'(?: at '[^']*')?![\s\S]{0,1200}?NoClassDefFoundError: (?P<class>[\w/$.]+)",
+        confidence: 94,
     },
     RuleSpec {
         id: "mod_config",
@@ -487,7 +496,7 @@ const RULE_SPECS: &[RuleSpec] = &[
         title: "本地库（LWJGL / OpenGL）加载失败",
         reason: "无法加载 LWJGL 等本地库，通常是游戏依赖缺失或 Java 架构不匹配。",
         advice: "请尝试重新安装/切换 Java（注意 64 位），或删除实例后重新下载完整依赖。",
-        pattern: r"(?i)UnsatisfiedLinkError: Failed to locate library: (?P<name>[^\n]+)|no lwjgl[\w.]* in java\.library\.path|No class found: org/lwjgl|Could not initialize class org\.lwjgl",
+        pattern: r"(?i)UnsatisfiedLinkError: Failed to locate library: (?P<name>[^\n]+)|no lwjgl[\w.]* in java\.library\.path|No class found: org/lwjgl|Could not initialize class org\.lwjgl|NoClassDefFoundError: org/lwjgl",
         confidence: 84,
     },
     // ---------------------------------------------------------------- 文件 / 校验
@@ -1131,7 +1140,8 @@ fn named_mods(text: &str, rule_id: &str) -> Vec<String> {
         ],
         "mod_crash_generic" => &[r"Caught exception from (?P<v>[^\n]+)"],
         "mod_bootstrap_failed" => &[r"Failed to create mod instance\. ModID: (?P<v>[^,\s]+)"],
-        "fabric_entrypoint" => &[r"provided by '(?P<v>[^']+)'!"],
+        "fabric_entrypoint" => &[r"provided by '(?P<v>[^']+)'"],
+        "entrypoint_base_lib_missing" => &[r"provided by '(?P<v>[^']+)'"],
         "mod_config" => &[r"for modid (?P<v>\S+)"],
         "mod_mixin_apply" => &[r"Mixin apply for mod (?P<v>\S+) failed"],
         "mod_mixin_from" => &[r"from mod (?P<v>[^./\s]+)\] from"],
@@ -1356,6 +1366,37 @@ Details:
         );
         assert!(d.reason.contains("citadel 1.8.1"), "应给出前置要求：{}", d.reason);
         assert!(d.affected_mods.iter().any(|m| m == "iceandfire"));
+    }
+
+    /// 用户实测崩溃：c2me 的 preLaunch 入口点失败，被抑制链里有
+    /// NoClassDefFoundError: org/lwjgl/glfw —— 真正的根因是基础库缺失，
+    /// 不应被判成「移除模组 c2me」
+    #[test]
+    fn detects_entrypoint_with_missing_base_lib() {
+        let log = r#"RuntimeException: Could not execute entrypoint stage 'preLaunch' due to errors, provided by 'c2me' at 'com.ishland.c2me.PreLaunchHandler'!
+	at net.fabricmc.loader.impl.FabricLoaderImpl.lambda$invokeEntrypoints$0(FabricLoaderImpl.java:413)
+	at net.fabricmc.loader.impl.util.ExceptionUtil.gatherExceptions(ExceptionUtil.java:33)
+	at net.fabricmc.loader.impl.launch.knot.Knot.init(Knot.java:156)
+	at net.fabricmc.loader.impl.launch.knot.KnotClient.main(KnotClient.java:23)
+IllegalStateException: Platform is not present (suppressed)
+NoClassDefFoundError: org/lwjgl/glfw/GLFW (suppressed)
+	at java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:490)
+RuntimeException: Mixin transformation of com.ishland.c2me.PreLaunchHandler failed
+	at net.fabricmc.loader.impl.launch.knot.KnotClassDelegate.getPostMixinClassByteArray(KnotClassDelegate.java:440)"#;
+        let d = analyze_text(log, None);
+        let c = d
+            .causes
+            .iter()
+            .find(|c| c.id == "entrypoint_base_lib_missing")
+            .expect("应命中基础库缺失规则");
+        assert!(c.title.contains("c2me"), "应点名模组：{}", c.title);
+        assert!(
+            c.reason.contains("org/lwjgl"),
+            "应指出缺失的类：{}",
+            c.reason
+        );
+        assert!(d.severity == "lwjgl");
+        assert!(d.affected_mods.iter().any(|m| m == "c2me"));
     }
 
     #[test]
