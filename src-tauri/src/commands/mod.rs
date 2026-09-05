@@ -1,0 +1,25 @@
+pub mod accounts;
+pub mod browse;
+pub mod crash;
+pub mod files;
+pub mod hosted;
+pub mod instances;
+pub mod multiplayer;
+pub mod pins;
+pub mod settings;
+pub mod skins;
+pub mod storage;
+pub mod version;
+
+pub use accounts::*;
+pub use browse::*;
+pub use crash::*;
+pub use files::*;
+pub use hosted::*;
+pub use instances::*;
+pub use multiplayer::*;
+pub use pins::*;
+pub use settings::*;
+pub use skins::*;
+pub use storage::*;
+pub use version::*;
