@@ -277,6 +277,9 @@ pub async fn install_content(
     version_id: String,
     kind: String,
 ) -> Result<Value, String> {
+    crate::util::log_line(&format!(
+        "[install_content] kind={kind} provider={provider} project={project_id} version={version_id} instance={instance_id:?}"
+    ));
     // modpack creates its own new instance; no existing instance needed
     if kind == "modpack" {
         return match provider.as_str() {

@@ -218,6 +218,39 @@ pub fn add_play_time(state: &AppState, id: &str, secs: u64) {
         inst.total_play_time = inst.total_play_time.saturating_add(secs);
         let _ = crate::util::log_best_effort("save_instance", save_instance(state, &inst));
     }
+    add_daily_play_time(state, secs);
+}
+
+fn playtime_path(state: &AppState) -> std::path::PathBuf {
+    state.root.join("playtime.json")
+}
+
+/// 按天累计游玩秒数（playtime.json：{ "<day>": secs }）。
+/// day 取 `(unix + 8h) / 86400`，固定按东八区切天（主要用户群）。
+pub fn add_daily_play_time(state: &AppState, secs: u64) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let day = (now + 8 * 3600) / 86400;
+    let path = playtime_path(state);
+    let mut map: std::collections::HashMap<String, u64> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    let e = map.entry(day.to_string()).or_insert(0);
+    *e = e.saturating_add(secs);
+    if let Ok(json) = serde_json::to_string_pretty(&map) {
+        let _ = crate::util::fs_best_effort("write", &path, std::fs::write(&path, json));
+    }
+}
+
+/// 读取按天游玩时长（用于统计页近 N 天曲线）
+pub fn daily_play_time(state: &AppState) -> std::collections::HashMap<String, u64> {
+    std::fs::read_to_string(playtime_path(state))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------

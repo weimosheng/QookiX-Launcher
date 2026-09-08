@@ -19,6 +19,29 @@ pub async fn install_game(
         instance.mc_version,
         if instance.loader == LoaderType::Vanilla { "" } else { instance.loader.as_str() }
     );
+    let result = install_game_inner(&app, state, instance, task_id, &source).await;
+    // 每个任务必须以 done 收尾，否则下载中心的卡片永远停在「进行中」
+    let ok = result.is_ok();
+    emit_progress(
+        &app,
+        task_id,
+        "done",
+        if ok { "游戏文件就绪" } else { "游戏安装失败" },
+        1,
+        1,
+        instance,
+        &source,
+    );
+    result
+}
+
+async fn install_game_inner(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    instance: &Instance,
+    task_id: u64,
+    source: &str,
+) -> Result<InstallPlan, String> {
     emit_progress(&app, task_id, "manifest", "获取 Minecraft 版本信息…", 0, 0, instance, &source);
 
     let existing_json = crate::paths::resolve_version_dir(state, &instance.id).join(format!("{}.json", instance.id));
@@ -53,6 +76,36 @@ pub async fn install_game(
         download_many(app.clone(), state, task_id, "client", items).await?;
     }
 
+    // ---- Forge 1.17+ 新版安装器：原版 jar 就位后执行 processors 任务链 ----
+    // （jarsplitter 等需要 vanilla client jar 作为输入，生成打补丁的 forge client jar）
+    if matches!(instance.loader, LoaderType::Forge | LoaderType::NeoForge) {
+        let full_ver = if instance.loader == LoaderType::NeoForge {
+            instance.loader_version.clone().unwrap_or_default()
+        } else {
+            format!(
+                "{}-{}",
+                instance.mc_version,
+                instance.loader_version.clone().unwrap_or_default()
+            )
+        };
+        let tool_name = if instance.loader == LoaderType::NeoForge { "neoforge" } else { "forge" };
+        let installer_path =
+            state.root.join("runtimes").join(format!("{tool_name}-{full_ver}-installer.jar"));
+        if installer_path.exists() {
+            let profile: serde_json::Value = {
+                let file = std::fs::File::open(&installer_path).map_err(|e| e.to_string())?;
+                let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+                let mut entry = archive
+                    .by_name("install_profile.json")
+                    .map_err(|e| e.to_string())?;
+                let mut buf = Vec::new();
+                std::io::Read::read_to_end(&mut entry, &mut buf).map_err(|e| e.to_string())?;
+                serde_json::from_slice(&buf).map_err(|e| e.to_string())?
+            };
+            run_forge_processors(&app, state, instance, &installer_path, &profile).await?;
+        }
+    }
+
     // ---- libraries + natives ----
     let features = HashMap::new();
     let mut lib_items: Vec<DownloadItem> = Vec::new();
@@ -69,39 +122,81 @@ pub async fn install_game(
             let name_has_classifier = lib.name.split(':').count() > 3;
             if let Some(classifier) = platform_native_classifier(lib) {
                 let dl = lib.downloads.as_ref();
-                let file = dl
+                let meta = dl
                     .and_then(|d| d.classifiers.as_ref())
                     .and_then(|c| c.get(&classifier))
                     .cloned()
                     .or_else(|| dl.and_then(|d| d.artifact.clone()));
-                if let Some(file) = file {
-                    let dest = if name_has_classifier {
-                        libraries_path(state, &lib.name, None)
-                    } else {
-                        libraries_path(state, &lib.name, Some(&classifier))
-                    };
-                    lib_items.push(DownloadItem {
-                        url: file.url.clone(),
-                        dest: dest.clone(),
-                        sha1: Some(file.sha1.clone()),
-                        sha512: None,
-                        size: Some(file.size),
-                        label: format!("{} ({})", lib.name, classifier),
-                    });
-                    let exclude = lib.extract.as_ref().map(|e| e.exclude.clone()).unwrap_or_default();
-                    native_jars.push((dest, exclude));
-                }
+                // 老式版本 json（1.12 前后的 Forge versionInfo 等）没有 downloads
+                // 元数据，只有 maven 仓库基址 `url` + 坐标——按 classifier 拼出
+                // 真实下载地址，否则 natives 条目被整段丢弃，启动报
+                // 「缺少 natives 目录」。
+                let has_meta = meta.is_some();
+                let file = match meta {
+                    Some(f) => f,
+                    None => {
+                        let base = lib.url.clone().unwrap_or_else(|| "https://libraries.minecraft.net/".into());
+                        let cls_name = format!("{}:{}", lib.name, classifier);
+                        let Some(rel) = crate::models::maven_to_path(&cls_name) else { continue };
+                        DownloadFile {
+                            url: format!("{}/{}", base.trim_end_matches('/'), rel.to_string_lossy().replace('\\', "/")),
+                            sha1: String::new(),
+                            size: 0,
+                            path: None,
+                        }
+                    }
+                };
+                let dest = if name_has_classifier {
+                    libraries_path(state, &lib.name, None)
+                } else {
+                    libraries_path(state, &lib.name, Some(&classifier))
+                };
+                lib_items.push(DownloadItem {
+                    url: file.url.clone(),
+                    dest: dest.clone(),
+                    sha1: if has_meta && !file.sha1.is_empty() { Some(file.sha1.clone()) } else { None },
+                    sha512: None,
+                    size: if has_meta && file.size > 0 { Some(file.size) } else { None },
+                    label: format!("{} ({})", lib.name, classifier),
+                });
+                let exclude = lib.extract.as_ref().map(|e| e.exclude.clone()).unwrap_or_default();
+                native_jars.push((dest, exclude));
             }
             // old-style native library: the main artifact still goes on the classpath
             if !name_has_classifier {
-                if let Some(dl) = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()) {
+                let main = lib
+                    .downloads
+                    .as_ref()
+                    .and_then(|d| d.artifact.as_ref())
+                    .cloned()
+                    .or_else(|| {
+                        // 老式 json：主构件同样只有 url 基址 + 坐标
+                        lib.url.clone().map(|base| {
+                            let rel = crate::models::maven_to_path(&lib.name);
+                            DownloadFile {
+                                url: match rel {
+                                    Some(rel) => format!(
+                                        "{}/{}",
+                                        base.trim_end_matches('/'),
+                                        rel.to_string_lossy().replace('\\', "/")
+                                    ),
+                                    None => String::new(),
+                                },
+                                sha1: String::new(),
+                                size: 0,
+                                path: None,
+                            }
+                        })
+                    })
+                    .filter(|f| !f.url.is_empty());
+                if let Some(dl) = main {
                     let dest = libraries_path(state, &lib.name, None);
                     lib_items.push(DownloadItem {
                         url: dl.url.clone(),
                         dest,
-                        sha1: Some(dl.sha1.clone()),
+                        sha1: if dl.sha1.is_empty() { None } else { Some(dl.sha1) },
                         sha512: None,
-                        size: Some(dl.size),
+                        size: if dl.size > 0 { Some(dl.size) } else { None },
                         label: lib.name.clone(),
                     });
                 }
@@ -121,6 +216,11 @@ pub async fn install_game(
         } else if let Some(url) = &lib.url {
             if let Some(rel) = crate::models::maven_to_path(&lib.name) {
                 let dest = crate::paths::libraries_dir(state).join(&rel);
+                // 无 sha1 校验的条目（如 processors 生成的 forge client jar）：
+                // 文件已存在则跳过，避免覆盖本地产物或重复下载
+                if dest.exists() {
+                    continue;
+                }
                 let file_url = format!("{}/{}", url.trim_end_matches('/'), rel.to_string_lossy().replace('\\', "/"));
                 lib_items.push(DownloadItem {
                     url: file_url,
@@ -160,6 +260,7 @@ pub async fn install_game(
                 .map_err(|e| format!("解压 natives 失败: {e}"))?;
             emit_progress(&app, task_id, "natives", "解压运行库 (natives)…", i + 1, native_jars.len(), instance, &source);
         }
+        flatten_natives(&natives_dir);
     }
 
     // ---- assets ----
@@ -317,6 +418,31 @@ fn libraries_path(state: &AppState, name: &str, classifier: Option<&str>) -> Pat
 }
 
 // ---------------------------------------------------------------------------
+/// 把 natives 目录深层子目录里的 dll 复制到根目录。
+/// Mojang 2023+ 重打包的 natives jar（如 1.20.1 的 lwjgl-3.3.1-natives-windows）
+/// 内部结构是 `windows/x64/org/lwjgl/lwjgl.dll` 这种深层路径，解压保留相对
+/// 路径后 `-Djava.library.path`（指向 natives 根）找不到 dll，启动报
+/// 「Failed to locate library: lwjgl.dll」。拍平后各版本加载逻辑都能命中。
+fn flatten_natives(dir: &std::path::Path) {
+    fn walk(src: &std::path::Path, root: &std::path::Path) {
+        let Ok(rd) = std::fs::read_dir(src) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk(&p, root);
+            } else if p.extension().map(|x| x == "dll").unwrap_or(false) {
+                if let Some(name) = p.file_name() {
+                    let target = root.join(name);
+                    if !target.exists() {
+                        let _ = std::fs::copy(&p, &target);
+                    }
+                }
+            }
+        }
+    }
+    walk(dir, dir);
+}
+
 // Loader patching
 // ---------------------------------------------------------------------------
 
@@ -492,6 +618,265 @@ async fn quilt_patch(
 
 /// Forge / NeoForge: download the installer jar, extract `install_profile.json`,
 /// use its `versionInfo` as the patched version JSON.
+/// 执行新版 Forge 安装器的 processors 任务链：解压安装器 data/、下载工具库、
+/// 逐条运行（mappings 合并 → jar 拆分 → 重命名 → binpatch），最终在 libraries
+/// 目录生成打完补丁的 forge client jar。
+async fn run_forge_processors(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    instance: &Instance,
+    installer_path: &std::path::Path,
+    profile: &serde_json::Value,
+) -> Result<(), String> {
+    let settings = state.settings.read().unwrap().clone();
+    let java: String = match settings.java_path.as_deref().filter(|s| !s.is_empty()) {
+        Some(p) => p.to_string(),
+        None => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let (.., list) = crate::java::cached_detect(&state.root, &state.root.join("runtimes"), now, false);
+            list.first()
+                .map(|j| j.path.clone())
+                .ok_or("执行 Forge 安装任务需要 Java，但未检测到可用的 Java")?
+        }
+    };
+
+    let work_dir = crate::paths::resolve_version_dir(state, &instance.id).join("forge_processors");
+    std::fs::create_dir_all(&work_dir).map_err(|e| e.to_string())?;
+
+    // 1. 解压安装器内 data/ 目录（binpatch、args 模板等）
+    {
+        let file = std::fs::File::open(installer_path).map_err(|e| e.to_string())?;
+        let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+        for i in 0..archive.len() {
+            let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
+            let name = entry.name().to_string();
+            if !name.starts_with("data/") || entry.is_dir() {
+                continue;
+            }
+            let dest = work_dir.join(&name);
+            if let Some(p) = dest.parent() {
+                std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
+            }
+            let mut out = std::fs::File::create(&dest).map_err(|e| e.to_string())?;
+            std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
+        }
+    }
+
+    // 2. 下载 processors 的依赖库（仅供安装期 classpath 使用）
+    if let Some(installer_libs) = profile.get("libraries").and_then(|v| v.as_array()) {
+        let mut items: Vec<DownloadItem> = Vec::new();
+        for lib in installer_libs {
+            let Ok(l) = serde_json::from_value::<Library>(lib.clone()) else { continue };
+            if let Some(dl) = l.downloads.as_ref().and_then(|d| d.artifact.as_ref()) {
+                if let Some(rel) = crate::models::maven_to_path(&l.name) {
+                    items.push(DownloadItem {
+                        url: dl.url.clone(),
+                        dest: crate::paths::libraries_dir(state).join(&rel),
+                        sha1: Some(dl.sha1.clone()),
+                        sha512: None,
+                        size: Some(dl.size),
+                        label: l.name.clone(),
+                    });
+                }
+            }
+        }
+        if !items.is_empty() {
+            let total = items.len();
+            let task_id = state.next_task_id();
+            emit_progress(app, task_id, "forge-processors", "下载 Forge 安装依赖…", 0, total, instance, "安装 Forge");
+            download_many(app.clone(), state, task_id, "forge-processors", items).await?;
+            emit_progress(app, task_id, "done", "Forge 安装依赖就绪", total, total, instance, "安装 Forge");
+        }
+    }
+
+    // 3. 变量表：data[VAR].client；[maven 坐标] → libraries 路径；/data/x → 解压目录
+    let libs_dir = crate::paths::libraries_dir(state);
+    let data_val = profile.get("data").cloned().unwrap_or(serde_json::Value::Null);
+    // install_profile.libraries 的实际下载条目（name 可能带 @ext 等后缀），
+    // data 变量的 [坐标] 解析必须按条目真实 path 对齐，不能用坐标反推
+    let mut installer_libs_parsed: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    if let Some(installer_libs) = profile.get("libraries").and_then(|v| v.as_array()) {
+        for lib in installer_libs {
+            let Ok(l) = serde_json::from_value::<Library>(lib.clone()) else { continue };
+            if let Some(dl) = l.downloads.as_ref().and_then(|d| d.artifact.as_ref()) {
+                if let Some(rel_path) = dl.path.as_deref() {
+                    let dest = crate::paths::libraries_dir(state).join(rel_path).to_string_lossy().to_string();
+                    installer_libs_parsed.insert(l.name.clone(), dest);
+                }
+            }
+        }
+    }
+    let mc_jar = crate::paths::resolve_version_dir(state, &instance.id).join(format!("{}.jar", instance.id));
+    let data_value = |var: &str| -> Option<String> {
+        let v = data_val.get(var)?.get("client")?.as_str()?.to_string();
+        if let Some(coord) = v.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+            // 优先按 install_profile 条目的真实下载路径匹配（含 @ 变体），
+            // mcp_config 这类非 jar 构件的扩展名与坐标反推结果不同
+            if let Some(p) = installer_libs_parsed.get(coord) {
+                return Some(p.clone());
+            }
+            if let Some(p) = installer_libs_parsed.get(&format!("{coord}@jar")) {
+                return Some(p.clone());
+            }
+            let coord_no_ext = coord.split('@').next().unwrap_or(coord);
+            if let Some(p) = installer_libs_parsed.get(coord_no_ext) {
+                return Some(p.clone());
+            }
+            let rel = crate::models::maven_to_path(coord_no_ext)?;
+            Some(libs_dir.join(rel).to_string_lossy().to_string())
+        } else if v.starts_with('/') {
+            Some(work_dir.join(v.trim_start_matches('/')).to_string_lossy().to_string())
+        } else if v.starts_with('\'') && v.ends_with('\'') && v.len() >= 2 {
+            Some(v[1..v.len() - 1].to_string())
+        } else {
+            Some(v)
+        }
+    };
+    let instance_dir = state.instances_dir().join(&instance.id);
+    let replace = |raw: &str| -> Result<String, String> {
+        let mut s = raw.to_string();
+        let mut i = 0;
+        while let Some(st) = s[i..].find('{') {
+            let abs = i + st;
+            let Some(en_rel) = s[abs..].find('}') else { break };
+            let en = abs + en_rel;
+            let var = s[abs + 1..en].to_string();
+            let val = match var.as_str() {
+                "SIDE" => "client".to_string(),
+                "ROOT" => instance_dir.to_string_lossy().to_string(),
+                "INSTALLER" => installer_path.to_string_lossy().to_string(),
+                "MINECRAFT_JAR" => mc_jar.to_string_lossy().to_string(),
+                _ => data_value(&var).ok_or(format!("未知变量 {{{var}}}"))?,
+            };
+            s.replace_range(abs..=en, &val);
+            i = abs + val.len();
+        }
+        // [maven artifact] → install_profile.libraries 对应条目的库文件路径
+        let mut j = 0;
+        while let Some(st) = s[j..].find('[') {
+            let abs = j + st;
+            let Some(en_rel) = s[abs..].find(']') else { break };
+            let en = abs + en_rel;
+            let coord = s[abs + 1..en].to_string();
+            let val = installer_libs_parsed
+                .get(&coord)
+                .cloned()
+                .or_else(|| {
+                    let no_ext = coord.split('@').next().unwrap_or(&coord).to_string();
+                    installer_libs_parsed.get(&no_ext).cloned()
+                })
+                .unwrap_or_else(|| {
+                    crate::models::maven_to_path(&coord)
+                        .map(|p| libs_dir.join(p).to_string_lossy().to_string())
+                        .unwrap_or_else(|| coord.clone())
+                });
+            s.replace_range(abs..=en, &val);
+            j = abs + val.len();
+        }
+        Ok(s)
+    };
+
+    // 4. 逐条执行 client 侧 processors
+    let processors = profile
+        .get("processors")
+        .and_then(|v| v.as_array())
+        .ok_or("install_profile 缺少 processors")?;
+    let total = processors.len();
+    for (i, proc_entry) in processors.iter().enumerate() {
+        if let Some(sides) = proc_entry.get("sides").and_then(|v| v.as_array()) {
+            if !sides.iter().any(|s| s.as_str() == Some("client")) {
+                continue;
+            }
+        }
+        let main_jar = proc_entry.get("jar").and_then(|v| v.as_str()).ok_or("processor 缺少 jar")?;
+        let main_class = proc_entry.get("class").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let main_jar_path = libs_dir.join(maven_artifact_path(main_jar).ok_or("processor jar 坐标无效")?);
+        let mut cp: Vec<String> = vec![main_jar_path.to_string_lossy().to_string()];
+        if let Some(cls) = proc_entry.get("classpath").and_then(|v| v.as_array()) {
+            for c in cls {
+                if let Some(cn) = c.as_str() {
+                    if let Some(rel) = maven_artifact_path(cn) {
+                        cp.push(libs_dir.join(rel).to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+        // 官方安装器规则：条目带 class → java -cp <主jar;依赖> <class>；
+        // 不带 class（新版 Forge 全部如此）→ 读主 jar MANIFEST 的 Main-Class，
+        // 同样用 -cp 模式（-jar 会忽略 classpath，导致依赖缺失）
+        let mut cmd_args: Vec<String> = match &main_class {
+            Some(cls) => {
+                let mut v = vec!["-cp".into(), cp.join(";"), cls.clone()];
+                v
+            }
+            None => {
+                let mc = read_jar_main_class(&main_jar_path)?;
+                let mut v = vec!["-cp".into(), cp.join(";"), mc];
+                v
+            }
+        };
+        if let Some(args) = proc_entry.get("args").and_then(|v| v.as_array()) {
+            for a in args {
+                let raw = a.as_str().ok_or("processor 参数必须为字符串")?;
+                cmd_args.push(replace(raw)?);
+            }
+        }
+        let step_task_id = state.next_task_id();
+        emit_progress(app, step_task_id, "forge-processors", &format!("Forge 安装任务 {}/{}", i + 1, total), i + 1, total, instance, "安装 Forge");
+        let output = tokio::process::Command::new(&java)
+            .args(&cmd_args)
+            .current_dir(&work_dir)
+            .output()
+            .await
+            .map_err(|e| format!("运行 processor 失败: {e}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "processor {main_jar} 执行失败: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+        emit_progress(app, step_task_id, "done", &format!("Forge 安装任务 {}/{} 完成", i + 1, total), total, total, instance, "安装 Forge");
+    }
+    Ok(())
+}
+
+/// 读取 jar 的 MANIFEST.MF 中的 Main-Class 属性
+fn read_jar_main_class(jar: &std::path::Path) -> Result<String, String> {
+    let file = std::fs::File::open(jar).map_err(|e| format!("打开 {} 失败: {e}", jar.display()))?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+    let mut entry = archive
+        .by_name("META-INF/MANIFEST.MF")
+        .map_err(|e| format!("缺少 MANIFEST.MF: {e}"))?;
+    let mut text = Vec::new();
+    std::io::Read::read_to_end(&mut entry, &mut text).map_err(|e| e.to_string())?;
+    for line in String::from_utf8_lossy(&text).lines() {
+        if let Some(v) = line.strip_prefix("Main-Class: ") {
+            return Ok(v.trim().to_string());
+        }
+        // MANIFEST 续行以空格开头
+        if let Some(rest) = line.strip_prefix(' ') {
+            let _ = rest;
+        }
+    }
+    Err(format!("{} 的 MANIFEST 缺少 Main-Class", jar.display()))
+}
+
+/// maven 坐标 → 库文件路径，支持 `@ext` 后缀（如 mappings@txt）
+fn maven_artifact_path(coord: &str) -> Option<PathBuf> {
+    let (coord, ext) = match coord.split_once('@') {
+        Some((c, e)) => (c, e),
+        None => (coord, "jar"),
+    };
+    let mut p = crate::models::maven_to_path(coord)?;
+    let fname = p.file_name()?.to_string_lossy().to_string();
+    let stem = fname.strip_suffix(".jar")?;
+    p.set_file_name(format!("{stem}.{ext}"));
+    Some(p)
+}
+
 async fn forge_patch(
     app: &tauri::AppHandle,
     state: &AppState,
@@ -550,6 +935,16 @@ async fn forge_patch(
             &source,
         );
         download_many(app.clone(), state, task_id, "loader", vec![item]).await?;
+        emit_progress(
+            app,
+            task_id,
+            "done",
+            &format!("{installer_name} {full_ver} 安装器就绪"),
+            1,
+            1,
+            instance,
+            &source,
+        );
     }
 
     let profile_bytes = crate::util::read_zip_entry(&installer_path, "install_profile.json")
@@ -562,11 +957,66 @@ async fn forge_patch(
         .replace("${forgeVersion}", &version)
         .replace("${neoForgeVersion}", &version);
     let profile: serde_json::Value = serde_json::from_str(&replaced).map_err(|e| e.to_string())?;
-    let version_info = profile
-        .get("versionInfo")
-        .ok_or("install_profile.json 中缺少 versionInfo")?;
-    let mut patched: VersionJson = serde_json::from_value(version_info.clone())
-        .map_err(|e| format!("解析 versionInfo 失败: {e}"))?;
+
+    // 两种安装器格式：
+    //   旧版（≤1.16）：install_profile.json 顶层有 versionInfo，即版本 json；
+    //   新版（≥1.17）：install_profile.json 只有 processors 等安装任务，
+    //     版本信息在 zip 内独立的 version.json（libraries 含 forge client/universal，
+    //     带各自的 maven url，后续库下载流程会按 url 拉取——同 HMCL 的处理方式）。
+    let version_info = if let Some(v) = profile.get("versionInfo") {
+        v.clone()
+    } else {
+        let bytes = crate::util::read_zip_entry(&installer_path, "version.json")
+            .map_err(|e| format!("读取 version.json 失败（新版 Forge 安装器）: {e}"))?;
+        serde_json::from_slice::<serde_json::Value>(&bytes).map_err(|e| format!("解析 version.json 失败: {e}"))?
+    };
+    let mut patched: VersionJson = serde_json::from_value(version_info)
+        .map_err(|e| format!("解析 Forge 版本信息失败: {e}"))?;
+
+    // 新版安装器：forge 本体 jar（universal / client）不在 version.json 的库列表里。
+    //   - universal：install_profile.libraries 提供，downloads 元数据齐全；
+    //   - client：maven 上有现成的 {path}:client jar，与 universal 同 maven base
+    //     （安装器的 processors 链只是"从原版 jar 补丁生成"它的另一条路，
+    //     直接用 maven 现成产物，与 HMCL 的处理一致）。
+    // 注意：install_profile.libraries 的其余条目（jopt-simple 6.x、lzma-java 等）
+    // 是 processors 安装期工具链，不能进运行时 classpath——例如 jopt-simple
+    // 6.x 的模块名是 joptsimple，而 modlauncher 要求的模块名是 jopt.simple
+    // （5.0.4 的自动推导名），全量合并会直接导致模块解析失败。
+    let mut forge_maven_base: Option<String> = None;
+    if let Some(installer_libs) = profile.get("libraries").and_then(|v| v.as_array()) {
+        for lib in installer_libs {
+            let Ok(l) = serde_json::from_value::<Library>(lib.clone()) else { continue };
+            if !l.name.ends_with(":universal") {
+                continue;
+            }
+            if let Some(dl) = l.downloads.as_ref().and_then(|d| d.artifact.as_ref()) {
+                if let Some(rel) = crate::models::maven_to_path(&l.name) {
+                    let rel_s = rel.to_string_lossy().replace('\\', "/");
+                    if let Some(idx) = dl.url.find(&rel_s) {
+                        forge_maven_base = Some(dl.url[..idx].to_string());
+                    }
+                }
+            }
+            patched.libraries.push(l);
+        }
+    }
+    if let Some(path_str) = profile.get("path").and_then(|v| v.as_str()) {
+        let client_name = format!("{path_str}:client");
+        if let Some(rel) = crate::models::maven_to_path(&client_name) {
+            let rel_s = rel.to_string_lossy().replace('\\', "/");
+            let url = forge_maven_base
+                .map(|b| format!("{b}/{rel_s}"))
+                .unwrap_or_else(|| format!("https://maven.minecraftforge.net/{rel_s}"));
+            patched.libraries.push(Library {
+                name: client_name,
+                url: Some(url),
+                downloads: None,
+                rules: None,
+                natives: None,
+                extract: None,
+            });
+        }
+    }
 
     // ensure essential vanilla pieces exist
     if patched.asset_index.is_none() {
@@ -581,6 +1031,26 @@ async fn forge_patch(
     if patched.logging.is_none() {
         patched.logging = vanilla.logging.clone();
     }
+    // forge 的 version.json 只带它自己的 game args（--launchTarget/--fml.*），
+    // vanilla 的用户参数（--username/--version/--accessToken/--gameDir 等）
+    // 在 vanilla json 里——不合并的话 MC Main 报
+    // Missing required option(s) [accessToken, version]。
+    // 合并顺序：vanilla 用户参数在前，forge 追加在后。
+    if let Some(vanilla_args) = &vanilla.arguments {
+        match &mut patched.arguments {
+            Some(pa) => {
+                let mut merged = vanilla_args.game.clone().unwrap_or_default();
+                merged.extend(pa.game.take().unwrap_or_default());
+                pa.game = Some(merged);
+            }
+            None => patched.arguments = Some(vanilla_args.clone()),
+        }
+    }
+    // 新版 version.json 只含 forge 自身库，不带 vanilla 的 LWJGL natives 库；
+    // 不合并的话 install_game 没有任何带 natives 的条目可解压，启动时
+    // 报「缺少 natives 目录」。vanilla 库追加在后，重名交给 dedupe 去重。
+    patched.libraries.extend(vanilla.libraries.clone());
+    dedupe_libraries(&mut patched.libraries);
     Ok(patched)
 }
 

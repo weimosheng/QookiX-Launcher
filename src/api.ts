@@ -24,6 +24,8 @@ import type {
   TerracottaInfo,
   TerracottaLaunch,
   UpdateInfo,
+  PlaytimeStats,
+  WorldBackupInfo,
 } from "./types";
 
 /**
@@ -142,6 +144,20 @@ export const api = {
   importInstanceImage: (sourcePath: string) => invoke<string>("import_instance_image", { sourcePath }),
   importBackgroundImage: (sourcePath: string) => invoke<string>("import_background_image", { sourcePath }),
   scanMinecraftImport: (source: string) => invoke<void>("scan_minecraft_import", { source }),
+  exportInstancePack: (instanceId: string, destPath: string, options: Record<string, boolean>) =>
+    invoke<number>("export_instance_pack", { instanceId, destPath, options }),
+  importInstancePack: (filePath: string) =>
+    invoke<{ instance: Instance; pendingDownloads: number }>("import_instance_pack", { filePath }),
+  playtimeStats: () => invoke<PlaytimeStats>("playtime_stats"),
+  logDebug: (msg: string) => invoke<void>("log_debug", { msg }, { silent: true }),
+  listWorldBackups: (instanceId: string, world: string) =>
+    invoke<WorldBackupInfo[]>("list_world_backups", { instanceId, world }),
+  createWorldBackup: (instanceId: string, world: string) =>
+    invoke<WorldBackupInfo>("create_world_backup", { instanceId, world }),
+  restoreWorldBackup: (instanceId: string, world: string, filename: string) =>
+    invoke<void>("restore_world_backup", { instanceId, world, filename }),
+  deleteWorldBackup: (instanceId: string, world: string, filename: string) =>
+    invoke<void>("delete_world_backup", { instanceId, world, filename }),
   estimateDownload: (mcVersion: string) =>
     invoke<{
       download_files: number;

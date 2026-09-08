@@ -663,3 +663,86 @@ pub fn ensure_file(path: &Path, content: &str) -> std::io::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod diag {
+    use super::*;
+
+    /// 诊断：用与主程序一致的 client 配置下载 RLCraft 整合包（51MB），
+    /// 复现「CurseForge 整合包点了安装没反应」。分别测 system 代理与 direct 直连。
+    /// 运行：cargo test diag_cf_modpack_download -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore]
+    async fn diag_cf_modpack_download() {
+        let url = "https://edge.forgecdn.net/files/4612/979/RLCraft%201.12.2%20-%20Release%20v2.9.3.zip";
+        for mode in ["system", "direct"] {
+            let dest = std::env::temp_dir().join(format!("qookix-diag-rlcraft-{mode}.zip"));
+            let _ = std::fs::remove_file(&dest);
+            let _ = std::fs::remove_file(dest.with_extension("part"));
+            let item = DownloadItem {
+                url: url.into(),
+                dest: dest.clone(),
+                sha1: None,
+                sha512: None,
+                size: Some(51324367),
+                label: "RLCraft.zip".into(),
+            };
+            let client = crate::settings::http_client(mode, None);
+            let started = std::time::Instant::now();
+            let on_progress = |_w: u64, _c: u64| {};
+            let r = download_one(&client, &item, "", &on_progress, 4).await;
+            let size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+            println!(
+                "== [{mode}] 耗时 {:?}，结果 {:?}，文件 {}B ==",
+                started.elapsed(),
+                &r,
+                size
+            );
+            let _ = std::fs::remove_file(&dest);
+        }
+    }
+
+    /// 诊断： CurseForge API 请求（与 install_modpack 同一条 client/key 链路）。
+    #[tokio::test]
+    #[ignore]
+    async fn diag_cf_api_get() {
+        use std::collections::HashMap;
+        use std::sync::{Arc, Mutex, RwLock};
+        let key = std::env::var("CURSEFORGE_API_KEY").unwrap_or_default();
+        if key.is_empty() {
+            println!("!! 未设置 CURSEFORGE_API_KEY，跳过");
+            return;
+        }
+        for mode in ["system", "direct"] {
+            let mut settings = crate::models::Settings::default();
+            settings.curseforge_api_key = Some(key.clone());
+            let root = std::env::temp_dir().join(format!("qookix-diag-cf-api-{mode}"));
+            let _ = std::fs::create_dir_all(&root);
+            let state = crate::state::AppState {
+                root,
+                settings: RwLock::new(settings),
+                client: crate::settings::http_client(mode, None),
+                semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
+                game_pids: Arc::new(Mutex::new(HashMap::new())),
+                server_pids: Arc::new(Mutex::new(HashMap::new())),
+                server_senders: Arc::new(Mutex::new(HashMap::new())),
+                task_counter: std::sync::atomic::AtomicU64::new(1),
+                install_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                ms_flow: Arc::new(Mutex::new(None)),
+                java_cache: Mutex::new(None),
+                terracotta: Mutex::new(None),
+                pending_update: Mutex::new(None),
+            };
+            let started = std::time::Instant::now();
+            let r = crate::curseforge::search(&state, "RLCraft", "modpack", 0, 0, 3, "", "", "relevance").await;
+            println!(
+                "== [{mode}] CF API 耗时 {:?}，{} ==",
+                started.elapsed(),
+                match &r {
+                    Ok(v) => format!("OK hits={}", v.get("hits").and_then(|h| h.as_array()).map(|a| a.len()).unwrap_or(0)),
+                    Err(e) => format!("ERR: {e}"),
+                }
+            );
+        }
+    }
+}

@@ -20,6 +20,7 @@ import LogViewer from "../components/LogViewer.vue";
 import FileManager from "../components/FileManager.vue";
 import CrashAnalyzer from "../components/CrashAnalyzer.vue";
 import AppIcon from "../components/AppIcon.vue";
+import ExportDialog from "../components/instance/ExportDialog.vue";
 import ContentTab from "../components/instance/ContentTab.vue";
 import SavesTab from "../components/instance/SavesTab.vue";
 import SettingsTab from "../components/instance/SettingsTab.vue";
@@ -212,6 +213,23 @@ function openTabFolder() {
   openFolder(t?.folder);
 }
 
+// ---- 安装游戏本体（导入分享包后的实例需要）----
+const installingGame = ref(false);
+async function installGame() {
+  installingGame.value = true;
+  try {
+    await instances.installGame(instanceId);
+    message.success("游戏本体已安装");
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    installingGame.value = false;
+  }
+}
+
+// ---- 导出分享包 ----
+const showExport = ref(false);
+
 function removeInstance() {
   const isSymlink = instance.value?.is_symlink;
   confirmState.value = {
@@ -330,10 +348,23 @@ watch(
         <button class="btn ghost" title="打开游戏目录" @click="openFolder()">
           <IconFolder />
         </button>
+        <button class="btn ghost" title="导出分享包" @click="showExport = true">
+          <IconExternal />
+        </button>
         <button class="btn danger" title="删除实例" @click="removeInstance">
           <IconTrash />
         </button>
       </div>
+    </div>
+
+    <div v-if="!instance.installed" class="not-installed glass">
+      <div>
+        <h3>游戏本体尚未安装</h3>
+        <p>安装 MC {{ instance.mc_version }} 本体后即可启动（mod 已就绪的不受影响）</p>
+      </div>
+      <button class="btn primary" :disabled="installingGame" @click="installGame">
+        <IconPlay /> {{ installingGame ? "安装中…" : "安装游戏" }}
+      </button>
     </div>
 
     <div v-if="instance.is_symlink" class="symlink-notice glass">
@@ -455,6 +486,8 @@ watch(
     >
       <img ref="previewCardRef" :src="previewImg" class="preview-img" alt="" />
     </n-modal>
+
+    <ExportDialog :instance-id="instanceId" :instance-name="instance?.name ?? 'instance'" v-model:show="showExport" />
   </div>
   <div v-else class="center">实例不存在或已删除</div>
 </template>
@@ -578,6 +611,24 @@ watch(
 .btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+.not-installed {
+  padding: 20px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  border-color: rgba(224, 160, 48, 0.35);
+}
+.not-installed h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  color: #e0a030;
+}
+.not-installed p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 13px;
 }
 .tabs {
   position: relative;

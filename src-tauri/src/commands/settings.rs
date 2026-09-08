@@ -9,6 +9,13 @@ use tauri::State;
 // Settings & Java
 // ---------------------------------------------------------------------------
 
+/// 临时诊断命令：把前端的关键步骤写进 %TEMP%/qookix-install-debug.log。
+/// 打包成 GUI 后看不到 console，前端排查线上问题只能靠落盘。
+#[tauri::command]
+pub fn log_debug(msg: String) {
+    crate::util::log_line(&msg);
+}
+
 #[tauri::command]
 pub fn get_settings(state: State<AppState>) -> Result<Settings, String> {
     Ok(state.settings.read().unwrap().clone())

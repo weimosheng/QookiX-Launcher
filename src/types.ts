@@ -232,6 +232,28 @@ export interface InstalledContent {
   enabled: boolean;
 }
 
+/** 世界存档备份快照元信息 */
+export interface WorldBackupInfo {
+  filename: string;
+  size: number;
+  /** unix 秒 */
+  modified: number;
+}
+
+/** 游玩时长统计（后端聚合） */
+export interface PlaytimeStats {
+  totalSeconds: number;
+  byInstance: {
+    id: string;
+    name: string;
+    icon: string | null;
+    seconds: number;
+    lastPlayed: number | null;
+  }[];
+  /** 最近 30 天，day 为 (unix+8h)/86400 的天数索引 */
+  byDay: { day: number; seconds: number }[];
+}
+
 export interface UpdateInfo {
   filename: string;
   projectId: string;

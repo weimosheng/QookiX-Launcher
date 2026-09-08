@@ -826,6 +826,24 @@ fn build_args(ctx: &LaunchContext) -> Vec<String> {
         args.push(ctx.classpath.clone());
     }
 
+    // Forge 1.17+：bootstraplauncher 从 legacyClassPath 系统属性读取模块 jar
+    // 列表（fmlloader、forge universal 等），缺失时 ServiceLoader 找不到
+    // BootstrapLaunchConsumer 直接 NoSuchElementException 启动失败。
+    // 用主类判断（LaunchContext 未携带实例信息）。
+    if ctx
+        .version_json
+        .main_class
+        .as_deref()
+        .map(|m| m.contains("bootstraplauncher"))
+        .unwrap_or(false)
+    {
+        args.push(format!("-DlegacyClassPath={}", ctx.classpath));
+        // forge 的 version.json 不带 -Djava.library.path（vanilla 才有），
+        // 而 fmlearlydisplay 会在模块层里初始化 GLFW——不补这个参数
+        // LWJGL 找不到 natives 根目录下的 dll，启动直接崩。
+        args.push(substitute("-Djava.library.path=${natives_directory}", ctx, &mut features));
+    }
+
     // logging config
     if let Some(logging) = &ctx.version_json.logging {
         if let Some(client) = &logging.client {

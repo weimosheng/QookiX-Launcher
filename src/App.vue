@@ -2,6 +2,7 @@
 import { onMounted, onBeforeUnmount, computed, watch, ref, provide } from "vue";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { darkTheme, lightTheme, NConfigProvider, NDialogProvider, NLoadingBarProvider, NMessageProvider, NNotificationProvider } from "naive-ui";
+import { api } from "./api";
 import TitleBar from "./components/TitleBar.vue";
 import SideBar from "./components/SideBar.vue";
 import LoadingBarBridge from "./components/LoadingBarBridge.vue";
@@ -136,8 +137,28 @@ async function boot() {
   }, 340);
 }
 
-onMounted(() => {
+// 全局监听：分享包导入后游戏本体自动安装失败（后端无法直接弹 toast）
+let unlistenShareErr: (() => void) | null = null;
+onMounted(async () => {
   void boot();
+  // 对照探针：验证「前端 → log_debug → 落盘」这条日志通道本身可用
+  api.logDebug("[fe] App 启动，日志通道自检");
+  try {
+    const { listen } = await import("@tauri-apps/api/event");
+    const { notifyError } = await import("./composables/notify");
+    unlistenShareErr = await listen<{ instanceId: string; error: string }>(
+      "share-import://game-install-failed",
+      (ev) => {
+        notifyError(`游戏本体自动安装失败：${ev.payload.error}`);
+      }
+    );
+  } catch {
+    /* 监听不可用不影响主流程 */
+  }
+});
+onBeforeUnmount(() => {
+  unlistenShareErr?.();
+  unlistenShareErr = null;
 });
 </script>
 

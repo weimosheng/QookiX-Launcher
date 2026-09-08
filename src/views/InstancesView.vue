@@ -3,7 +3,10 @@ import { computed, onMounted, ref, watch, inject } from "vue";
 import { useRouter } from "vue-router";
 import { useInstancesStore } from "../stores/instances";
 import InstanceCard from "../components/InstanceCard.vue";
+import PlaytimeCard from "../components/PlaytimeCard.vue";
 import { useMessage, NModal, NButton, NInput } from "naive-ui";
+import { open as dialogOpen } from "@tauri-apps/plugin-dialog";
+import { api } from "../api";
 import type { Instance, InstanceGroup } from "../types";
 import {
   IconChevronDown,
@@ -52,6 +55,31 @@ const confirmState = ref<{
   onOk: () => void | Promise<void>;
 } | null>(null);
 const confirmLoading = ref(false);
+
+// ---- 导入实例分享包 ----
+const importingPack = ref(false);
+async function importPack() {
+  const file = await dialogOpen({
+    multiple: false,
+    filters: [{ name: "QookiX 实例分享包", extensions: ["qkxinst"] }],
+  });
+  if (!file) return;
+  importingPack.value = true;
+  try {
+    const r = await api.importInstancePack(file as string);
+    message.success(
+      r.pendingDownloads > 0
+        ? `「${r.instance.name}」导入成功，游戏本体与 ${r.pendingDownloads} 个在线内容正在后台下载`
+        : `「${r.instance.name}」导入成功，游戏本体正在后台安装`
+    );
+    await instances.refresh();
+    router.push(`/instance/${r.instance.id}`);
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    importingPack.value = false;
+  }
+}
 
 async function handleConfirm() {
   if (!confirmState.value) return;
@@ -214,6 +242,7 @@ async function moveTo(groupId: string | null) {
     <div v-if="instances.loading" class="loading">加载中…</div>
 
     <template v-else-if="totalCount">
+      <PlaytimeCard />
       <div class="toolbar">
         <div class="chips">
           <button
@@ -240,6 +269,9 @@ async function moveTo(groupId: string | null) {
             @click="filter = 'ungrouped'"
           >
             未分组 <span class="chip-count">{{ instances.ungrouped.length }}</span>
+          </button>
+          <button class="chip import-chip" :disabled="importingPack" @click="importPack">
+            <IconPlus /> 导入分享包
           </button>
         </div>
       </div>

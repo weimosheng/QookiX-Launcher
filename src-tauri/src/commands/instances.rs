@@ -6,6 +6,7 @@ use crate::modrinth;
 use crate::state::AppState;
 use serde_json::{json, Value};
 use tauri::Emitter;
+use tauri::Manager;
 use tauri::State;
 
 // Instances
@@ -122,9 +123,26 @@ pub async fn launch_instance(
     world: Option<String>,
     server: Option<String>,
 ) -> Result<LaunchResult, String> {
-    let instance = crate::instances::get_instance(&state, &instance_id)?;
+    // 启动失败时悬浮进度卡没有其它收尾信号（launch://log 只在游戏真正
+    // 跑起来、launch://exit 只在进程退出时发），不补发的话卡片会永远
+    // 停在当前百分比。这里统一兜底：失败即广播 exit 收起卡片。
+    let result = launch_instance_inner(&app, &state, &instance_id, world, server).await;
+    if result.is_err() {
+        let _ = app.emit("launch://exit", serde_json::json!({}));
+    }
+    result
+}
+
+async fn launch_instance_inner(
+    app: &tauri::AppHandle,
+    state: &State<'_, AppState>,
+    instance_id: &str,
+    world: Option<String>,
+    server: Option<String>,
+) -> Result<LaunchResult, String> {
+    let instance = crate::instances::get_instance(state, instance_id)?;
     // resolve account: instance override -> global selected -> first
-    let accounts = accounts::load_accounts(&state);
+    let accounts = accounts::load_accounts(state);
     let selected = {
         let s = state.settings.read().unwrap();
         s.selected_account.clone()
@@ -254,5 +272,182 @@ pub async fn list_instance_files(
     .await
     .map_err(|e| e.to_string())??;
     Ok(json!({ "files": files }))
+}
+
+// ---------------------------------------------------------------------------
+// Playtime stats / instance export & import
+// ---------------------------------------------------------------------------
+
+/// 游玩时长统计：实例排行 + 近 30 天按天曲线
+#[tauri::command]
+pub fn playtime_stats(state: State<AppState>) -> Result<Value, String> {
+    let all = crate::instances::load_instances(&state);
+    let mut by_instance: Vec<Value> = all
+        .iter()
+        .map(|i| {
+            json!({
+                "id": i.id,
+                "name": i.name,
+                "icon": i.icon,
+                "seconds": i.total_play_time,
+                "lastPlayed": i.last_played,
+            })
+        })
+        .collect();
+    by_instance.sort_by(|a, b| {
+        let sa = a["seconds"].as_u64().unwrap_or(0);
+        let sb = b["seconds"].as_u64().unwrap_or(0);
+        sb.cmp(&sa)
+    });
+    let total: u64 = all.iter().map(|i| i.total_play_time).sum();
+
+    // 按天：只返回最近 30 天（day → 秒）
+    let daily = crate::instances::daily_play_time(state.inner());
+    let today = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        + 8 * 3600)
+        / 86400;
+    let by_day: Vec<Value> = (0..30)
+        .rev()
+        .filter_map(|offset| {
+            let day = today - offset;
+            let secs = daily.get(&day.to_string()).copied().unwrap_or(0);
+            Some(json!({ "day": day, "seconds": secs }))
+        })
+        .collect();
+
+    Ok(json!({
+        "totalSeconds": total,
+        "byInstance": by_instance,
+        "byDay": by_day,
+    }))
+}
+
+/// 导出实例分享包（.qkxinst，zip：元信息 + 内容文件）。返回打包的内容条数。
+#[tauri::command]
+pub fn export_instance_pack(
+    state: State<AppState>,
+    instance_id: String,
+    dest_path: String,
+    options: crate::instance_share::ExportOptions,
+) -> Result<usize, String> {
+    crate::instance_share::export_pack(
+        state.inner(),
+        &instance_id,
+        std::path::Path::new(&dest_path),
+        options,
+    )
+}
+
+/// 导入实例分享包：新建实例并还原包内内容；
+/// 在线来源（Modrinth/CurseForge）且包内无文件的条目在后台逐个重新下载。
+#[tauri::command]
+pub async fn import_instance_pack(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    file_path: String,
+) -> Result<Value, String> {
+    let (id, pending) =
+        crate::instance_share::import_pack(state.inner(), std::path::Path::new(&file_path))?;
+    let instance = crate::instances::get_instance(&state, &id)?;
+    let pending_count = pending.len();
+
+    // 后台串起整个补装流程：
+    //   1) 游戏本体（MC + 资产 + 库）
+    //   2) 在线内容 4 路并发补下载
+    //   3) 兜底再标一次「已安装」
+    // 第 3 步是必须的：mods 安装内部 save_instance 持有的是导入时的旧实例
+    // 副本（installed=false），会把第 1 步标记的已安装状态覆盖回去。
+    let app2 = app.clone();
+    let iid = id.clone();
+    tauri::async_runtime::spawn(async move {
+        // 1) 游戏本体；失败不阻塞内容下载（详情页有手动安装入口）
+        let mut install_ok = false;
+        let res: Result<(), String> = async {
+            let state = app2.state::<crate::state::AppState>();
+            let inst = crate::instances::get_instance(&state, &iid)?;
+            crate::install::install_game(app2.clone(), &state, &inst).await?;
+            let _ = crate::util::log_best_effort(
+                "mark_installed",
+                crate::instances::mark_installed(&state, &iid),
+            );
+            Ok(())
+        }
+        .await;
+        if let Err(e) = res {
+            // 失败原因直接弹给前端（只靠终端日志用户看不到）
+            let _ = app2.emit(
+                "share-import://game-install-failed",
+                serde_json::json!({ "instanceId": iid.clone(), "error": e }),
+            );
+        } else {
+            install_ok = true;
+        }
+
+        // 2) 在线内容补下载（4 路并发：串行太慢，全并发会挤爆 API 限流）
+        if !pending.is_empty() {
+            use futures_util::StreamExt;
+            futures_util::stream::iter(pending)
+                .for_each_concurrent(4, |d| {
+                    let app = app2.clone();
+                    let id = iid.clone();
+                    async move {
+                        let res: Result<Value, String> = async {
+                            let state = app.state::<crate::state::AppState>();
+                            // 每次重新取实例：前一次安装会更新实例记录
+                            let inst = crate::instances::get_instance(&state, &id)?;
+                            match d.provider.as_str() {
+                                "modrinth" => {
+                                    crate::modrinth::install_version(
+                                        app.clone(),
+                                        &state,
+                                        &inst,
+                                        &d.version_id,
+                                        &d.kind,
+                                    )
+                                    .await
+                                }
+                                "curseforge" => {
+                                    crate::curseforge::install_file(
+                                        app.clone(),
+                                        &state,
+                                        &inst,
+                                        &d.project_id,
+                                        &d.version_id,
+                                        &d.kind,
+                                    )
+                                    .await
+                                }
+                                _ => Err("未知内容源".into()),
+                            }
+                        }
+                        .await;
+                        if let Err(e) = res {
+                            eprintln!(
+                                "[share-import] 补下载失败（{} {}）: {e}",
+                                d.provider,
+                                d.name.unwrap_or_else(|| d.version_id.clone())
+                            );
+                        }
+                    }
+                })
+                .await;
+        }
+
+        // 3) 兜底标记已安装——仅在本体安装成功时。
+        //    mods 安装内部 save_instance 持有旧实例副本（installed=false），
+        //    会把已安装状态覆盖回去，所以成功时最后再标一次；
+        //    本体安装失败则保持未安装，让详情页提示条出现、用户可手动装。
+        if install_ok {
+            let state = app2.state::<crate::state::AppState>();
+            let _ = crate::util::log_best_effort(
+                "mark_installed",
+                crate::instances::mark_installed(&state, &iid),
+            );
+        }
+    });
+    Ok(json!({ "instance": instance, "pendingDownloads": pending_count }))
 }
 

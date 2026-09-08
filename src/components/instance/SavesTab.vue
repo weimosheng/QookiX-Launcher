@@ -8,19 +8,21 @@ import { onMounted, ref, watch } from "vue";
 import { useInstancesStore } from "../../stores/instances";
 import { useAccountsStore } from "../../stores/accounts";
 import { usePinsStore } from "../../stores/pins";
-import { useMessage } from "naive-ui";
+import { NButton, NModal, useMessage } from "naive-ui";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api } from "../../api";
 import { supportsQuickPlay } from "../../version";
-import { fmtDateLocale as fmtDate, latencyInfo } from "../../utils/format";
+import { fmtDateLocale as fmtDate, fmtSize, latencyInfo } from "../../utils/format";
 import {
+  IconBox,
   IconFolder,
   IconGlobe,
   IconMapPin,
   IconPlay,
   IconRefresh,
+  IconTrash,
 } from "../icons";
-import type { ServerEntry, ServerStatus } from "../../types";
+import type { ServerEntry, ServerStatus, WorldBackupInfo } from "../../types";
 
 const props = defineProps<{ instanceId: string }>();
 
@@ -253,6 +255,69 @@ function parseMotd(raw?: string | null): Array<{ text: string; color: string | n
   return out;
 }
 
+// ---- 存档备份 ----
+const backupOpen = ref(false);
+const backupWorld = ref("");
+const backups = ref<WorldBackupInfo[]>([]);
+const loadingBackups = ref(false);
+const backingUp = ref(false);
+const restoring = ref("");
+
+async function loadBackups(world: string) {
+  loadingBackups.value = true;
+  try {
+    backups.value = await api.listWorldBackups(props.instanceId, world);
+  } catch (e) {
+    backups.value = [];
+    message.error(String(e));
+  } finally {
+    loadingBackups.value = false;
+  }
+}
+
+function openBackups(world: string) {
+  backupWorld.value = world;
+  backupOpen.value = true;
+  loadBackups(world);
+}
+
+async function createBackup() {
+  backingUp.value = true;
+  try {
+    await api.createWorldBackup(props.instanceId, backupWorld.value);
+    message.success("备份完成");
+    await loadBackups(backupWorld.value);
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    backingUp.value = false;
+  }
+}
+
+async function restoreBackup(filename: string) {
+  restoring.value = filename;
+  try {
+    // 恢复前後端会自动为当前存档留一份安全快照，不会丢档
+    await api.restoreWorldBackup(props.instanceId, backupWorld.value, filename);
+    message.success("已恢复，当前存档恢复前的状态也自动留了一份备份");
+    await loadBackups(backupWorld.value);
+    await loadFiles();
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    restoring.value = "";
+  }
+}
+
+async function deleteBackup(filename: string) {
+  try {
+    await api.deleteWorldBackup(props.instanceId, backupWorld.value, filename);
+    await loadBackups(backupWorld.value);
+  } catch (e) {
+    message.error(String(e));
+  }
+}
+
 onMounted(() => {
   loadFiles();
 });
@@ -294,6 +359,13 @@ watch(
             </div>
           </div>
           <div class="c-actions">
+            <button
+              class="mini-btn"
+              title="备份 / 恢复"
+              @click="openBackups(f.name)"
+            >
+              <IconBox /> 备份
+            </button>
             <button
               class="mini-btn pin"
               :class="{ active: pins.isPinned(worldPinId(f.name)) }"
@@ -379,6 +451,48 @@ watch(
         </div>
       </div>
     </template>
+
+    <!-- 备份管理弹窗 -->
+    <n-modal
+      v-model:show="backupOpen"
+      preset="card"
+      :title="`存档备份：${backupWorld}`"
+      style="width: 560px; max-width: 94vw"
+      :mask-closable="true"
+      :close-on-esc="true"
+    >
+      <div class="bk-body">
+        <div class="bk-toolbar">
+          <span class="hint">备份保存在实例目录 backups/ 下，恢复前会自动为当前存档留一份快照</span>
+          <n-button size="small" type="primary" :loading="backingUp" @click="createBackup">
+            创建备份
+          </n-button>
+        </div>
+        <div v-if="loadingBackups" class="center">加载中…</div>
+        <div v-else-if="!backups.length" class="center">还没有备份</div>
+        <div v-else class="bk-list">
+          <div v-for="b in backups" :key="b.filename" class="bk-row">
+            <div class="c-info">
+              <div class="c-name">{{ fmtDate(b.modified) }}</div>
+              <div class="c-meta"><span class="ver">{{ fmtSize(b.size) }}</span></div>
+            </div>
+            <div class="c-actions">
+              <n-button
+                size="small"
+                type="warning"
+                :loading="restoring === b.filename"
+                @click="restoreBackup(b.filename)"
+              >
+                恢复
+              </n-button>
+              <button class="bk-del" title="删除备份" @click="deleteBackup(b.filename)">
+                <IconTrash />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </n-modal>
   </div>
 </template>
 
@@ -587,5 +701,54 @@ watch(
   font-size: 12px;
   color: var(--text-3);
   margin-top: 4px;
+}
+.bk-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.bk-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.bk-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.bk-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.bk-row:last-child {
+  border-bottom: none;
+}
+.bk-row .c-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.bk-del {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.12s;
+}
+.bk-del:hover {
+  color: #e5534b;
+  border-color: rgba(229, 83, 75, 0.5);
 }
 </style>

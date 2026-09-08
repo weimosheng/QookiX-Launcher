@@ -182,6 +182,9 @@ function resetForProject() {
 
 async function onOpen() {
   if (!props.show) return;
+  api.logDebug(
+    `[fe] 对话框打开 project=${props.project?.provider}/${props.project?.id} type=${props.project?.project_type}`
+  );
   resetForProject();
 }
 
@@ -199,31 +202,46 @@ function depLabel(t: string) {
 
 async function install() {
   if (!props.project) return;
+  api.logDebug(
+    `[fe] install() 进入 provider=${props.project.provider} id=${props.project.id} type=${props.project.project_type} isModpack=${isModpack.value} versions=${versions.value.length}`
+  );
   if (!isModpack.value && !selectedInstance.value) {
+    api.logDebug("[fe] 拦截：未选择实例");
     message.warning("请选择一个实例");
     return;
   }
   if (!selectedVersion.value) {
+    api.logDebug(`[fe] 拦截：未选择版本 selectedVersion=${String(selectedVersion.value)}`);
     message.warning(versions.value.length ? "请选择一个版本" : "该 mod 没有可用版本，可能不兼容当前实例或加载失败");
     return;
   }
+  api.logDebug(
+    `[fe] 发起 invoke instanceId=${String(selectedInstance.value)} version=${String(selectedVersion.value)} kind=${props.project.project_type}`
+  );
   installing.value = true;
-  message.success("已添加到下载队列");
-  try {
-    await api.installContent(
+  message.success(isModpack.value ? "已开始安装，进度见下载中心" : "已添加到下载队列");
+  // 整合包安装是长任务（下载整包 + 逐个拉取 mod 元数据 + 装游戏本体），
+  // 不阻塞对话框——立即关闭，进度与成败都通过 install://progress 事件进下载中心。
+  api
+    .installContent(
       selectedInstance.value ?? "",
       props.project.provider,
       props.project.id,
       selectedVersion.value,
       props.project.project_type
-    );
-    message.success("安装完成");
-    emit("update:show", false);
-  } catch (e) {
-    message.error(String(e));
-  } finally {
-    installing.value = false;
-  }
+    )
+    .then((r) => {
+      api.logDebug(`[fe] 返回成功 ${JSON.stringify(r)}`);
+      if (!isModpack.value) message.success("安装完成");
+    })
+    .catch((e) => {
+      api.logDebug(`[fe] 返回失败 ${String(e)}`);
+      message.error(String(e));
+    })
+    .finally(() => {
+      installing.value = false;
+    });
+  emit("update:show", false);
 }
 
 </script>
@@ -322,15 +340,23 @@ async function install() {
       <div v-if="!isModpack && !instances.instances.length" class="id-noinst">
         还没有实例，<a @click="emit('update:show', false); router.push('/instances')">先去创建实例</a>
       </div>
-    </div>
-    <template #footer>
+
+      <!-- 操作按钮放在内容区内（而非 #footer）：
+           版本列表较长时会把窗口撑高，footer 会跑到视口外点不到。 -->
       <div class="id-footer">
         <n-button @click="emit('update:show', false)">关闭</n-button>
-        <n-button type="primary" :loading="installing" @click="install">
+        <n-button
+          type="primary"
+          :loading="installing"
+          @click="
+            api.logDebug('[fe] 一键安装按钮被点击');
+            install();
+          "
+        >
           一键安装
         </n-button>
       </div>
-    </template>
+    </div>
   </n-modal>
 </template>
 

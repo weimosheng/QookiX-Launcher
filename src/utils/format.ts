@@ -131,6 +131,13 @@ export function fmtCount(n: number): string {
   return String(n);
 }
 
+/** 秒数 → "12.5 小时" / "45 分钟" / "30 秒"（游玩时长口径） */
+export function fmtDuration(sec: number): string {
+  if (sec >= 3600) return (sec / 3600).toFixed(1) + " 小时";
+  if (sec >= 60) return Math.round(sec / 60) + " 分钟";
+  return `${Math.round(sec)} 秒`;
+}
+
 // ---------------------------------------------------------------- 实例 ----
 
 /**

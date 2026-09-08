@@ -44,9 +44,11 @@ pub fn file_sha256(path: &Path) -> Option<String> {
 
 /// Best-effort 文件系统操作兜底：失败仅记录日志（操作 + 路径 + 原因），不中断流程。
 /// 用于替代完全吞掉错误的 `let _ = std::fs::xxx(...)`，让故障可排查。
+/// 「文件/目录不存在」不算故障（清理类操作对首次运行本来就没东西可删），静默跳过。
 pub fn fs_best_effort<T>(op: &str, path: &Path, result: std::io::Result<T>) -> Option<T> {
     match result {
         Ok(v) => Some(v),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => {
             eprintln!("[fs] {op} {} 失败: {e}", path.display());
             None
@@ -61,8 +63,29 @@ pub fn log_best_effort<T>(what: &str, result: Result<T, String>) -> Option<T> {
         Ok(v) => Some(v),
         Err(e) => {
             eprintln!("[best-effort] {what} 失败: {e}");
+            log_line(&format!("[best-effort] {what} 失败: {e}"));
             None
         }
+    }
+}
+
+/// 落盘诊断日志（追加写）。
+/// Windows 上打包为 GUI 子系统，没有控制台，`eprintln!` 的输出用户看不到，
+/// 所以排查线上问题时改为写文件：%TEMP%/qookix-install-debug.log
+pub fn log_line(msg: &str) {
+    let path = std::env::temp_dir().join("qookix-install-debug.log");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let line = format!("[{now}] {msg}\n");
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        use std::io::Write;
+        let _ = f.write_all(line.as_bytes());
     }
 }
 

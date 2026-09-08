@@ -553,7 +553,9 @@ pub async fn install_modpack(
 ) -> Result<Value, String> {
     let task_id = state.next_task_id();
     let app_err = app.clone();
+    crate::util::log_line(&format!("[cf_modpack] 开始安装 modpack={modpack_id} file={file_id} task={task_id}"));
     let result = install_modpack_inner(app, state, task_id, modpack_id, file_id).await;
+    crate::util::log_line(&format!("[cf_modpack] 结束 task={task_id}，结果: {:?}", result.as_ref().map(|_| "Ok")));
     if let Err(ref e) = result {
         let _ = app_err.emit(
             "install://progress",
@@ -589,6 +591,7 @@ async fn install_modpack_inner(
         .to_string();
     let url = file_download_url(file);
     let size = file.get("fileLength").and_then(|v| v.as_u64()).unwrap_or(0);
+    crate::util::log_line(&format!("[cf_modpack] 文件元数据 OK: {filename} url={url} size={size}"));
 
     let dl_dir = state.root.join("runtimes");
     std::fs::create_dir_all(&dl_dir).map_err(|e| e.to_string())?;
@@ -618,11 +621,13 @@ async fn install_modpack_inner(
         &source,
     );
     crate::download::download_many(app.clone(), state, task_id, "modpack", vec![items[0].clone()]).await?;
+    crate::util::log_line("[cf_modpack] 整包 zip 下载完成");
 
     // detect pack metadata and create a new instance
     let (pack_name, mc_version, loader, loader_version) =
         crate::modpack::detect(&pack_path).await
             .map_err(|e| format!("解析整合包失败: {e}（文件: {}）", pack_path.display()))?;
+    crate::util::log_line(&format!("[cf_modpack] 解析成功: {pack_name} mc={mc_version} lv={loader_version}"));
     let instance = crate::instances::create_instance(
         state,
         pack_name.clone(),
@@ -654,6 +659,7 @@ async fn install_modpack_inner(
     let manifest: Value = serde_json::from_slice(&manifest_bytes).map_err(|e| e.to_string())?;
     let files = manifest.get("files").and_then(|f| f.as_array()).cloned().unwrap_or_default();
     let total_files = files.len();
+    crate::util::log_line(&format!("[cf_modpack] manifest 含 {total_files} 个文件，实例 {} 创建完成", instance.id));
 
     // Phase 1: fetch metadata for all mods, collect download items + records
     let mut dl_items: Vec<crate::download::DownloadItem> = Vec::new();
@@ -732,6 +738,7 @@ async fn install_modpack_inner(
         &source,
     );
     crate::download::download_many(app.clone(), state, task_id, "modpack", dl_items).await?;
+    crate::util::log_line(&format!("[cf_modpack] {} 个模组下载完成", mod_records.len()));
 
     // batch-add all mod records in one save
     let mods_count = mod_records.len();

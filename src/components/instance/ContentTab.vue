@@ -53,6 +53,22 @@ const updates = ref<Record<string, UpdateInfo>>({});
 const checkingUpdates = ref(false);
 const loadingContent = ref(false);
 
+// 搜索过滤：匹配文件名 / 名称 / 中文名 / slug
+const filterText = ref("");
+const filteredItems = computed(() => {
+  const q = filterText.value.trim().toLowerCase();
+  if (!q) return contentItems.value;
+  return contentItems.value.filter((it) => {
+    const r = it.record;
+    return (
+      r.filename.toLowerCase().includes(q) ||
+      (r.name ?? "").toLowerCase().includes(q) ||
+      (r.cn_name ?? "").toLowerCase().includes(q) ||
+      (r.slug ?? "").toLowerCase().includes(q)
+    );
+  });
+});
+
 let loadSeq = 0;
 async function loadContent() {
   const seq = ++loadSeq;
@@ -349,15 +365,33 @@ defineExpose({
 
 <template>
   <div>
-    <div v-if="!loadingContent && !contentItems.length" class="empty glass">
-      <p>这里还是空的</p>
-      <div class="empty-actions">
-        <button class="btn ghost" @click="importLocal"><IconPlus /> 导入本地文件</button>
-        <button class="btn ghost" @click="router.push('/browse')">从内容中心安装</button>
-      </div>
+    <!-- 搜索过滤：仅在列表非空时显示 -->
+    <div v-if="contentItems.length > 3" class="filter-bar glass">
+      <IconSearch />
+      <input
+        v-model="filterText"
+        class="filter-input"
+        :placeholder="`在 ${contentItems.length} 个内容中搜索…`"
+      />
+      <button v-if="filterText" class="filter-clear" title="清除" @click="filterText = ''">
+        <IconClose />
+      </button>
+    </div>
+    <div v-if="!loadingContent && !filteredItems.length" class="empty glass">
+      <template v-if="contentItems.length">
+        <p>没有匹配「{{ filterText }}」的内容</p>
+        <button class="btn ghost" @click="filterText = ''">清除搜索</button>
+      </template>
+      <template v-else>
+        <p>这里还是空的</p>
+        <div class="empty-actions">
+          <button class="btn ghost" @click="importLocal"><IconPlus /> 导入本地文件</button>
+          <button class="btn ghost" @click="router.push('/browse')">从内容中心安装</button>
+        </div>
+      </template>
     </div>
     <div v-else class="content-list glass">
-      <div v-for="item in contentItems" :key="item.record.filename" class="c-row">
+      <div v-for="item in filteredItems" :key="item.record.filename" class="c-row">
         <div class="c-icon">
           <img
             v-if="item.record.icon && !iconErrors.has(item.record.filename)"
@@ -492,6 +526,35 @@ defineExpose({
 </template>
 
 <style scoped>
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  margin-bottom: 12px;
+  color: var(--text-3);
+}
+.filter-input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-1);
+  font-size: 13px;
+  font-family: inherit;
+}
+.filter-clear {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  display: inline-flex;
+  padding: 2px;
+  font-size: 13px;
+}
+.filter-clear:hover {
+  color: var(--text-1);
+}
 .btn {
   display: inline-flex;
   align-items: center;

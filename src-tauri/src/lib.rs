@@ -1,5 +1,6 @@
 mod accounts;
 mod commands;
+mod instance_share;
 mod crash;
 mod curseforge;
 mod download;
@@ -23,6 +24,7 @@ mod storage;
 mod terracotta;
 mod updater;
 mod util;
+mod world_backup;
 
 use state::AppState;
 use std::collections::HashMap;
@@ -115,6 +117,7 @@ pub fn run() {
             commands::list_mirrors,
             commands::test_mirror,
             commands::test_proxy,
+            commands::log_debug,
             commands::change_data_dir,
             commands::auto_detect_memory,
             commands::detect_java,
@@ -179,6 +182,14 @@ pub fn run() {
             commands::toggle_content_enabled,
             commands::save_text_file,
             commands::extract_game_icons,
+            // world backups / playtime / instance share
+            commands::list_world_backups,
+            commands::create_world_backup,
+            commands::restore_world_backup,
+            commands::delete_world_backup,
+            commands::playtime_stats,
+            commands::export_instance_pack,
+            commands::import_instance_pack,
             // skins
             commands::list_skins,
             commands::read_skin_data_url,
