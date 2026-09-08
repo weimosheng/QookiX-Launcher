@@ -716,7 +716,19 @@ async fn install_modpack_inner(
         }
     }
     // auto-install game files (client jar, libraries, assets...)
-    let _ = crate::install::install_game(app.clone(), state, &instance).await;
+    if let Err(e) = crate::install::install_game(app.clone(), state, &instance).await {
+        crate::install::emit_progress(
+            &app,
+            task_id,
+            "done",
+            &format!("游戏文件安装失败：{e}"),
+            0,
+            0,
+            &instance,
+            &source,
+        );
+        return Err(format!("游戏文件安装失败：{e}"));
+    }
     let _ = crate::util::log_best_effort("mark_installed", crate::instances::mark_installed(state, &instance.id));
 
     crate::install::emit_progress(

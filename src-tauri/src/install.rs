@@ -5,7 +5,9 @@ use crate::state::AppState;
 use crate::util::{extract_zip, rules_allow, sort_mc_versions};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::Duration;
 use tauri::Emitter;
+use tokio::time::timeout;
 
 /// Entry point: install (or repair) the game files for an instance.
 pub async fn install_game(
@@ -76,8 +78,7 @@ async fn install_game_inner(
         download_many(app.clone(), state, task_id, "client", items).await?;
     }
 
-    // ---- Forge 1.17+ 新版安装器：原版 jar 就位后执行 processors 任务链 ----
-    // （jarsplitter 等需要 vanilla client jar 作为输入，生成打补丁的 forge client jar）
+// ---- Forge 1.17+ 新版安装器：原版 jar 就位后执行 processors 任务链 ----
     if matches!(instance.loader, LoaderType::Forge | LoaderType::NeoForge) {
         let full_ver = if instance.loader == LoaderType::NeoForge {
             instance.loader_version.clone().unwrap_or_default()
@@ -92,6 +93,7 @@ async fn install_game_inner(
         let installer_path =
             state.root.join("runtimes").join(format!("{tool_name}-{full_ver}-installer.jar"));
         if installer_path.exists() {
+            emit_progress(&app, task_id, "forge-install", "正在安装 Forge…", 0, 0, instance, &source);
             let profile: serde_json::Value = {
                 let file = std::fs::File::open(&installer_path).map_err(|e| e.to_string())?;
                 let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
@@ -102,7 +104,13 @@ async fn install_game_inner(
                 std::io::Read::read_to_end(&mut entry, &mut buf).map_err(|e| e.to_string())?;
                 serde_json::from_slice(&buf).map_err(|e| e.to_string())?
             };
-            run_forge_processors(&app, state, instance, &installer_path, &profile).await?;
+            // Forge processors 失败不应阻止后续 natives 提取——打印警告但继续
+            if let Err(e) = run_forge_processors(&app, state, instance, &installer_path, &profile, task_id, &source).await {
+                crate::util::log_line(&format!("[install] Forge processors 警告: {e}"));
+            }
+            emit_progress(&app, task_id, "forge-install", "Forge 安装完成", 1, 1, instance, &source);
+        } else {
+            emit_progress(&app, task_id, "forge-install", "Forge 安装器未找到，跳过", 1, 1, instance, &source);
         }
     }
 
@@ -191,20 +199,28 @@ async fn install_game_inner(
                     .filter(|f| !f.url.is_empty());
                 if let Some(dl) = main {
                     let dest = libraries_path(state, &lib.name, None);
-                    lib_items.push(DownloadItem {
-                        url: dl.url.clone(),
-                        dest,
-                        sha1: if dl.sha1.is_empty() { None } else { Some(dl.sha1) },
-                        sha512: None,
-                        size: if dl.size > 0 { Some(dl.size) } else { None },
-                        label: lib.name.clone(),
-                    });
+                    // 已存在（processor 产物 / installer 内嵌解压产物）就不重复下载
+                    if !dest.exists() {
+                        lib_items.push(DownloadItem {
+                            url: dl.url.clone(),
+                            dest,
+                            sha1: if dl.sha1.is_empty() { None } else { Some(dl.sha1) },
+                            sha512: None,
+                            size: if dl.size > 0 { Some(dl.size) } else { None },
+                            label: lib.name.clone(),
+                        });
+                    }
                 }
             }
             continue;
         }
         if let Some(dl) = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()) {
             let dest = libraries_path(state, &lib.name, None);
+            // 同上：老式安装器的 forge 本体条目的 url 往往为空（产物由本地生成），
+            // 或文件已就位（processor / 内嵌解压），都不该再去请求。
+            if dl.url.trim().is_empty() || dest.exists() {
+                continue;
+            }
             lib_items.push(DownloadItem {
                 url: dl.url.clone(),
                 dest,
@@ -627,6 +643,8 @@ async fn run_forge_processors(
     instance: &Instance,
     installer_path: &std::path::Path,
     profile: &serde_json::Value,
+    task_id: u64,
+    source: &str,
 ) -> Result<(), String> {
     let settings = state.settings.read().unwrap().clone();
     let java: String = match settings.java_path.as_deref().filter(|s| !s.is_empty()) {
@@ -685,10 +703,9 @@ async fn run_forge_processors(
         }
         if !items.is_empty() {
             let total = items.len();
-            let task_id = state.next_task_id();
-            emit_progress(app, task_id, "forge-processors", "下载 Forge 安装依赖…", 0, total, instance, "安装 Forge");
+            emit_progress(app, task_id, "forge-processors", "下载 Forge 安装依赖…", 0, total, instance, source);
             download_many(app.clone(), state, task_id, "forge-processors", items).await?;
-            emit_progress(app, task_id, "done", "Forge 安装依赖就绪", total, total, instance, "安装 Forge");
+            emit_progress(app, task_id, "forge-processors", "Forge 安装依赖就绪", total, total, instance, source);
         }
     }
 
@@ -779,11 +796,14 @@ async fn run_forge_processors(
         Ok(s)
     };
 
-    // 4. 逐条执行 client 侧 processors
-    let processors = profile
-        .get("processors")
-        .and_then(|v| v.as_array())
-        .ok_or("install_profile 缺少 processors")?;
+    // 4. 逐条执行 client 侧 processors（老版 Forge ≤1.16 可能没有 processors）
+    let Some(processors) = profile.get("processors").and_then(|v| v.as_array()) else {
+        // 老版 Forge：没有 processors，仅靠 versionInfo 已经完成了版本信息配置
+        return Ok(());
+    };
+    if processors.is_empty() {
+        return Ok(());
+    }
     let total = processors.len();
     for (i, proc_entry) in processors.iter().enumerate() {
         if let Some(sides) = proc_entry.get("sides").and_then(|v| v.as_array()) {
@@ -804,9 +824,6 @@ async fn run_forge_processors(
                 }
             }
         }
-        // 官方安装器规则：条目带 class → java -cp <主jar;依赖> <class>；
-        // 不带 class（新版 Forge 全部如此）→ 读主 jar MANIFEST 的 Main-Class，
-        // 同样用 -cp 模式（-jar 会忽略 classpath，导致依赖缺失）
         let mut cmd_args: Vec<String> = match &main_class {
             Some(cls) => {
                 let mut v = vec!["-cp".into(), cp.join(";"), cls.clone()];
@@ -824,21 +841,23 @@ async fn run_forge_processors(
                 cmd_args.push(replace(raw)?);
             }
         }
-        let step_task_id = state.next_task_id();
-        emit_progress(app, step_task_id, "forge-processors", &format!("Forge 安装任务 {}/{}", i + 1, total), i + 1, total, instance, "安装 Forge");
-        let output = tokio::process::Command::new(&java)
+        emit_progress(app, task_id, "forge-processors", &format!("Forge 安装任务 {}/{}", i + 1, total), i + 1, total, instance, source);
+        let processor_future = tokio::process::Command::new(&java)
             .args(&cmd_args)
             .current_dir(&work_dir)
-            .output()
-            .await
-            .map_err(|e| format!("运行 processor 失败: {e}"))?;
+            .output();
+        let output = match timeout(Duration::from_secs(300), processor_future).await {
+            Ok(Ok(output)) => output,
+            Ok(Err(e)) => return Err(format!("运行 processor 失败: {e}")),
+            Err(_) => return Err(format!("processor {main_jar} 执行超时（5 分钟）")),
+        };
         if !output.status.success() {
             return Err(format!(
                 "processor {main_jar} 执行失败: {}",
                 String::from_utf8_lossy(&output.stderr)
             ));
         }
-        emit_progress(app, step_task_id, "done", &format!("Forge 安装任务 {}/{} 完成", i + 1, total), total, total, instance, "安装 Forge");
+        emit_progress(app, task_id, "forge-processors", &format!("Forge 安装任务 {}/{} 完成", i + 1, total), total, total, instance, source);
     }
     Ok(())
 }
@@ -963,12 +982,28 @@ async fn forge_patch(
     //   新版（≥1.17）：install_profile.json 只有 processors 等安装任务，
     //     版本信息在 zip 内独立的 version.json（libraries 含 forge client/universal，
     //     带各自的 maven url，后续库下载流程会按 url 拉取——同 HMCL 的处理方式）。
+    // 老式安装器（spec 0，典型如 1.12.2）：既没有 versionInfo，也没有 processors
+    // 任务链——forge 本体与部分依赖直接内嵌在 installer 的 `maven/` 目录里。
+    // 把它解压到 libraries 就等价于官方安装器的安装动作。
+    let is_legacy_spec0 = profile.get("spec").and_then(|v| v.as_i64()) == Some(0);
+    if is_legacy_spec0 {
+        let libs_root = crate::paths::libraries_dir(state);
+        if let Err(e) = crate::util::extract_zip_strip(&installer_path, &libs_root, "maven/", &[]) {
+            crate::util::log_line(&format!("[forge_patch] 解压内嵌 maven 依赖失败: {e}"));
+        }
+    }
     let version_info = if let Some(v) = profile.get("versionInfo") {
         v.clone()
     } else {
-        let bytes = crate::util::read_zip_entry(&installer_path, "version.json")
-            .map_err(|e| format!("读取 version.json 失败（新版 Forge 安装器）: {e}"))?;
-        serde_json::from_slice::<serde_json::Value>(&bytes).map_err(|e| format!("解析 version.json 失败: {e}"))?
+        // 版本 json 路径由 `json` 字段给出（老式多为 "/version.json"）
+        let entry = profile
+            .get("json")
+            .and_then(|v| v.as_str())
+            .unwrap_or("/version.json")
+            .trim_start_matches('/');
+        let bytes = crate::util::read_zip_entry(&installer_path, entry)
+            .map_err(|e| format!("读取版本 json（{entry}）失败: {e}"))?;
+        serde_json::from_slice::<serde_json::Value>(&bytes).map_err(|e| format!("解析版本 json 失败: {e}"))?
     };
     let mut patched: VersionJson = serde_json::from_value(version_info)
         .map_err(|e| format!("解析 Forge 版本信息失败: {e}"))?;
@@ -1000,13 +1035,16 @@ async fn forge_patch(
             patched.libraries.push(l);
         }
     }
-    if let Some(path_str) = profile.get("path").and_then(|v| v.as_str()) {
+    // 老式安装器没有 `:client` 产物（forge 本体内嵌在 installer 里），
+    // 按新版那样拼 `:client` 去 maven 取必然 404。
+    if !is_legacy_spec0 {
+      if let Some(path_str) = profile.get("path").and_then(|v| v.as_str()) {
         let client_name = format!("{path_str}:client");
-        if let Some(rel) = crate::models::maven_to_path(&client_name) {
-            let rel_s = rel.to_string_lossy().replace('\\', "/");
+        if crate::models::maven_to_path(&client_name).is_some() {
+            // url 字段必须是 maven base URL（如 https://maven.minecraftforge.net/），
+            // 而非完整 jar 路径——下载代码会用 url + maven_to_path(name) 拼出完整 URL。
             let url = forge_maven_base
-                .map(|b| format!("{b}/{rel_s}"))
-                .unwrap_or_else(|| format!("https://maven.minecraftforge.net/{rel_s}"));
+                .unwrap_or_else(|| "https://maven.minecraftforge.net/".to_string());
             patched.libraries.push(Library {
                 name: client_name,
                 url: Some(url),
@@ -1016,6 +1054,7 @@ async fn forge_patch(
                 extract: None,
             });
         }
+      }
     }
 
     // ensure essential vanilla pieces exist

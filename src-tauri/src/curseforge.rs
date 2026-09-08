@@ -665,9 +665,13 @@ async fn install_modpack_inner(
     let mut dl_items: Vec<crate::download::DownloadItem> = Vec::new();
     let mut mod_records: Vec<InstalledContent> = Vec::new();
     let mut fetched = 0usize;
+    let mut seen_pairs = std::collections::HashSet::<(u64, u64)>::new();
     for f in &files {
         let Some(pid) = f.get("projectID").and_then(|v| v.as_u64()) else { continue };
         let Some(fid) = f.get("fileID").and_then(|v| v.as_u64()) else { continue };
+        if !seen_pairs.insert((pid, fid)) {
+            continue;
+        }
         fetched += 1;
         let _ = crate::install::emit_progress(
             &app,
@@ -790,8 +794,20 @@ async fn install_modpack_inner(
         &source,
     );
 
-    // auto-install game files (client jar, libraries, assets...)
-    let _ = crate::install::install_game(app.clone(), state, &instance).await;
+// auto-install game files (client jar, libraries, assets...)
+    if let Err(e) = crate::install::install_game(app.clone(), state, &instance).await {
+        crate::install::emit_progress(
+            &app,
+            task_id,
+            "done",
+            &format!("游戏文件安装失败：{e}"),
+            0,
+            0,
+            &instance,
+            &source,
+        );
+        return Err(format!("游戏文件安装失败：{e}"));
+    }
     let _ = crate::util::log_best_effort("mark_installed", crate::instances::mark_installed(state, &instance.id));
 
     crate::install::emit_progress(
@@ -804,6 +820,5 @@ async fn install_modpack_inner(
         &instance,
         &source,
     );
-
     Ok(json!({ "ok": true, "mods": mods_count, "instanceId": instance.id }))
 }
