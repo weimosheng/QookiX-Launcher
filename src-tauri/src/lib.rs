@@ -189,6 +189,8 @@ pub fn run() {
             commands::delete_world_backup,
             commands::playtime_stats,
             commands::export_instance_pack,
+            commands::export_preview,
+            commands::identify_manual_mods,
             commands::import_instance_pack,
             // skins
             commands::list_skins,

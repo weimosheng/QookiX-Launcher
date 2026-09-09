@@ -240,6 +240,62 @@ export interface WorldBackupInfo {
   modified: number;
 }
 
+/** 实例导出预览：一个可勾选条目 */
+export interface ExportItem {
+  key: string;
+  label: string;
+  size: number;
+  hint?: string | null;
+}
+
+/** 实例导出预览：一组勾选项 */
+export interface ExportGroup {
+  key: string;
+  label: string;
+  /** 必含（游戏本体），不可取消 */
+  required: boolean;
+  hint?: string | null;
+  items: ExportItem[];
+}
+
+export interface ExportPreview {
+  name: string;
+  mcVersion?: string;
+  mc_version: string;
+  loader: string;
+  loader_version?: string | null;
+  groups: ExportGroup[];
+}
+
+/** 未登记模组在 Modrinth 上的识别结果 */
+export interface IdentifiedMod {
+  filename: string;
+  projectId: string;
+  versionId: string;
+  name: string;
+  /** "hash" 精确匹配 | "name" 按文件名猜测（可能错配） */
+  confidence: string;
+}
+
+/** 导出时实际提交的选择 */
+export interface ExportSelection {
+  name?: string | null;
+  version?: string | null;
+  mods: string[];
+  includeDisabledMods?: boolean;
+  resourcepacks: string[];
+  shaders: string[];
+  screenshots: string[];
+  worlds: string[];
+  folders: string[];
+  optionsTxt?: boolean;
+  serversDat?: boolean;
+  /** 在线来源的模组直接打包文件（默认只记引用，导入时重新下载） */
+  bundleOnlineFiles?: boolean;
+  /** 打包在线文件时仅限 Modrinth 来源（规避 CurseForge 分发协议限制） */
+  modrinthOnly?: boolean;
+}
+
 /** 游玩时长统计（后端聚合） */
 export interface PlaytimeStats {
   totalSeconds: number;

@@ -325,19 +325,37 @@ pub fn playtime_stats(state: State<AppState>) -> Result<Value, String> {
     }))
 }
 
-/// 导出实例分享包（.qkxinst，zip：元信息 + 内容文件）。返回打包的内容条数。
+/// 识别手动放入、未登记的模组在 Modrinth 上的来源，使其可按引用导出（减小包体积）
+#[tauri::command]
+pub async fn identify_manual_mods(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<Vec<crate::instance_share::IdentifiedMod>, String> {
+    crate::instance_share::identify_manual_mods(&app, state.inner(), &instance_id).await
+}
+
+/// 导出前扫描实例的可勾选项（模组/资源包/光影/截图/存档/附属文件夹/设置）
+#[tauri::command]
+pub fn export_preview(
+    state: State<AppState>,
+    instance_id: String,
+) -> Result<crate::instance_share::ExportPreview, String> {
+    crate::instance_share::preview(state.inner(), &instance_id)
+}
+
 #[tauri::command]
 pub fn export_instance_pack(
     state: State<AppState>,
     instance_id: String,
     dest_path: String,
-    options: crate::instance_share::ExportOptions,
+    selection: crate::instance_share::ExportSelection,
 ) -> Result<usize, String> {
     crate::instance_share::export_pack(
         state.inner(),
         &instance_id,
         std::path::Path::new(&dest_path),
-        options,
+        selection,
     )
 }
 

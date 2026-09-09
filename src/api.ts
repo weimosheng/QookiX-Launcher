@@ -26,6 +26,9 @@ import type {
   UpdateInfo,
   PlaytimeStats,
   WorldBackupInfo,
+  ExportPreview,
+  ExportSelection,
+  IdentifiedMod,
 } from "./types";
 
 /**
@@ -144,8 +147,11 @@ export const api = {
   importInstanceImage: (sourcePath: string) => invoke<string>("import_instance_image", { sourcePath }),
   importBackgroundImage: (sourcePath: string) => invoke<string>("import_background_image", { sourcePath }),
   scanMinecraftImport: (source: string) => invoke<void>("scan_minecraft_import", { source }),
-  exportInstancePack: (instanceId: string, destPath: string, options: Record<string, boolean>) =>
-    invoke<number>("export_instance_pack", { instanceId, destPath, options }),
+  exportPreview: (instanceId: string) => invoke<ExportPreview>("export_preview", { instanceId }),
+  identifyManualMods: (instanceId: string) =>
+    invoke<IdentifiedMod[]>("identify_manual_mods", { instanceId }, { silent: true }),
+  exportInstancePack: (instanceId: string, destPath: string, selection: ExportSelection) =>
+    invoke<number>("export_instance_pack", { instanceId, destPath, selection }),
   importInstancePack: (filePath: string) =>
     invoke<{ instance: Instance; pendingDownloads: number }>("import_instance_pack", { filePath }),
   playtimeStats: () => invoke<PlaytimeStats>("playtime_stats"),

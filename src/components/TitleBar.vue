@@ -6,6 +6,7 @@ import {
   IconClose,
   IconMinus,
   IconSquare,
+  IconRestore,
   IconHome,
   IconCompass,
   IconDownload,
@@ -146,9 +147,9 @@ onMounted(async () => {
         <button class="tb-btn" title="最小化" @click="win.minimize()">
         <IconMinus />
       </button>
-      <button class="tb-btn" title="最大化" @click="toggleMax">
+      <button class="tb-btn" :title="maximized ? '还原' : '最大化'" @click="toggleMax">
         <IconSquare v-if="!maximized" />
-        <IconMinus v-else class="restore-icon" />
+        <IconRestore v-else />
       </button>
       <button class="tb-btn tb-close" title="关闭" @click="win.close()">
         <IconClose />

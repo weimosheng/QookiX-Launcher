@@ -175,6 +175,27 @@ pub async fn dependencies(state: &AppState, version_id: &str) -> Result<Vec<Valu
 }
 
 /// Get a single version by id.
+/// 按文件哈希反查 Modrinth 上的版本（`GET /version_file/{hash}`）。
+/// 同一个文件的哈希相同，所以这是**精确匹配**——不存在重名风险。
+/// 返回 None 表示 Modrinth 上没有这个文件（本地改过的、只发布在 CurseForge 的、
+/// 或作者自己编译的）。
+pub async fn version_by_hash(state: &AppState, sha1: &str) -> Result<Option<Value>, String> {
+    if sha1.is_empty() {
+        return Ok(None);
+    }
+    let url = format!("{API}/version_file/{sha1}?algorithm=sha1");
+    let res = state.client.get(&url).send().await;
+    match res {
+        Ok(resp) if resp.status().is_success() => {
+            let v: Value = resp.json().await.map_err(|e| format!("解析响应失败: {e}"))?;
+            Ok(Some(v))
+        }
+        Ok(resp) if resp.status().as_u16() == 404 => Ok(None),
+        Ok(resp) => Err(format!("Modrinth 查询失败: HTTP {}", resp.status())),
+        Err(e) => Err(format!("Modrinth 请求失败: {e}")),
+    }
+}
+
 pub async fn version(state: &AppState, version_id: &str) -> Result<Value, String> {
     crate::download::get_json(&state.client, &format!("{API}/version/{version_id}")).await
 }

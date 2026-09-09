@@ -38,6 +38,7 @@ export const IconRepeat = make(`<polyline points="17 1 21 5 17 9"/><path d="M3 1
 export const IconClose = make(`<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>`);
 export const IconMinus = make(`<line x1="5" y1="12" x2="19" y2="12"/>`);
 export const IconSquare = make(`<rect x="5" y="5" width="14" height="14" rx="1"/>`);
+export const IconRestore = make(`<rect x="8" y="8" width="12" height="12" rx="1"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/>`);
 export const IconCheck = make(`<polyline points="20 6 9 17 4 12"/>`);
 export const IconPlus = make(`<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>`);
 export const IconBox = make(`<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>`);
