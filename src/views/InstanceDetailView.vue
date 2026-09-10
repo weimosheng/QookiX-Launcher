@@ -21,6 +21,7 @@ import FileManager from "../components/FileManager.vue";
 import CrashAnalyzer from "../components/CrashAnalyzer.vue";
 import AppIcon from "../components/AppIcon.vue";
 import ExportDialog from "../components/instance/ExportDialog.vue";
+import DiagnosticsDialog from "../components/DiagnosticsDialog.vue";
 import ContentTab from "../components/instance/ContentTab.vue";
 import SavesTab from "../components/instance/SavesTab.vue";
 import SettingsTab from "../components/instance/SettingsTab.vue";
@@ -35,6 +36,7 @@ import {
   IconHardDrive,
   IconBug,
   IconImage,
+  IconInfo,
   IconLayers,
   IconLayout,
   IconMapPin,
@@ -229,6 +231,8 @@ async function installGame() {
 
 // ---- 导出分享包 ----
 const showExport = ref(false);
+// ---- 诊断报告 ----
+const showDiag = ref(false);
 
 function removeInstance() {
   const isSymlink = instance.value?.is_symlink;
@@ -350,6 +354,9 @@ watch(
         </button>
         <button class="btn ghost" title="导出分享包" @click="showExport = true">
           <IconExternal />
+        </button>
+        <button class="btn ghost" title="生成诊断报告" @click="showDiag = true">
+          <IconInfo />
         </button>
         <button class="btn danger" title="删除实例" @click="removeInstance">
           <IconTrash />
@@ -488,6 +495,12 @@ watch(
     </n-modal>
 
     <ExportDialog :instance-id="instanceId" :instance-name="instance?.name ?? 'instance'" v-model:show="showExport" />
+
+    <DiagnosticsDialog
+      v-model:show="showDiag"
+      :instance-id="instanceId"
+      :instance-name="instance?.name ?? null"
+    />
   </div>
   <div v-else class="center">实例不存在或已删除</div>
 </template>

@@ -33,6 +33,7 @@ import type { JavaInfo, MirrorPreset, StorageStats } from "../types";
 import devWeimoshengUrl from "../assets/dev-weimosheng.jpg";
 import devZhayiUrl from "../assets/dev-zhayi.jpg";
 import AboutShowcase from "../components/AboutShowcase.vue";
+import DiagnosticsDialog from "../components/DiagnosticsDialog.vue";
 import { error as devError } from "../utils/logger";
 
 const settings = useSettingsStore();
@@ -41,6 +42,7 @@ const dialog = useDialog();
 const router = useRouter();
 
 const checking = ref(false);
+const showDiag = ref(false);
 const updateVersion = ref<string | null>(null);
 
 async function checkUpdate() {
@@ -1084,7 +1086,7 @@ onUnmounted(() => {
           <AboutShowcase />
           <div class="about-hero-title">
             <span class="about-name about-hero-name">QookiX Launcher</span>
-            <span class="about-ver">v0.5.15</span>
+            <span class="about-ver">v0.5.16</span>
           </div>
           <p class="about-hero-slogan">现代化、简洁、无广告的 Minecraft 启动器</p>
         </div>
@@ -1130,6 +1132,7 @@ onUnmounted(() => {
           </div>
           <div class="card glass about-update-card">
             <div class="about-update">
+              <button class="mini-btn" @click="showDiag = true">诊断报告</button>
               <button class="mini-btn primary" :disabled="checking" @click="checkUpdate">
                 {{ checking ? "检查中…" : "检查更新" }}
               </button>
@@ -1208,6 +1211,8 @@ onUnmounted(() => {
       </div>
     </div>
     </Transition>
+
+    <DiagnosticsDialog v-model:show="showDiag" />
 
     <n-modal v-model:show="migrateModal" preset="card" title="更改数据目录" class="migrate-modal">
       <div v-if="migratePhase === 'select'" class="migrate-body">

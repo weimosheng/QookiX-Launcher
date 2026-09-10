@@ -85,6 +85,7 @@ export const IconDoorOpen = make(`<path d="M14 13v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-
 export const IconPower = make(`<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>`);
 export const IconBug = make(`<circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 2v10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>`);
 export const IconAlertCircle = make(`<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>`);
+export const IconInfo = make(`<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>`);
 export const IconNewspaper = make(`<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2z"/><path d="M10 14h6"/><path d="M10 18h6"/><path d="M10 6h10"/><path d="M10 10h6"/>`);
 export const IconSkin = make(`<path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z" />`);
 // GitHub 官方 logo 为填充型图形（Octicons mark-github，MIT 许可），覆盖默认描边

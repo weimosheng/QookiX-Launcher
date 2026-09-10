@@ -71,10 +71,8 @@ async function loadLogs() {
     const r = await api.crashAnalysis(props.instanceId);
     logs.value = r;
     if (logs.value.length && !selected.value) {
-      // 自动选中第一个文件时必须同时恢复其缓存诊断，
-      // 否则切走再回来 diagnosis 为空，看起来像"缓存没生效"。
-      selected.value = logs.value[0].filename;
-      diagnosis.value = readDiagCache(props.instanceId, selected.value);
+      // 走统一的选中逻辑：命中缓存直接展示，未命中则自动分析
+      await handleSelect(logs.value[0].filename);
     }
   } catch (e) {
     devError("[CrashAnalyzer] loadLogs failed:", e);
@@ -283,18 +281,17 @@ watch(
   { immediate: true }
 );
 
-watch(selected, () => {
-  diagnosis.value = null;
-  rawContent.value = "";
-});
-
-function handleSelect(filename: string) {
+// 注意：不要用 watch(selected) 清空 diagnosis——它会在 handleSelect 之后执行，
+// 把刚恢复的缓存又清掉，表现为「切走再切回来必须手动点分析」。
+async function handleSelect(filename: string) {
   selected.value = filename;
-  // 切换文件：清掉上一次的原始内容；诊断优先走缓存（命中即直接展示）
+  // 切换文件：清掉上一次的原始内容与结果
   rawContent.value = "";
   showRaw.value = false;
   const cached = readDiagCache(props.instanceId, filename);
   diagnosis.value = cached;
+  // 没有缓存就自动分析，省去手动点「分析此崩溃报告」
+  if (!cached) await analyze();
 }
 </script>
 

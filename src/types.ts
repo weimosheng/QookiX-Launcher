@@ -267,6 +267,31 @@ export interface ExportPreview {
   groups: ExportGroup[];
 }
 
+/** 诊断报告的一节 */
+export interface DiagnosticSection {
+  key: string;
+  title: string;
+  lines: string[];
+  /** 长文本（日志等） */
+  block?: string | null;
+}
+
+export interface DiagnosticReport {
+  generated_at: number;
+  sections: DiagnosticSection[];
+  /** 完整 Markdown 报告（复制 / 另存用） */
+  markdown: string;
+  /** 已脱敏替换处数 */
+  redactions: number;
+}
+
+/** 已持久化的历史诊断报告 */
+export interface DiagnosticReportEntry {
+  filename: string;
+  generated_at: number;
+  size: number;
+}
+
 /** 未登记模组在 Modrinth 上的识别结果 */
 export interface IdentifiedMod {
   filename: string;

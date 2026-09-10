@@ -2,6 +2,7 @@ mod accounts;
 mod commands;
 mod instance_share;
 mod crash;
+mod diagnostics;
 mod curseforge;
 mod download;
 mod install;
@@ -191,6 +192,12 @@ pub fn run() {
             commands::export_instance_pack,
             commands::export_preview,
             commands::identify_manual_mods,
+            // 诊断中心
+            commands::collect_diagnostics,
+            commands::save_diagnostics_report,
+            commands::list_diagnostics_reports,
+            commands::read_diagnostics_report,
+            commands::delete_diagnostics_report,
             commands::import_instance_pack,
             // skins
             commands::list_skins,

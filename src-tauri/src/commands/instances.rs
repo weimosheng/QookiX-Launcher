@@ -325,6 +325,45 @@ pub fn playtime_stats(state: State<AppState>) -> Result<Value, String> {
     }))
 }
 
+/// 一键采集诊断报告（可选指定实例）
+#[tauri::command]
+pub async fn collect_diagnostics(
+    state: State<'_, AppState>,
+    instance_id: Option<String>,
+) -> Result<crate::diagnostics::DiagnosticReport, String> {
+    crate::diagnostics::collect(state.inner(), instance_id).await
+}
+
+/// 把诊断报告另存为文件（用户自选路径）
+#[tauri::command]
+pub fn save_diagnostics_report(path: String, content: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if let Some(parent) = p.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
+    }
+    std::fs::write(p, content).map_err(|e| format!("写入文件失败: {e}"))
+}
+
+/// 历史诊断报告列表（已持久化在数据目录 diagnostics/ 下）
+#[tauri::command]
+pub fn list_diagnostics_reports(
+    state: State<AppState>,
+) -> Result<Vec<crate::diagnostics::DiagnosticReportEntry>, String> {
+    Ok(crate::diagnostics::list_reports(state.inner()))
+}
+
+/// 读取某份历史报告全文
+#[tauri::command]
+pub fn read_diagnostics_report(state: State<AppState>, filename: String) -> Result<String, String> {
+    crate::diagnostics::read_report(state.inner(), &filename)
+}
+
+/// 删除某份历史报告
+#[tauri::command]
+pub fn delete_diagnostics_report(state: State<AppState>, filename: String) -> Result<(), String> {
+    crate::diagnostics::delete_report(state.inner(), &filename)
+}
+
 /// 识别手动放入、未登记的模组在 Modrinth 上的来源，使其可按引用导出（减小包体积）
 #[tauri::command]
 pub async fn identify_manual_mods(

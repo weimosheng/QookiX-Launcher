@@ -24,9 +24,12 @@ pub fn list_crash_logs(state: State<AppState>, id: String) -> Result<Vec<CrashLo
     if crash_dir.is_dir() {
         for entry in std::fs::read_dir(&crash_dir).map_err(|e| e.to_string())? {
             let e = entry.map_err(|e| e.to_string())?;
-            let meta = e.metadata().map_err(|e| e.to_string())?;
             let name = e.file_name().to_string_lossy().to_string();
             if name.starts_with("crash-") && name.ends_with(".txt") {
+                // 跟随符号链接取真实文件信息：链接式导入的实例里这些文件是链接，
+                // DirEntry::metadata() 拿到的是链接自身（大小 0）。
+                let meta = std::fs::metadata(e.path()).or_else(|_| e.metadata());
+                let Ok(meta) = meta else { continue };
                 out.push(CrashLogEntry {
                     filename: name,
                     modified: meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0),
@@ -39,9 +42,10 @@ pub fn list_crash_logs(state: State<AppState>, id: String) -> Result<Vec<CrashLo
 
     for entry in std::fs::read_dir(&inst_dir).map_err(|e| e.to_string())? {
         let e = entry.map_err(|e| e.to_string())?;
-        let meta = e.metadata().map_err(|e| e.to_string())?;
         let name = e.file_name().to_string_lossy().to_string();
         if name.starts_with("hs_err_pid") && name.ends_with(".log") {
+            let meta = std::fs::metadata(e.path()).or_else(|_| e.metadata());
+            let Ok(meta) = meta else { continue };
             out.push(CrashLogEntry {
                 filename: name,
                 modified: meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0),

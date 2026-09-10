@@ -1,6 +1,6 @@
 [package]
 name = "qookix-launcher"
-version = "0.5.15"
+version = "0.5.16"
 description = "QookiX Launcher - a modern, clean and ad-free Minecraft launcher"
 authors = ["QookiX"]
 edition = "2021"
@@ -49,7 +49,7 @@ tauri-plugin-single-instance = "2.4.4"
 tauri = { version = "2", features = ["test"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Registry"] }
 png = "0.17"
 
 [profile.release]

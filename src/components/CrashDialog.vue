@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, computed } from "vue";
 import { useRouter } from "vue-router";
 import { listen } from "@tauri-apps/api/event";
 import { NButton, NModal } from "naive-ui";
+import DiagnosticsDialog from "./DiagnosticsDialog.vue";
 
 interface CrashInfo {
   instanceId: string;
@@ -17,6 +18,7 @@ interface CrashInfo {
 }
 
 const show = ref(false);
+const showDiag = ref(false);
 const info = ref<CrashInfo | null>(null);
 let unlisten: (() => void) | null = null;
 const router = useRouter();
@@ -104,11 +106,14 @@ onBeforeUnmount(() => {
         <div class="footer-btns">
           <NButton @click="openLogs">查看日志</NButton>
           <NButton v-if="info?.crash_report" @click="openCrash">崩溃分析</NButton>
+          <NButton @click="showDiag = true">诊断报告</NButton>
           <NButton type="primary" @click="show = false">知道了</NButton>
         </div>
       </div>
     </template>
   </NModal>
+
+  <DiagnosticsDialog v-model:show="showDiag" :instance-id="info?.instanceId ?? null" />
 </template>
 
 <style scoped>

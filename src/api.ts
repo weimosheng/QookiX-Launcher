@@ -29,6 +29,8 @@ import type {
   ExportPreview,
   ExportSelection,
   IdentifiedMod,
+  DiagnosticReport,
+  DiagnosticReportEntry,
 } from "./types";
 
 /**
@@ -150,6 +152,16 @@ export const api = {
   exportPreview: (instanceId: string) => invoke<ExportPreview>("export_preview", { instanceId }),
   identifyManualMods: (instanceId: string) =>
     invoke<IdentifiedMod[]>("identify_manual_mods", { instanceId }, { silent: true }),
+  collectDiagnostics: (instanceId?: string | null) =>
+    invoke<DiagnosticReport>("collect_diagnostics", { instanceId: instanceId ?? null }),
+  saveDiagnosticsReport: (path: string, content: string) =>
+    invoke<void>("save_diagnostics_report", { path, content }),
+  listDiagnosticsReports: () =>
+    invoke<DiagnosticReportEntry[]>("list_diagnostics_reports"),
+  readDiagnosticsReport: (filename: string) =>
+    invoke<string>("read_diagnostics_report", { filename }),
+  deleteDiagnosticsReport: (filename: string) =>
+    invoke<void>("delete_diagnostics_report", { filename }),
   exportInstancePack: (instanceId: string, destPath: string, selection: ExportSelection) =>
     invoke<number>("export_instance_pack", { instanceId, destPath, selection }),
   importInstancePack: (filePath: string) =>
