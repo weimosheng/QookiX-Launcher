@@ -1,6 +1,6 @@
 use crate::models::{InstalledContent, Instance};
 use crate::state::AppState;
-use crate::util::{extract_zip, extract_zip_strip, file_sha1};
+use crate::util::file_sha1;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use tauri::{Emitter, Manager};
@@ -240,6 +240,59 @@ pub fn kind_folder(kind: &str) -> &'static str {
         "datapack" => "datapacks",
         _ => "mods",
     }
+}
+
+/// 解析 mrpack 的 `modrinth.index.json`：
+/// - 产出下载项（目标路径 = `instance_dir/<path>`）
+/// - 产出「`mods/` 下的文件名 → sha1」映射（供后续按哈希反查项目来源）
+///
+/// `path` 来自不可信的包索引，会做路径穿越校验（见 [`safe_pack_rel_path`]）。
+pub fn parse_index_files(
+    index: &Value,
+    instance_dir: &std::path::Path,
+) -> Result<(Vec<crate::download::DownloadItem>, std::collections::HashMap<String, String>), String> {
+    let files = index.get("files").and_then(|f| f.as_array()).cloned().unwrap_or_default();
+    let mut items = Vec::new();
+    let mut hash_by_name: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for f in &files {
+        let path = f.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
+        if path.is_empty() || path.ends_with('/') {
+            continue;
+        }
+        // Path traversal guard: `path` comes from the (untrusted) pack index and
+        // is joined onto the instance dir for downloads. Reject anything that is
+        // absolute, drive-qualified, or contains `.` / `..` segments.
+        if !safe_pack_rel_path(&path) {
+            return Err(format!("整合包包含非法文件路径: {path}"));
+        }
+        let downloads = f.get("downloads").and_then(|d| d.as_array()).cloned().unwrap_or_default();
+        let Some(first) = downloads.first().and_then(|d| d.as_str()) else { continue };
+        let hashes = f.get("hashes").and_then(|h| h.as_object()).cloned().unwrap_or_default();
+        let sha1 = hashes.get("sha1").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let sha512 = hashes.get("sha512").and_then(|v| v.as_str()).map(|s| s.to_string());
+        if path.starts_with("mods/") {
+            if let Some(h) = &sha1 {
+                let fname = std::path::Path::new(&path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                if !fname.is_empty() {
+                    hash_by_name.insert(fname, h.clone());
+                }
+            }
+        }
+        let size = f.get("fileSize").and_then(|v| v.as_u64()).unwrap_or(0);
+        items.push(crate::download::DownloadItem {
+            url: first.to_string(),
+            dest: instance_dir.join(&path),
+            sha1,
+            sha512,
+            size: if size > 0 { Some(size) } else { None },
+            label: path,
+        });
+    }
+    Ok((items, hash_by_name))
 }
 
 /// Install a project version (mod / resourcepack / shader / modpack) into an instance.
@@ -551,217 +604,67 @@ async fn install_modpack_inner(
     );
     crate::download::download_many(app.clone(), state, task_id, "modpack", vec![items[0].clone()]).await?;
 
-    // read modrinth.index.json and detect pack metadata
-    let (pack_name, mc_version, loader, loader_version) =
-        crate::modpack::detect(&pack_path).await
-            .map_err(|e| format!("解析整合包失败: {e}（文件: {}）", pack_path.display()))?;
-    let instance = crate::instances::create_instance(
+    // ---- 公共骨架第一步：建实例 + 图标（mrpack 通常不内嵌图标，用项目图标兜底）----
+    let project_id = ver.get("project_id").and_then(|v| v.as_str()).unwrap_or("");
+    let icon_fallback_url = if project_id.is_empty() {
+        None
+    } else {
+        crate::modrinth::project_info(state, project_id)
+            .await
+            .ok()
+            .and_then(|info| info.get("icon_url").and_then(|v| v.as_str()).map(|s| s.to_string()))
+    };
+    let (instance, source) = crate::modpack::prepare_pack(
         state,
-        pack_name.clone(),
-        mc_version,
-        loader,
-        if loader_version.is_empty() { None } else { Some(loader_version) },
-    )?;
-    let source = format!("整合包：{pack_name}");
-
-    // Extract modpack icon: first look inside the zip, then fall back to the
-    // project icon from the API (mrpack zips usually don't embed an icon).
-    let instance_dir = state.instances_dir().join(&instance.id);
-    let mut icon_path = crate::util::extract_modpack_icon(&pack_path, &instance_dir);
-    if icon_path.is_none() {
-        let project_id = ver.get("project_id").and_then(|v| v.as_str()).unwrap_or("");
-        if !project_id.is_empty() {
-            if let Ok(info) = crate::modrinth::project_info(state, project_id).await {
-                if let Some(u) = info.get("icon_url").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
-                    icon_path = crate::util::download_icon(&state.client, u, &instance_dir).await;
-                }
-            }
-        }
-    }
-    if let Some(icon_path) = icon_path {
-        let mut inst = instance.clone();
-        inst.icon = Some(format!("img:{icon_path}"));
-        let _ = crate::util::log_best_effort("save_instance", crate::instances::save_instance(state, &inst));
-    }
+        crate::modpack::PackPrepareSpec {
+            pack_path: pack_path.clone(),
+            icon_fallback_url,
+        },
+    )
+    .await?;
 
     let index_bytes = crate::util::read_zip_entry(&pack_path, "modrinth.index.json")
         .map_err(|e| format!("整合包缺少 modrinth.index.json: {e}"))?;
     let index: Value = serde_json::from_slice(&index_bytes).map_err(|e| e.to_string())?;
 
-    let files = index.get("files").and_then(|f| f.as_array()).cloned().unwrap_or_default();
-    let mut items = Vec::new();
-    let mut hash_by_name: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    for f in &files {
-        let path = f.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
-        if path.is_empty() || path.ends_with('/') {
-            continue;
+    // 纯函数解析，便于单测（路径穿越防护、mods/ 归类等）
+    let (items, hash_by_name) = parse_index_files(&index, &state.instances_dir().join(&instance.id))?;
+    // ---- 公共骨架第二步：下载内容 → 扫盘登记 → 解压 overrides →
+    //      安装游戏本体 → 标记已安装 ----
+    // 先按文件哈希批量反查 Project/Version，供扫盘登记时补上在线来源信息
+    let resolved = resolve_by_hashes(state, &hash_by_name.values().cloned().collect::<Vec<_>>()).await;
+    let mut hash_meta: std::collections::HashMap<String, (String, String)> =
+        std::collections::HashMap::new();
+    for (fname, h) in &hash_by_name {
+        if let Some((pid, vid)) = resolved.get(h) {
+            hash_meta.insert(fname.clone(), (pid.clone(), vid.clone()));
         }
-        // Path traversal guard: `path` comes from the (untrusted) pack index and
-        // is joined onto the instance dir for downloads. Reject anything that is
-        // absolute, drive-qualified, or contains `.` / `..` segments.
-        if !safe_pack_rel_path(&path) {
-            return Err(format!("整合包包含非法文件路径: {path}"));
-        }
-        let downloads = f.get("downloads").and_then(|d| d.as_array()).cloned().unwrap_or_default();
-        let Some(first) = downloads.first().and_then(|d| d.as_str()) else { continue };
-        let hashes = f.get("hashes").and_then(|h| h.as_object()).cloned().unwrap_or_default();
-        let sha1 = hashes.get("sha1").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let sha512 = hashes.get("sha512").and_then(|v| v.as_str()).map(|s| s.to_string());
-        if path.starts_with("mods/") {
-            if let Some(h) = &sha1 {
-                let fname = std::path::Path::new(&path)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("")
-                    .to_string();
-                if !fname.is_empty() {
-                    hash_by_name.insert(fname, h.clone());
-                }
-            }
-        }
-        let dest = state.instances_dir().join(&instance.id).join(&path);
-        let size = f.get("fileSize").and_then(|v| v.as_u64()).unwrap_or(0);
-        items.push(crate::download::DownloadItem {
-            url: first.to_string(),
-            dest,
-            sha1,
-            sha512,
-            size: if size > 0 { Some(size) } else { None },
-            label: path,
-        });
     }
-    let file_count = items.len();
-    crate::install::emit_progress(
-        &app,
-        task_id,
-        "modpack",
-        &format!("正在下载 {} 个文件…", file_count),
-        0,
-        file_count,
-        &instance,
-        &source,
-    );
-    crate::download::download_many(app.clone(), state, task_id, "modpack", items).await?;
-
-    // extract overrides
     let overrides = index
         .get("overrides")
         .and_then(|v| v.as_str())
         .unwrap_or("overrides")
         .to_string();
-    crate::install::emit_progress(
+    let file_count = items.len();
+    let count = crate::modpack::install_pack_contents(
         &app,
-        task_id,
-        "modpack-install",
-        "正在写入整合包文件…",
-        0,
-        1,
+        state,
         &instance,
-        &source,
-    );
-    // regular files (skip the pack metadata + the overrides prefix)
-    let _ = extract_zip(
         &pack_path,
-        &instance_dir,
-        &["modrinth.index.json", "META-INF/", &format!("{overrides}/")],
-    )
-    .map_err(|e| format!("解压整合包失败: {e}"))?;
-    // apply overrides with the prefix stripped into the instance root
-    let _ = extract_zip_strip(
-        &pack_path,
-        &instance_dir,
-        &format!("{overrides}/"),
-        &["modrinth.index.json", "META-INF/"],
-    )?;
-    let _ = std::fs::remove_dir_all(instance_dir.join(&overrides));
-    crate::install::emit_progress(
-        &app,
-        task_id,
-        "modpack-install",
-        "整合包文件已写入",
-        1,
-        1,
-        &instance,
-        &source,
-    );
-
-    // resolve project_id/version_id for mods via version_files API (best effort)
-    let resolved = resolve_by_hashes(state, &hash_by_name.values().cloned().collect::<Vec<_>>()).await;
-    let mut meta_by_name: std::collections::HashMap<String, (Option<String>, Option<String>)> =
-        std::collections::HashMap::new();
-    for (fname, h) in &hash_by_name {
-        if let Some((pid, vid)) = resolved.get(h) {
-            meta_by_name.insert(fname.clone(), (Some(pid.clone()), Some(vid.clone())));
-        }
-    }
-
-    // record installed mods — scan disk and batch-add in one save
-    let mods_dir = state.instances_dir().join(&instance.id).join("mods");
-    let mut count = 0usize;
-    if let Ok(mut inst) = crate::instances::get_instance(state, &instance.id) {
-        if let Ok(entries) = std::fs::read_dir(&mods_dir) {
-            for e in entries.flatten() {
-                let name = e.file_name().to_string_lossy().to_string();
-                if !name.ends_with(".jar") {
-                    continue;
-                }
-                let size = e.metadata().map(|m| m.len()).unwrap_or(0);
-                let meta = meta_by_name.get(&name).cloned().unwrap_or((None, None));
-                let mut rec = InstalledContent {
-                    filename: name.clone(),
-                    source: "modrinth".into(),
-                    project_id: meta.0,
-                    slug: None,
-                    version_id: meta.1,
-                    name: Some(name),
-                    version: None,
-                    mod_id: None,
-                    authors: None,
-                    description: None,
-                    installed_at: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0),
-                    size,
-                    icon: None,
-                    enabled: true,
-                };
-                crate::util::fill_content_from_jar(&mut rec, &e.path());
-                inst.mods.retain(|c| c.filename != rec.filename);
-                inst.mods.push(rec);
-                count += 1;
-            }
-        }
-        if let Err(e) = crate::instances::save_instance(state, &inst) {
-            eprintln!("[modpack] save_instance failed: {e}");
-        }
-    }
-    // auto-install game files (client jar, libraries, assets...)
-    if let Err(e) = crate::install::install_game(app.clone(), state, &instance).await {
-        crate::install::emit_progress(
-            &app,
+        crate::modpack::PackContentsSpec {
             task_id,
-            "done",
-            &format!("游戏文件安装失败：{e}"),
-            0,
-            0,
-            &instance,
-            &source,
-        );
-        return Err(format!("游戏文件安装失败：{e}"));
-    }
-    let _ = crate::util::log_best_effort("mark_installed", crate::instances::mark_installed(state, &instance.id));
+            source: source.clone(),
+            download_label: format!("正在下载 {file_count} 个文件…"),
+            downloads: items,
+            records: Vec::new(),
+            hash_meta,
+            skip_prefixes: vec!["modrinth.index.json".into(), "META-INF/".into()],
+            overrides_prefix: overrides,
+        },
+    )
+    .await?;
 
-    crate::install::emit_progress(
-        &app,
-        task_id,
-        "done",
-        "整合包安装完成",
-        1,
-        1,
-        &instance,
-        &source,
-    );
+    crate::install::emit_progress(&app, task_id, "done", "整合包安装完成", 1, 1, &instance, &source);
     Ok(json!({ "ok": true, "files": file_count, "mods": count, "instanceId": instance.id }))
 }
 
@@ -829,5 +732,100 @@ pub fn verify_sha1(path: &PathBuf, expected: Option<&str>) -> bool {
         (Some(e), Some(a)) => a.eq_ignore_ascii_case(e),
         (None, _) => true,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn index_with(files: serde_json::Value) -> Value {
+        json!({ "formatVersion": 1, "name": "测试包", "files": files })
+    }
+
+    /// 正常解析：下载项目标路径、哈希、mods/ 归类
+    #[test]
+    fn parse_index_files_builds_downloads_and_hash_map() {
+        let dir = std::path::Path::new("I:/instances/test01");
+        let idx = index_with(json!([
+            {
+                "path": "mods/sodium.jar",
+                "downloads": ["https://cdn.example/sodium.jar"],
+                "hashes": { "sha1": "AAA111", "sha512": "BBB222" },
+                "fileSize": 123456
+            },
+            {
+                "path": "config/sodium-options.json",
+                "downloads": ["https://cdn.example/opts.json"],
+                "hashes": { "sha1": "CCC333" }
+            }
+        ]));
+        let (items, hashes) = parse_index_files(&idx, dir).unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(hashes.len(), 1, "只有 mods/ 下的文件才进哈希表");
+        assert_eq!(hashes.get("sodium.jar").map(|s| s.as_str()), Some("AAA111"));
+
+        let mod_item = items.iter().find(|i| i.label == "mods/sodium.jar").unwrap();
+        assert!(mod_item.dest.ends_with("mods/sodium.jar"), "dest 拼错: {:?}", mod_item.dest);
+        assert_eq!(mod_item.url, "https://cdn.example/sodium.jar");
+        assert_eq!(mod_item.sha1.as_deref(), Some("AAA111"));
+        assert_eq!(mod_item.sha512.as_deref(), Some("BBB222"));
+        assert_eq!(mod_item.size, Some(123456));
+
+        let cfg_item = items.iter().find(|i| i.label == "config/sodium-options.json").unwrap();
+        assert!(cfg_item.dest.ends_with("config/sodium-options.json"));
+        assert_eq!(cfg_item.size, None, "fileSize 缺失时不应写入 size");
+    }
+
+    /// 路径穿越必须被拒绝（这些 path 会被拼到实例目录下）
+    #[test]
+    fn parse_index_files_rejects_traversal_paths() {
+        let dir = std::path::Path::new("I:/instances/test01");
+        for bad in [
+            "../evil.jar",
+            "mods/../../evil.jar",
+            "/etc/passwd",
+            "\\windows\\system32\\evil.dll",
+            "C:/windows/evil.dll",
+            "mods/./evil.jar",
+        ] {
+            let idx = index_with(json!([{
+                "path": bad,
+                "downloads": ["https://cdn.example/x.jar"],
+                "hashes": { "sha1": "X" }
+            }]));
+            let r = parse_index_files(&idx, dir);
+            assert!(r.is_err(), "非法路径未被拒绝: {bad}");
+        }
+    }
+
+    /// 目录条目、空路径、无下载地址的条目都应被跳过而不是报错
+    #[test]
+    fn parse_index_files_skips_unusable_entries() {
+        let dir = std::path::Path::new("I:/instances/test01");
+        let idx = index_with(json!([
+            { "path": "mods/", "downloads": ["https://cdn.example/dir/"], "hashes": {} },
+            { "path": "", "downloads": ["https://cdn.example/empty"], "hashes": {} },
+            { "path": "mods/no-download.jar", "hashes": { "sha1": "D" } },
+            {
+                "path": "mods/ok.jar",
+                "downloads": ["https://cdn.example/ok.jar"],
+                "hashes": { "sha1": "E" }
+            }
+        ]));
+        let (items, hashes) = parse_index_files(&idx, dir).unwrap();
+        assert_eq!(items.len(), 1, "只应保留唯一可下载的条目");
+        assert_eq!(items[0].label, "mods/ok.jar");
+        assert!(hashes.contains_key("ok.jar"));
+    }
+
+    /// 空 files 不应报错
+    #[test]
+    fn parse_index_files_handles_missing_files() {
+        let dir = std::path::Path::new("I:/instances/test01");
+        let (items, hashes) = parse_index_files(&json!({ "name": "x" }), dir).unwrap();
+        assert!(items.is_empty());
+        assert!(hashes.is_empty());
     }
 }

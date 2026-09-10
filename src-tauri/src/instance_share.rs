@@ -15,6 +15,7 @@ use std::path::Path;
 use std::sync::atomic::Ordering;
 use tauri::Emitter;
 
+#[allow(dead_code)]
 pub const PACK_EXT: &str = "qkxinst";
 
 // ---------------------------------------------------------------------------
@@ -521,7 +522,6 @@ pub async fn identify_manual_mods(
     let dir_ref = &dir;
     let results: Vec<Option<IdentifiedMod>> = futures_util::stream::iter(targets)
         .map(|name| {
-            let app = app.clone();
             let done = &done;
             let current = &current;
             async move {
@@ -680,7 +680,6 @@ pub fn export_pack(
     // ---- 模组：以勾选的磁盘文件名为准打包（记录仅补充元信息）。
     //      有在线来源记录的仍优先记引用（导入端重新下载，体积小一个量级）；
     //      没有记录的（手动迁移 / 未登记）直接打包文件本身。----
-    let selected_mods: std::collections::HashSet<&String> = selection.mods.iter().collect();
     let mut rec_by_disk: std::collections::HashMap<String, InstalledContent> =
         std::collections::HashMap::new();
     for rec in crate::instances::list_content(state, instance_id, "mod") {

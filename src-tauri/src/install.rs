@@ -10,30 +10,126 @@ use tauri::Emitter;
 use tokio::time::timeout;
 
 /// Entry point: install (or repair) the game files for an instance.
+/// 安装任务上下文：统一负责进度事件与「收尾」。
+///
+/// 谁开任务谁负责结束——作用域结束时若没有显式 finish，`Drop` 会自动补发
+/// 一条 `done`（标记失败），这样提前 return、`?` 传播、甚至 panic 都不会
+/// 在下载中心留下永远「进行中」的僵尸任务。
+pub struct TaskCtx<'a, R: tauri::Runtime> {
+    app: &'a tauri::AppHandle<R>,
+    instance: &'a Instance,
+    source: &'a str,
+    pub id: u64,
+    closed: bool,
+}
+
+impl<'a, R: tauri::Runtime> TaskCtx<'a, R> {
+    /// 新建任务（分配新的 task id）
+    pub fn new(
+        app: &'a tauri::AppHandle<R>,
+        state: &AppState,
+        instance: &'a Instance,
+        source: &'a str,
+    ) -> Self {
+        Self {
+            app,
+            instance,
+            source,
+            id: state.next_task_id(),
+            closed: false,
+        }
+    }
+
+    /// 复用已有 task id（跨函数传递任务时用）
+    #[allow(dead_code)]
+    pub fn with_id(
+        app: &'a tauri::AppHandle<R>,
+        instance: &'a Instance,
+        source: &'a str,
+        id: u64,
+    ) -> Self {
+        Self { app, instance, source, id, closed: false }
+    }
+
+    /// 任务是否已显式收尾（测试与内部判断用）
+    #[allow(dead_code)]
+    pub fn is_closed(&self) -> bool {
+        self.closed
+    }
+
+    pub fn emit(&self, stage: &str, message: &str, done: usize, total: usize) {
+        emit_progress(self.app, self.id, stage, message, done, total, self.instance, self.source);
+    }
+
+    /// 正常结束（成功）
+    pub fn finish_ok(&mut self, message: &str) {
+        self.emit("done", message, 1, 1);
+        self.closed = true;
+    }
+
+    /// 结束（失败）：显式发一条 ok=false 的 done
+    pub fn finish_err(&mut self, message: &str) {
+        let payload = done_event_payload(self.id, self.instance, self.source, false, message);
+        let _ = self.app.emit("install://progress", payload);
+        self.closed = true;
+    }
+}
+
+impl<R: tauri::Runtime> Drop for TaskCtx<'_, R> {
+    fn drop(&mut self) {
+        if self.closed {
+            return;
+        }
+        // 未显式收尾（提前 return / 出错传播）——补一条失败 done，避免僵尸卡片
+        let payload =
+            done_event_payload(self.id, self.instance, self.source, false, "任务未正常结束");
+        let _ = self.app.emit("install://progress", payload);
+    }
+}
+
+/// 构造任务收尾（`stage = "done"`）的事件载荷。
+/// 抽成纯函数：收尾语义（成功/失败/中断）在这里集中定义，且可被单测锁定。
+pub fn done_event_payload(
+    task_id: u64,
+    instance: &Instance,
+    source: &str,
+    ok: bool,
+    message: &str,
+) -> serde_json::Value {
+    let mut payload = serde_json::json!({
+        "taskId": task_id,
+        "stage": "done",
+        "message": message,
+        "done": if ok { 1 } else { 0 },
+        "total": if ok { 1 } else { 0 },
+        "instanceId": instance.id,
+        "instanceName": instance.name,
+        "source": source,
+    });
+    // 只有失败才带 ok=false：前端以此区分「完成」与「失败」
+    if !ok {
+        payload["ok"] = serde_json::json!(false);
+    }
+    payload
+}
+
 pub async fn install_game(
     app: tauri::AppHandle,
     state: &AppState,
     instance: &Instance,
 ) -> Result<InstallPlan, String> {
-    let task_id = state.next_task_id();
     let source = format!(
         "游戏安装 {} {}",
         instance.mc_version,
         if instance.loader == LoaderType::Vanilla { "" } else { instance.loader.as_str() }
     );
+    let mut ctx = TaskCtx::new(&app, state, instance, &source);
+    let task_id = ctx.id;
     let result = install_game_inner(&app, state, instance, task_id, &source).await;
-    // 每个任务必须以 done 收尾，否则下载中心的卡片永远停在「进行中」
-    let ok = result.is_ok();
-    emit_progress(
-        &app,
-        task_id,
-        "done",
-        if ok { "游戏文件就绪" } else { "游戏安装失败" },
-        1,
-        1,
-        instance,
-        &source,
-    );
+    match &result {
+        Ok(_) => ctx.finish_ok("游戏文件就绪"),
+        Err(e) => ctx.finish_err(&format!("游戏安装失败：{e}")),
+    }
     result
 }
 
@@ -825,14 +921,10 @@ async fn run_forge_processors(
             }
         }
         let mut cmd_args: Vec<String> = match &main_class {
-            Some(cls) => {
-                let mut v = vec!["-cp".into(), cp.join(";"), cls.clone()];
-                v
-            }
+            Some(cls) => vec!["-cp".into(), cp.join(";"), cls.clone()],
             None => {
                 let mc = read_jar_main_class(&main_jar_path)?;
-                let mut v = vec!["-cp".into(), cp.join(";"), mc];
-                v
+                vec!["-cp".into(), cp.join(";"), mc]
             }
         };
         if let Some(args) = proc_entry.get("args").and_then(|v| v.as_array()) {
@@ -941,29 +1033,16 @@ async fn forge_patch(
             size: None,
             label: format!("{installer_name} 安装器"),
         };
-        let task_id = state.next_task_id();
         let source = format!("加载器：{installer_name} {full_ver}");
-        emit_progress(
-            app,
-            task_id,
+        let mut ctx = TaskCtx::new(app, state, instance, &source);
+        ctx.emit(
             "loader",
             &format!("正在下载 {installer_name} {full_ver} 安装器…"),
             0,
             1,
-            instance,
-            &source,
         );
-        download_many(app.clone(), state, task_id, "loader", vec![item]).await?;
-        emit_progress(
-            app,
-            task_id,
-            "done",
-            &format!("{installer_name} {full_ver} 安装器就绪"),
-            1,
-            1,
-            instance,
-            &source,
-        );
+        download_many(app.clone(), state, ctx.id, "loader", vec![item]).await?;
+        ctx.finish_ok(&format!("{installer_name} {full_ver} 安装器就绪"));
     }
 
     let profile_bytes = crate::util::read_zip_entry(&installer_path, "install_profile.json")
@@ -1188,8 +1267,8 @@ pub async fn loader_versions(
 }
 
 /// Emit an install task progress event carrying instance + source context.
-pub fn emit_progress(
-    app: &tauri::AppHandle,
+pub fn emit_progress<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     task_id: u64,
     stage: &str,
     message: &str,
@@ -1212,3 +1291,55 @@ pub fn emit_progress(
         }),
     );
 }
+
+#[cfg(test)]
+mod done_payload_tests {
+    use super::*;
+    use crate::models::LoaderType;
+
+    fn inst() -> Instance {
+        Instance {
+            id: "abc123".into(),
+            name: "测试实例".into(),
+            mc_version: "1.20.1".into(),
+            loader: LoaderType::Fabric,
+            ..Default::default()
+        }
+    }
+
+    /// 失败收尾必须带 ok=false（前端据此把卡片标为失败并停止转圈）
+    #[test]
+    fn failure_payload_marks_ok_false() {
+        let p = done_event_payload(7, &inst(), "整合包：测试", false, "游戏安装失败：磁盘已满");
+        assert_eq!(p["stage"], "done");
+        assert_eq!(p["taskId"], 7);
+        assert_eq!(p["ok"], false);
+        assert_eq!(p["done"], 0);
+        assert_eq!(p["total"], 0);
+        assert_eq!(p["message"], "游戏安装失败：磁盘已满");
+    }
+
+    /// 成功收尾：进度打满且不写 ok=false（前端按缺失即成功处理）
+    #[test]
+    fn success_payload_has_full_progress_without_fail_flag() {
+        let p = done_event_payload(9, &inst(), "游戏安装 1.20.1 fabric", true, "游戏文件就绪");
+        assert_eq!(p["stage"], "done");
+        assert_eq!(p["done"], 1);
+        assert_eq!(p["total"], 1);
+        assert!(
+            p.get("ok").is_none(),
+            "成功事件不应带 ok 字段（前端以 ok !== false 判定成功）"
+        );
+    }
+
+    /// 载荷必须带上任务与实例标识，否则下载中心无法把事件归到正确的卡片
+    #[test]
+    fn payload_carries_identity_fields() {
+        let p = done_event_payload(42, &inst(), "加载器：forge 1.12.2", false, "任务未正常结束");
+        assert_eq!(p["taskId"], 42);
+        assert_eq!(p["instanceId"], "abc123");
+        assert_eq!(p["instanceName"], "测试实例");
+        assert_eq!(p["source"], "加载器：forge 1.12.2");
+    }
+}
+

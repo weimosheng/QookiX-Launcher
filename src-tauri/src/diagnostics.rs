@@ -665,7 +665,7 @@ pub async fn collect(state: &AppState, instance_id: Option<String>) -> Result<Di
     // 整体脱敏：路径里的用户名、UUID、token
     let generated_at = now_secs();
     let raw_md = render_markdown(&sections, generated_at, 0, inst_ref);
-    let (clean_md, redactions) = redact(&raw_md);
+    let (_, redactions) = redact(&raw_md);
 
     // 结构化字段同样脱敏（前端展示用）
     let mut clean_sections = Vec::with_capacity(sections.len());

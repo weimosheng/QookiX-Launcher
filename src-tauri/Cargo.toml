@@ -45,9 +45,6 @@ junction = "1"
 url = "2"
 tauri-plugin-single-instance = "2.4.4"
 
-[dev-dependencies]
-tauri = { version = "2", features = ["test"] }
-
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Registry"] }
 png = "0.17"
