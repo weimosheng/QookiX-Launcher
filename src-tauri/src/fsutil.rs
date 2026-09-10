@@ -249,10 +249,16 @@ mod tests {
     #[test]
     fn resolve_rejects_absolute_paths() {
         let root = tmp_root("absolute");
-        // Windows 盘符 / Unix 根路径都会在 join 时替换掉 root
-        let outside = if cfg!(windows) { "C:/Windows/win.ini" } else { "/etc/hosts" };
-        let err = resolve_in_dir(&root, outside, "实例").unwrap_err();
-        assert!(err.contains("超出实例目录范围"), "unexpected: {err}");
+        if cfg!(windows) {
+            // Windows 盘符路径会在 join 时替换掉 root，必须被拒绝
+            let err = resolve_in_dir(&root, "C:/Windows/win.ini", "实例").unwrap_err();
+            assert!(err.contains("超出实例目录范围"), "unexpected: {err}");
+        } else {
+            // Unix 绝对路径的前导 / 会被剥掉、降级为 root 内的相对路径；
+            // 无论目标存在与否，结果都不允许落在 root 之外
+            let p = resolve_in_dir(&root, "/etc/hosts", "实例").unwrap();
+            assert!(p.starts_with(&root), "escaped root: {p:?}");
+        }
     }
 
     #[test]
