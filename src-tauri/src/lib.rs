@@ -4,6 +4,7 @@ mod instance_share;
 mod crash;
 mod diagnostics;
 mod curseforge;
+mod deps;
 mod download;
 mod fsutil;
 mod install;
@@ -175,7 +176,9 @@ pub fn run() {
             commands::project_dependencies,
             commands::mc_wiki_url,
             commands::install_content,
-            commands::check_updates,
+            commands::check_dependencies,
+  commands::check_updates,
+  commands::resolve_missing_mods,
             commands::apply_update,
             commands::uninstall_content,
             commands::list_content,

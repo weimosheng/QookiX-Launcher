@@ -314,6 +314,22 @@ pub async fn check_updates(
     Ok(updates)
 }
 
+/// 依赖体检：扫描实例 mods 目录，报告缺失的必选前置与重复的 mod id。
+#[tauri::command]
+pub fn check_dependencies(state: State<AppState>, instance_id: String) -> Result<Value, String> {
+    crate::deps::check(&state, &instance_id)
+}
+
+/// 把缺失的 mod id 联网解析成可安装的 Modrinth 项目（带实例版本 / 加载器过滤）。
+#[tauri::command]
+pub async fn resolve_missing_mods(
+    state: State<'_, AppState>,
+    instance_id: String,
+    mod_ids: Vec<String>,
+) -> Result<Vec<Value>, String> {
+    crate::deps::resolve_missing(&state, &instance_id, mod_ids).await
+}
+
 #[tauri::command]
 pub async fn apply_update(
     app: tauri::AppHandle,

@@ -412,6 +412,17 @@ pub fn extract_archive_icon(path: &std::path::Path, kind: &str) -> Option<String
     None
 }
 
+/// jar 内声明的单个依赖，供依赖体检使用。
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
+pub struct ModDependency {
+    /// 依赖方声明的 mod id（如 "fabric-api" / "forge"）
+    pub mod_id: String,
+    /// 版本范围原文，不做语义解析（"*" / ">=1.20" / "[1.20,1.21)"）
+    pub requirement: String,
+    /// required / optional
+    pub kind: String,
+}
+
 /// 从 jar 内部解析出的 mod 元数据。
 #[derive(Default, Clone, Debug)]
 pub struct ModJarMeta {
@@ -424,6 +435,10 @@ pub struct ModJarMeta {
     pub icon: Option<String>,
     /// fabric / quilt / forge / neoforge
     pub loader: Option<String>,
+    /// 声明的依赖（required + optional）
+    pub depends: Vec<ModDependency>,
+    /// 声明的 Minecraft 版本范围（原样，仅用于展示）
+    pub mc_requirement: Option<String>,
 }
 
 fn save_icon_buf(buf: Vec<u8>) -> Option<String> {
@@ -479,32 +494,73 @@ fn split_authors(s: &str) -> Vec<String> {
     s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()
 }
 
-/// 解析 Forge/NeoForge 的 mods.toml，只取第一个 [[mods]] 块。
+/// 解析 Forge/NeoForge 的 mods.toml：只取第一个 `[[mods]]` 块作为自身元数据，
+/// 同时收集所有 `[[dependencies.<modid>]]` 块用于依赖体检。
 fn parse_mods_toml(text: &str) -> Option<ModJarMeta> {
     let mut in_mods = false;
+    let mut in_dep = false;
     let mut meta = ModJarMeta::default();
     let mut found_mod_id = false;
     let mut logo_file: Option<String> = None;
+    // 当前依赖块的暂存字段
+    let mut dep_id = String::new();
+    let mut dep_range = String::new();
+    let mut dep_required = true;
+
     for line in text.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("[[") {
-            if in_mods && found_mod_id {
-                break;
+            if in_dep {
+                push_dep_block(&mut meta, &dep_id, &dep_range, dep_required);
+                dep_id.clear();
+                dep_range.clear();
+                dep_required = true;
             }
-            in_mods = trimmed == "[[mods]]";
+            // 只认第一个 [[mods]] 块，后续同名块不再覆盖元数据
+            in_mods = trimmed == "[[mods]]" && !found_mod_id;
+            in_dep = trimmed.starts_with("[[dependencies.");
             continue;
         }
         if trimmed.starts_with('[') {
+            if in_dep {
+                push_dep_block(&mut meta, &dep_id, &dep_range, dep_required);
+                dep_id.clear();
+                dep_range.clear();
+                dep_required = true;
+                in_dep = false;
+            }
             in_mods = false;
-            continue;
-        }
-        if !in_mods {
             continue;
         }
         let Some(eq) = trimmed.find('=') else { continue };
         let key = trimmed[..eq].trim();
         let value = trimmed[eq + 1..].trim();
         let Some(v) = parse_toml_value(value) else { continue };
+
+        if in_dep {
+            match key {
+                "modId" => dep_id = v,
+                "versionRange" => dep_range = v,
+                // 旧格式（Forge）：mandatory = true / false
+                "mandatory" => dep_required = !v.eq_ignore_ascii_case("false"),
+                // 新格式（NeoForge）：type = "required" | "optional" | "incompatible"
+                "type" => {
+                    let t = v.to_ascii_lowercase();
+                    if t == "incompatible" {
+                        // 冲突声明不属于「缺失依赖」，先整体丢弃
+                        dep_id.clear();
+                        dep_range.clear();
+                    } else {
+                        dep_required = t != "optional";
+                    }
+                }
+                _ => {}
+            }
+            continue;
+        }
+        if !in_mods {
+            continue;
+        }
         match key {
             "modId" => { meta.mod_id = Some(v); found_mod_id = true; }
             "displayName" => { meta.name = Some(v); }
@@ -515,12 +571,101 @@ fn parse_mods_toml(text: &str) -> Option<ModJarMeta> {
             _ => {}
         }
     }
+    if in_dep {
+        push_dep_block(&mut meta, &dep_id, &dep_range, dep_required);
+    }
     if found_mod_id {
         meta.icon = logo_file;
         Some(meta)
     } else {
         None
     }
+}
+
+/// 把解析出的一个依赖块并入元数据；`minecraft` 额外记为 Minecraft 版本范围。
+fn push_dep_block(meta: &mut ModJarMeta, mod_id: &str, range: &str, required: bool) {
+    let id = mod_id.trim();
+    if id.is_empty() {
+        return;
+    }
+    let range = range.trim();
+    if id.eq_ignore_ascii_case("minecraft") && meta.mc_requirement.is_none() && !range.is_empty() {
+        meta.mc_requirement = Some(range.to_string());
+    }
+    meta.depends.push(ModDependency {
+        mod_id: id.to_string(),
+        requirement: range.to_string(),
+        kind: if required { "required" } else { "optional" }.into(),
+    });
+}
+
+/// 解析 fabric.mod.json / quilt.mod.json 的依赖声明。
+///
+/// - fabric：`depends` / `recommends` 是 `{ "mod-id": "版本范围" }` 映射
+/// - quilt：字段位于 `quilt_loader` 下，且 `depends` 形如 `[{ "id": .., "versions": .. }]`
+fn parse_json_dependencies(
+    val: &serde_json::Value,
+    quilt: bool,
+) -> (Vec<ModDependency>, Option<String>) {
+    let root = if quilt { val.get("quilt_loader").unwrap_or(val) } else { val };
+    let mut deps: Vec<ModDependency> = Vec::new();
+    let mut mc_requirement: Option<String> = None;
+
+    for (field, kind) in [("depends", "required"), ("recommends", "optional")] {
+        let Some(node) = root.get(field) else { continue };
+        // 对象形式（fabric）
+        if let Some(map) = node.as_object() {
+            for (id, v) in map {
+                let requirement = json_requirement_text(v);
+                note_mc(&id, &requirement, &mut mc_requirement);
+                deps.push(ModDependency {
+                    mod_id: id.clone(),
+                    requirement,
+                    kind: kind.into(),
+                });
+            }
+            continue;
+        }
+        // 数组形式（quilt）
+        if let Some(arr) = node.as_array() {
+            for item in arr {
+                let Some(id) = item.get("id").and_then(|v| v.as_str()) else { continue };
+                let requirement = item
+                    .get("versions")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                note_mc(id, &requirement, &mut mc_requirement);
+                deps.push(ModDependency {
+                    mod_id: id.to_string(),
+                    requirement,
+                    kind: kind.into(),
+                });
+            }
+        }
+    }
+    (deps, mc_requirement)
+}
+
+fn note_mc(id: &str, requirement: &str, slot: &mut Option<String>) {
+    if slot.is_none() && !requirement.is_empty() && id.eq_ignore_ascii_case("minecraft") {
+        *slot = Some(requirement.to_string());
+    }
+}
+
+/// fabric 的版本范围既可能是字符串，也可能是字符串数组。
+fn json_requirement_text(v: &serde_json::Value) -> String {
+    if let Some(s) = v.as_str() {
+        return s.to_string();
+    }
+    if let Some(arr) = v.as_array() {
+        return arr
+            .iter()
+            .filter_map(|x| x.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+    }
+    String::new()
 }
 
 /// 从 jar 内部解析 mod 元数据（fabric/quilt/forge/neoforge 通用）。
@@ -546,6 +691,9 @@ pub fn parse_mod_jar(path: &Path) -> Option<ModJarMeta> {
         meta.authors = parse_json_authors(&val);
         icon_ref = val.get("icon").and_then(|v| v.as_str()).map(|s| s.to_string());
         meta.loader = if name == "fabric.mod.json" { Some("fabric".into()) } else { Some("quilt".into()) };
+        let (deps, mc_req) = parse_json_dependencies(&val, name == "quilt.mod.json");
+        meta.depends = deps;
+        meta.mc_requirement = mc_req;
         found = true;
     }
 
@@ -821,4 +969,146 @@ pub fn sort_version_desc(mut versions: Vec<String>) -> Vec<String> {
         num(b).partial_cmp(&num(a)).unwrap_or(std::cmp::Ordering::Equal)
     });
     versions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_fabric_dependencies() {
+        let val: serde_json::Value = serde_json::from_str(
+            r#"{
+            "id": "sodium-extra",
+            "depends": { "fabricloader": ">=0.14", "minecraft": "~1.20.1", "fabric-api": "*" },
+            "recommends": { "modmenu": "*" }
+        }"#,
+        )
+        .unwrap();
+        let (deps, mc) = parse_json_dependencies(&val, false);
+        assert_eq!(mc.as_deref(), Some("~1.20.1"));
+        let find = |id: &str| deps.iter().find(|d| d.mod_id == id).unwrap();
+        assert_eq!(find("fabric-api").kind, "required");
+        assert_eq!(find("fabric-api").requirement, "*");
+        assert_eq!(find("modmenu").kind, "optional");
+        assert_eq!(find("fabricloader").requirement, ">=0.14");
+    }
+
+    #[test]
+    fn parses_quilt_dependencies() {
+        let val: serde_json::Value = serde_json::from_str(
+            r#"{
+            "quilt_loader": {
+                "id": "my-mod",
+                "depends": [
+                    { "id": "quilt_loader", "versions": ">=0.19" },
+                    { "id": "minecraft", "versions": "1.20.x" },
+                    { "id": "quilted_fabric_api", "versions": ">=6" }
+                ]
+            }
+        }"#,
+        )
+        .unwrap();
+        let (deps, mc) = parse_json_dependencies(&val, true);
+        assert_eq!(mc.as_deref(), Some("1.20.x"));
+        assert_eq!(deps.len(), 3);
+        assert_eq!(deps[2].mod_id, "quilted_fabric_api");
+        assert!(deps.iter().all(|d| d.kind == "required"));
+    }
+
+    #[test]
+    fn fabric_version_range_may_be_array() {
+        let val: serde_json::Value = serde_json::from_str(
+            r#"{ "depends": { "fabric-api": [">=0.90", "<0.100"] } }"#,
+        )
+        .unwrap();
+        let (deps, _) = parse_json_dependencies(&val, false);
+        assert_eq!(deps[0].requirement, ">=0.90, <0.100");
+    }
+
+    #[test]
+    fn parses_forge_toml_dependencies() {
+        let text = r#"
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+
+[[mods]]
+modId="examplemod"
+version="1.0.0"
+displayName="Example Mod"
+description="demo"
+
+[[dependencies.examplemod]]
+    modId="forge"
+    mandatory=true
+    versionRange="[47,)"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.examplemod]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="[1.20,1.21)"
+
+[[dependencies.examplemod]]
+    modId="jei"
+    mandatory=false
+    versionRange="[15,)"
+"#;
+        let meta = parse_mods_toml(text).unwrap();
+        assert_eq!(meta.mod_id.as_deref(), Some("examplemod"));
+        assert_eq!(meta.name.as_deref(), Some("Example Mod"));
+        assert_eq!(meta.mc_requirement.as_deref(), Some("[1.20,1.21)"));
+        assert_eq!(meta.depends.len(), 3);
+        assert_eq!(meta.depends[0].mod_id, "forge");
+        assert_eq!(meta.depends[0].kind, "required");
+        assert_eq!(meta.depends[2].mod_id, "jei");
+        assert_eq!(meta.depends[2].kind, "optional");
+    }
+
+    #[test]
+    fn parses_neoforge_toml_dependency_type() {
+        let text = r#"
+[[mods]]
+modId="neoexample"
+version="2.0"
+
+[[dependencies.neoexample]]
+modId="neoforge"
+type="required"
+versionRange="[21,)"
+
+[[dependencies.neoexample]]
+modId="some_lib"
+type="optional"
+versionRange="*"
+
+[[dependencies.neoexample]]
+modId="broken_mod"
+type="incompatible"
+versionRange="*"
+"#;
+        let meta = parse_mods_toml(text).unwrap();
+        // incompatible 声明不参与缺失依赖
+        assert_eq!(meta.depends.len(), 2);
+        assert_eq!(meta.depends[0].mod_id, "neoforge");
+        assert_eq!(meta.depends[0].kind, "required");
+        assert_eq!(meta.depends[1].kind, "optional");
+    }
+
+    #[test]
+    fn toml_without_mods_block_is_rejected() {
+        let text = "[[dependencies.x]]\nmodId=\"forge\"\n";
+        assert!(parse_mods_toml(text).is_none());
+    }
+
+    #[test]
+    fn empty_requirement_keeps_minecraft_slot_unset() {
+        let val: serde_json::Value =
+            serde_json::from_str(r#"{ "depends": { "fabric-api": "*" } }"#).unwrap();
+        let (deps, mc) = parse_json_dependencies(&val, false);
+        assert_eq!(deps.len(), 1);
+        assert!(mc.is_none());
+    }
 }

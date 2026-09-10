@@ -25,7 +25,14 @@ import {
   IconSearch,
   IconTrash,
 } from "../icons";
-import type { ContentItem, ProjectVersion, UpdateInfo } from "../../types";
+import type {
+  ContentItem,
+  DependencyReport,
+  MissingDependency,
+  ProjectVersion,
+  ResolvedMissingMod,
+  UpdateInfo,
+} from "../../types";
 
 const props = defineProps<{
   instanceId: string;
@@ -112,6 +119,87 @@ async function applyUpdate(u: UpdateInfo) {
   } catch (e) {
     message.error(String(e));
   }
+}
+
+const updatingAll = ref(false);
+async function updateAll() {
+  const list = Object.values(updates.value);
+  if (!list.length) return;
+  updatingAll.value = true;
+  try {
+    for (const u of list) await applyUpdate(u);
+    message.success(`已全部加入下载队列（${list.length} 个）`);
+  } finally {
+    updatingAll.value = false;
+  }
+}
+
+// ---- 依赖体检 ----
+const depReport = ref<DependencyReport | null>(null);
+const checkingDeps = ref(false);
+const resolvingDeps = ref(false);
+const depShow = ref(false);
+const depResolved = ref<Record<string, ResolvedMissingMod | null>>({});
+const installingDeps = ref<string[]>([]);
+
+async function runDepCheck() {
+  checkingDeps.value = true;
+  try {
+    const report = await api.checkDependencies(props.instanceId);
+    depReport.value = report;
+    depResolved.value = {};
+    if (!report.missing.length && !report.duplicates.length) {
+      message.success(`依赖体检通过：${report.checkedMods} 个启用中的模组前置齐全`);
+    } else {
+      depShow.value = true;
+      if (report.missing.length) void resolveMissing(report.missing.map((m) => m.modId));
+    }
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    checkingDeps.value = false;
+  }
+}
+
+async function resolveMissing(modIds: string[]) {
+  resolvingDeps.value = true;
+  try {
+    const list = await api.resolveMissingMods(props.instanceId, modIds);
+    const map: Record<string, ResolvedMissingMod | null> = {};
+    for (const r of list) map[r.modId] = r.projectId ? r : null;
+    depResolved.value = map;
+  } catch {
+    // 解析失败只影响“一键安装”按钮，不影响体检结果展示
+    depResolved.value = {};
+  } finally {
+    resolvingDeps.value = false;
+  }
+}
+
+async function installMissing(dep: MissingDependency) {
+  const r = depResolved.value[dep.modId];
+  if (!r?.projectId || !r.latestVersionId) return;
+  installingDeps.value = [...installingDeps.value, dep.modId];
+  try {
+    await api.installContent(props.instanceId, r.provider, r.projectId, r.latestVersionId, props.kind);
+    message.success("已加入下载队列：" + (r.title || dep.modId));
+    if (depReport.value) {
+      depReport.value = {
+        ...depReport.value,
+        missing: depReport.value.missing.filter((m) => m.modId !== dep.modId),
+      };
+    }
+    loadContent();
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    installingDeps.value = installingDeps.value.filter((x) => x !== dep.modId);
+  }
+}
+
+function searchMissing(dep: MissingDependency) {
+  depShow.value = false;
+  router.push({ name: "browse", query: { q: dep.modId } });
 }
 
 // ---- 确认弹窗（本组件内的移除操作使用） ----
@@ -365,6 +453,70 @@ defineExpose({
 
 <template>
   <div>
+    <!-- 模组工具栏：依赖体检 + 可更新汇总 -->
+    <div v-if="kind === 'mod' && contentItems.length" class="dep-bar glass">
+      <button class="btn ghost" :disabled="checkingDeps" @click="runDepCheck">
+        <IconCheck /> {{ checkingDeps ? "体检中…" : "依赖体检" }}
+      </button>
+      <span v-if="updatesCount > 0" class="dep-hint">
+        发现 {{ updatesCount }} 个可更新
+        <button class="btn ok" :disabled="updatingAll" @click="updateAll">
+          <IconDownload /> {{ updatingAll ? "更新中…" : "全部更新" }}
+        </button>
+      </span>
+    </div>
+
+    <!-- 依赖体检结果 -->
+    <NModal v-model:show="depShow">
+      <div class="dep-dialog glass">
+        <div class="dep-head">
+          <h4>依赖体检</h4>
+          <button class="x" title="关闭" @click="depShow = false"><IconClose /></button>
+        </div>
+        <p class="dep-sub">
+          已检查 {{ depReport?.checkedMods ?? 0 }} 个启用中的模组
+          <span v-if="depReport?.unreadable">，{{ depReport.unreadable }} 个无法解析元数据</span>
+          <span v-if="resolvingDeps">，正在联网查找缺失项…</span>
+        </p>
+
+        <div v-if="depReport?.duplicates.length" class="dep-section">
+          <h5>重复的模组 id</h5>
+          <div v-for="d in depReport.duplicates" :key="d.modId" class="dep-row">
+            <div class="dep-info">
+              <code class="dep-id">{{ d.modId }}</code>
+              <div class="dep-by">{{ d.files.join("、") }}</div>
+            </div>
+            <span class="dep-tag">同时生效，请删掉多余的</span>
+          </div>
+        </div>
+
+        <div v-if="depReport?.missing.length" class="dep-section">
+          <h5>缺失的前置模组</h5>
+          <div v-for="m in depReport.missing" :key="m.modId" class="dep-row">
+            <div class="dep-info">
+              <code class="dep-id">{{ m.modId }}</code>
+              <span v-if="m.requirement && m.requirement !== '*'" class="dep-req">{{ m.requirement }}</span>
+              <div v-if="m.disabledFile" class="dep-disabled">已有 {{ m.disabledFile }}（处于禁用状态）</div>
+              <div class="dep-by">被 {{ m.requiredBy.join("、") }} 依赖</div>
+            </div>
+            <div class="dep-actions">
+              <template v-if="depResolved[m.modId]">
+                <span class="dep-title text-ellipsis">{{ depResolved[m.modId]!.title }}</span>
+                <button class="btn ok" :disabled="installingDeps.includes(m.modId)" @click="installMissing(m)">
+                  {{ installingDeps.includes(m.modId) ? "安装中…" : "安装" }}
+                </button>
+              </template>
+              <button v-else class="btn ghost" @click="searchMissing(m)">在内容中心搜索</button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="depReport && !depReport.missing.length && !depReport.duplicates.length" class="dep-ok">
+          <IconCheck /> 前置依赖齐全，没有发现问题
+        </div>
+      </div>
+    </NModal>
+
     <!-- 搜索过滤：仅在列表非空时显示 -->
     <div v-if="contentItems.length > 3" class="filter-bar glass">
       <IconSearch />
@@ -770,5 +922,128 @@ defineExpose({
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+/* ---- 模组工具栏 / 依赖体检 ---- */
+.dep-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+.dep-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.btn.ok {
+  background: var(--success-12);
+  color: #4ec9a0;
+}
+.btn.ok:hover {
+  opacity: 0.85;
+}
+.dep-dialog {
+  width: 640px;
+  max-width: 94vw;
+  max-height: 76vh;
+  overflow: auto;
+  padding: 18px 20px;
+}
+.dep-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.dep-head h4 {
+  margin: 0;
+}
+.dep-head .x {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 8px;
+}
+.dep-head .x:hover {
+  background: var(--w-06);
+  color: var(--text-1);
+}
+.dep-sub {
+  margin: 6px 0 14px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.dep-section {
+  margin-bottom: 16px;
+}
+.dep-section h5 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.dep-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--w-08);
+  border-radius: 10px;
+  margin-bottom: 8px;
+}
+.dep-info {
+  min-width: 0;
+}
+.dep-id {
+  font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+  font-size: 13px;
+  color: var(--text-1);
+}
+.dep-req {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--text-3);
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+.dep-by {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.dep-disabled {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #e0a030;
+}
+.dep-tag {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.dep-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.dep-title {
+  max-width: 160px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.dep-ok {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0 6px;
+  color: #4ec9a0;
+  font-size: 14px;
 }
 </style>

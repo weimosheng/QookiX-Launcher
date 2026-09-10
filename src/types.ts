@@ -346,6 +346,34 @@ export interface UpdateInfo {
   provider: string;
 }
 
+export interface MissingDependency {
+  modId: string;
+  requirement: string;
+  kind: string;
+  requiredBy: string[];
+  disabledFile: string | null;
+}
+
+export interface DependencyReport {
+  instanceId: string;
+  checkedMods: number;
+  unreadable: number;
+  missing: MissingDependency[];
+  duplicates: { modId: string; files: string[] }[];
+}
+
+export interface ResolvedMissingMod {
+  modId: string;
+  provider: string;
+  projectId: string;
+  slug: string;
+  title: string;
+  icon: string;
+  downloads: number;
+  latestVersionId: string;
+  exact: boolean;
+}
+
 export interface InstallProgressEvent {
   taskId: number;
   stage: string;

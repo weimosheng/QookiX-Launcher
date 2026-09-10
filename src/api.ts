@@ -6,6 +6,8 @@ import type {
   CacheClearResult,
   ContentItem,
   CrashDiagnosis,
+  DependencyReport,
+  ResolvedMissingMod,
   FsEntry,
   Instance,
   InstanceGroup,
@@ -282,6 +284,10 @@ export const api = {
       },
       { silent: true }
     ),
+  checkDependencies: (instanceId: string) =>
+    invoke<DependencyReport>("check_dependencies", { instanceId }),
+  resolveMissingMods: (instanceId: string, modIds: string[]) =>
+    invoke<ResolvedMissingMod[]>("resolve_missing_mods", { instanceId, modIds }),
   checkUpdates: (instanceId: string, kind: string) =>
     invoke<UpdateInfo[]>("check_updates", { instanceId, kind }),
   applyUpdate: (
