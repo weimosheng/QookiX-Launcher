@@ -69,15 +69,15 @@ onBeforeUnmount(() => {
   width: 360px;
   max-width: 90vw;
   background: var(--panel, #1e2230);
-  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  border: 1px solid var(--border, var(--w-08));
   border-radius: 12px;
   padding: 14px 18px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 32px var(--k-40);
   z-index: 9999;
 }
 .lp-bar {
   height: 4px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   border-radius: 2px;
   overflow: hidden;
   margin-bottom: 8px;

@@ -587,7 +587,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   border: 1px solid var(--border);
   border-radius: 9px;
   padding: 0 12px;
@@ -632,7 +632,7 @@ onMounted(async () => {
   transition: all 0.12s;
 }
 .type-card button:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
 }
 .type-card button.active {
   color: var(--accent);
@@ -642,7 +642,7 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   color: var(--text-2);
   border-radius: 9px;
   padding: 7px 13px;
@@ -653,7 +653,7 @@ onMounted(async () => {
   transition: all 0.12s;
 }
 .filter-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
 }
 .filter-btn.on {
   border-color: var(--accent);
@@ -683,7 +683,7 @@ onMounted(async () => {
 }
 .filter-chip {
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   color: var(--text-2);
   border-radius: 7px;
   padding: 5px 11px;
@@ -694,7 +694,7 @@ onMounted(async () => {
   transition: all 0.12s;
 }
 .filter-chip:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   color: var(--text-1);
 }
 .filter-chip.active {
@@ -748,7 +748,7 @@ onMounted(async () => {
 .view-switch {
   position: relative;
   display: flex;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
   border-radius: 9px;
   padding: 3px;
   gap: 2px;

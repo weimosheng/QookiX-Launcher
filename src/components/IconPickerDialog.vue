@@ -176,7 +176,7 @@ function save() {
   height: 72px;
   border-radius: 16px;
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--w-10);
   overflow: hidden;
   font-size: 34px;
   position: relative;
@@ -209,8 +209,8 @@ function save() {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--w-10);
+  background: var(--w-04);
   color: #c6c8d2;
   border-radius: 9px;
   padding: 6px 12px;
@@ -237,7 +237,7 @@ function save() {
 .ip-swatch.bg-red { background: linear-gradient(135deg, #e5534b, #b0302a); }
 .ip-swatch.bg-slate { background: linear-gradient(135deg, #8c96aa, #5a6478); }
 .ip-swatch.bg-dark { background: linear-gradient(135deg, #1e2230, #14161d); }
-.ip-swatch.bg-none { background: rgba(255, 255, 255, 0.08); }
+.ip-swatch.bg-none { background: var(--w-08); }
 .ip-loading,
 .ip-empty {
   font-size: 13px;
@@ -254,8 +254,8 @@ function save() {
 }
 .ip-icon {
   aspect-ratio: 1;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--w-10);
+  background: var(--w-04);
   border-radius: 10px;
   cursor: pointer;
   display: flex;
@@ -265,7 +265,7 @@ function save() {
   overflow: hidden;
 }
 .ip-icon:hover {
-  background: rgba(255, 255, 255, 0.09);
+  background: var(--w-09);
 }
 .ip-icon.active {
   border-color: #e89a4b;
@@ -279,8 +279,8 @@ function save() {
 }
 .ip-import {
   align-self: flex-start;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--w-10);
+  background: var(--w-05);
   color: #f2f3f7;
   border-radius: 9px;
   padding: 8px 16px;
@@ -290,7 +290,7 @@ function save() {
   font-family: inherit;
 }
 .ip-import:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--w-10);
 }
 .ip-import:disabled {
   opacity: 0.5;
@@ -308,8 +308,8 @@ function save() {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--w-10);
+  background: var(--w-05);
   color: #f2f3f7;
   border-radius: 9px;
   padding: 8px 18px;

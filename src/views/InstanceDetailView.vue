@@ -600,12 +600,12 @@ watch(
   filter: brightness(1.08);
 }
 .btn.ghost {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   color: var(--text-1);
   border: 1px solid var(--border);
 }
 .btn.ghost:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--w-10);
 }
 .btn.ghost.pin.active {
   color: var(--accent);
@@ -613,13 +613,13 @@ watch(
   background: var(--accent-soft);
 }
 .btn.danger {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   color: var(--text-1);
   border: 1px solid var(--border);
 }
 .btn.danger:hover {
   color: #e5534b;
-  border-color: rgba(229, 83, 75, 0.5);
+  border-color: var(--danger-50);
 }
 .btn:disabled {
   opacity: 0.5;
@@ -678,7 +678,7 @@ watch(
   transition: all 0.12s;
 }
 .tab:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
 }
 .tab.active {
   color: var(--accent);
@@ -695,7 +695,7 @@ watch(
   padding: 7px 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   color: var(--text-2);
   font-size: 12px;
   font-weight: 600;
@@ -704,7 +704,7 @@ watch(
   transition: all 0.12s;
 }
 .mini-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   color: var(--text-1);
 }
 .upd-n {
@@ -733,7 +733,7 @@ watch(
   aspect-ratio: 16 / 9;
   object-fit: cover;
   display: block;
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--k-30);
 }
 .shot-info {
   padding: 8px 10px;
@@ -752,7 +752,7 @@ watch(
   max-height: 70vh;
   object-fit: contain;
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--k-40);
 }
 .empty {
   padding: 40px;

@@ -307,7 +307,7 @@ function confirmDelete() {
 }
 .state.ok {
   color: #4ec9a0;
-  background: rgba(78, 201, 160, 0.12);
+  background: var(--success-12);
 }
 .state.warn {
   color: #e0a030;
@@ -343,7 +343,7 @@ function confirmDelete() {
   transition: all 0.12s;
 }
 .icon-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   color: var(--text-1);
 }
 .icon-btn.play {
@@ -358,7 +358,7 @@ function confirmDelete() {
 }
 .icon-btn.danger:hover {
   color: #e5534b;
-  border-color: rgba(229, 83, 75, 0.5);
+  border-color: var(--danger-50);
 }
 .icon-btn:disabled {
   opacity: 0.4;
@@ -416,7 +416,7 @@ function confirmDelete() {
   flex-shrink: 0;
 }
 .more-item:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   color: var(--text-1);
 }
 .more-item.active {
@@ -424,7 +424,7 @@ function confirmDelete() {
 }
 .more-item.danger:hover {
   color: #e5534b;
-  background: rgba(229, 83, 75, 0.12);
+  background: var(--danger-12);
 }
 .more-divider {
   height: 1px;

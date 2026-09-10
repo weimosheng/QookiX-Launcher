@@ -163,7 +163,7 @@ async function exportLog() {
 }
 .mini:hover {
   color: var(--text-1);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
 }
 .log-box {
   flex: 1;
@@ -171,7 +171,7 @@ async function exportLog() {
   padding: 12px 14px;
   font-size: 12px;
   line-height: 1.55;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--k-25);
   /* allow selecting / copying log text */
   user-select: text;
   -webkit-user-select: text;

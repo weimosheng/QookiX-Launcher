@@ -84,7 +84,7 @@ function onLeave() {
   height: 96px;
   border-radius: 22px;
   overflow: hidden;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 12px 40px var(--k-45);
 }
 .splash-logo img {
   width: 100%;
@@ -121,7 +121,7 @@ function onLeave() {
   max-width: 72vw;
   height: 4px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   overflow: hidden;
   margin-top: 4px;
 }

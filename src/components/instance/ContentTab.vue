@@ -569,12 +569,12 @@ defineExpose({
   transition: all 0.14s;
 }
 .btn.ghost {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   color: var(--text-1);
   border: 1px solid var(--border);
 }
 .btn.ghost:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--w-10);
 }
 .content-list {
   padding: 18px;
@@ -599,7 +599,7 @@ defineExpose({
   width: 34px;
   height: 34px;
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -646,7 +646,7 @@ defineExpose({
   font-weight: 600;
 }
 .src.modrinth {
-  background: rgba(90, 162, 240, 0.15);
+  background: var(--info-15);
   color: #7cb8f5;
 }
 .src.curseforge {
@@ -654,7 +654,7 @@ defineExpose({
   color: #f08a67;
 }
 .src.manual {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   color: var(--text-3);
 }
 .src.modpack {
@@ -688,11 +688,11 @@ defineExpose({
 }
 .icon-btn.danger:hover {
   color: #e5534b;
-  border-color: rgba(229, 83, 75, 0.5);
+  border-color: var(--danger-50);
 }
 .icon-btn.warn {
   color: #e5534b;
-  border-color: rgba(229, 83, 75, 0.35);
+  border-color: var(--danger-35);
 }
 .icon-btn.warn:hover {
   background: rgba(229, 83, 75, 0.15);
@@ -742,7 +742,7 @@ defineExpose({
   justify-content: space-between;
   gap: 12px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   color: var(--text-2);
   border-radius: 9px;
   padding: 8px 14px;
@@ -752,7 +752,7 @@ defineExpose({
   transition: all 0.12s;
 }
 .sv-item:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
 }
 .sv-item.active {
   border-color: var(--accent);

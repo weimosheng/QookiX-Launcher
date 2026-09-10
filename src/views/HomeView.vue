@@ -431,12 +431,12 @@ onMounted(() => {
   cursor: default;
 }
 .btn.ghost {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   color: var(--text-1);
   border: 1px solid var(--border);
 }
 .btn.ghost:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--w-10);
   transform: none;
 }
 .hero-logo {
@@ -485,7 +485,7 @@ onMounted(() => {
 }
 .pin-card:hover {
   border-color: var(--accent-45);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   transform: translateY(-1px);
 }
 .pin-icon {
@@ -605,7 +605,7 @@ onMounted(() => {
   justify-content: center;
 }
 .pin-unpin:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   color: #ff6b6b;
 }
 .section-head {
@@ -734,13 +734,13 @@ onMounted(() => {
   gap: 12px;
   padding: 12px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   border: 1px solid var(--border);
   cursor: pointer;
   transition: border-color 0.15s, transform 0.15s, background 0.15s;
 }
 .pick-card:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--w-07);
 }
 .pick-card.active {
   border-color: var(--accent);

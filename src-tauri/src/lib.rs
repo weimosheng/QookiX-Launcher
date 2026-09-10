@@ -5,6 +5,7 @@ mod crash;
 mod diagnostics;
 mod curseforge;
 mod download;
+mod fsutil;
 mod install;
 mod instances;
 mod java;

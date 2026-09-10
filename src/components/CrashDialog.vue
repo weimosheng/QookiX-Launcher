@@ -182,14 +182,14 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 10px 12px;
   border-radius: 8px;
-  background: var(--panel-2, rgba(255, 255, 255, 0.04));
+  background: var(--panel-2, var(--w-04));
   border-left: 3px solid var(--accent, #e89a4b);
   font-size: 13px;
   color: var(--text-main, #e6e8f0);
   line-height: 1.6;
 }
 .crash-excerpt {
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--border, var(--w-08));
   border-radius: 8px;
   overflow: hidden;
 }
@@ -198,8 +198,8 @@ onBeforeUnmount(() => {
   font-weight: 600;
   padding: 6px 12px;
   color: var(--text-3, #8b8e9c);
-  background: rgba(255, 255, 255, 0.03);
-  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  background: var(--w-03);
+  border-bottom: 1px solid var(--border, var(--w-08));
 }
 .crash-excerpt pre {
   margin: 0;

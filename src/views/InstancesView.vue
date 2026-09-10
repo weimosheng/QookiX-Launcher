@@ -441,7 +441,7 @@ async function moveTo(groupId: string | null) {
   padding: 6px 12px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   color: var(--text-2);
   font-size: 13px;
   font-weight: 600;
@@ -449,7 +449,7 @@ async function moveTo(groupId: string | null) {
   transition: all 0.15s;
 }
 .chip:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   color: var(--text-1);
 }
 .chip.active {
@@ -498,12 +498,12 @@ async function moveTo(groupId: string | null) {
   filter: brightness(1.08);
 }
 .btn.ghost {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   color: var(--text-1);
   border: 1px solid var(--border);
 }
 .btn.ghost:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--w-10);
 }
 .groups {
   display: flex;
@@ -562,11 +562,11 @@ async function moveTo(groupId: string | null) {
 }
 .op:hover {
   color: var(--text-1);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
 }
 .op.danger:hover {
   color: #e5534b;
-  border-color: rgba(229, 83, 75, 0.5);
+  border-color: var(--danger-50);
 }
 .grid {
   display: grid;
@@ -627,7 +627,7 @@ async function moveTo(groupId: string | null) {
 }
 .swatch.on {
   border-color: var(--text-1);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 2px var(--w-12);
 }
 .dialog-foot {
   display: flex;
@@ -656,7 +656,7 @@ async function moveTo(groupId: string | null) {
   padding: 9px 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   color: var(--text-1);
   font-size: 14px;
   cursor: pointer;
@@ -664,7 +664,7 @@ async function moveTo(groupId: string | null) {
   text-align: left;
 }
 .move-item:hover {
-  background: rgba(255, 255, 255, 0.09);
+  background: var(--w-09);
 }
 .move-item.current {
   border-color: var(--accent);

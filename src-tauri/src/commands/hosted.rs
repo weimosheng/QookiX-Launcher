@@ -3,8 +3,8 @@ use crate::state::AppState;
 use serde_json::{json, Value};
 use tauri::State;
 
-// 托管服务器面板复用文件管理器的 FsEntry / 列表助手
-use super::files::{ext_of, fmt_bytes, modified_secs, FsEntry, MAX_EDIT_BYTES};
+// 托管服务器面板复用实例文件管理器那套文件操作助手
+use crate::fsutil::{self, FsEntry};
 
 // Hosted game servers
 // ---------------------------------------------------------------------------
@@ -92,10 +92,7 @@ pub fn open_hosted_server_folder(
     if !dir.exists() {
         return Err("目录不存在".into());
     }
-    use tauri_plugin_opener::OpenerExt;
-    app.opener()
-        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
-        .map_err(|e| e.to_string())
+    fsutil::reveal(&app, &dir)
 }
 
 /// 在系统文件管理器中显示服务器目录下的任意文件/文件夹
@@ -107,15 +104,7 @@ pub fn reveal_hosted_server_path(
     rel: String,
 ) -> Result<(), String> {
     let path = crate::servers::resolve_server_path(&state, &id, &rel)?;
-    let open_target = if path.is_file() {
-        path.parent().map(|p| p.to_path_buf()).unwrap_or(path.clone())
-    } else {
-        path.clone()
-    };
-    use tauri_plugin_opener::OpenerExt;
-    app.opener()
-        .open_path(open_target.to_string_lossy().to_string(), None::<&str>)
-        .map_err(|e| e.to_string())
+    fsutil::reveal(&app, &path)
 }
 
 #[tauri::command]
@@ -175,44 +164,13 @@ pub async fn list_hosted_server_dir(
 ) -> Result<Value, String> {
     let dir = crate::servers::resolve_server_path(&state, &id, &rel)?;
     if !dir.is_dir() {
-        return Err("目标不是一个目录".into());
+        return Err("不是一个目录".into());
     }
-    let rel_json = rel.clone();
-    let entries = tokio::task::spawn_blocking(move || {
-        let mut files: Vec<FsEntry> = Vec::new();
-        let mut dirs: Vec<FsEntry> = Vec::new();
-        for entry in std::fs::read_dir(&dir).map_err(|e| format!("读取目录失败: {e}"))? {
-            let e = entry.map_err(|e| format!("读取目录失败: {e}"))?;
-            let meta = e.metadata().map_err(|e| format!("读取元数据失败: {e}"))?;
-            let name = e.file_name().to_string_lossy().to_string();
-            let is_dir = meta.is_dir();
-            let child_rel = if rel.is_empty() {
-                name.clone()
-            } else {
-                format!("{}/{}", rel.trim_end_matches('/'), name)
-            };
-            let fs = FsEntry {
-                ext: if is_dir { String::new() } else { ext_of(&name) },
-                name,
-                rel: child_rel,
-                size: if is_dir { 0 } else { meta.len() },
-                modified: modified_secs(&meta),
-                is_dir,
-            };
-            if is_dir {
-                dirs.push(fs);
-            } else {
-                files.push(fs);
-            }
-        }
-        dirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-        files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-        dirs.extend(files);
-        Ok::<Vec<FsEntry>, String>(dirs)
-    })
-    .await
-    .map_err(|e| e.to_string())??;
-    Ok(json!({ "rel": rel_json, "entries": entries }))
+    let base = rel.clone();
+    let entries: Vec<FsEntry> = tokio::task::spawn_blocking(move || fsutil::list_dir(&dir, &base))
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(json!({ "rel": rel, "entries": entries }))
 }
 
 #[tauri::command]
@@ -222,30 +180,7 @@ pub fn read_hosted_server_file(
     rel: String,
 ) -> Result<Value, String> {
     let path = crate::servers::resolve_server_path(&state, &id, &rel)?;
-    if !path.is_file() {
-        return Err("不是一个文件".into());
-    }
-    let meta = std::fs::metadata(&path).map_err(|e| format!("读取文件失败: {e}"))?;
-    if meta.len() > MAX_EDIT_BYTES {
-        return Err(format!(
-            "文件过大（{}），内置编辑器最多支持 {}",
-            fmt_bytes(meta.len()),
-            fmt_bytes(MAX_EDIT_BYTES)
-        ));
-    }
-    let bytes = std::fs::read(&path).map_err(|e| format!("读取文件失败: {e}"))?;
-    if bytes.iter().take(4096).any(|b| *b == 0) {
-        return Err("这是二进制文件，无法在内置编辑器中打开".into());
-    }
-    let content = String::from_utf8(bytes)
-        .map_err(|_| String::from("文件不是 UTF-8 编码，无法在内置编辑器中打开"))?;
-    let meta2 = std::fs::metadata(&path).ok();
-    Ok(json!({
-        "rel": rel,
-        "content": content,
-        "size": meta.len(),
-        "modified": meta2.as_ref().map(modified_secs).unwrap_or(0),
-    }))
+    fsutil::read_text(&path, &rel)
 }
 
 #[tauri::command]
@@ -256,20 +191,7 @@ pub fn write_hosted_server_file(
     content: String,
 ) -> Result<Value, String> {
     let path = crate::servers::resolve_server_path(&state, &id, &rel)?;
-    if path.is_dir() {
-        return Err("目标是一个目录".into());
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
-    }
-    let len = content.len() as u64;
-    std::fs::write(&path, content).map_err(|e| format!("写入文件失败: {e}"))?;
-    let meta = std::fs::metadata(&path).ok();
-    Ok(json!({
-        "rel": rel,
-        "size": meta.as_ref().map(|m| m.len()).unwrap_or(len),
-        "modified": meta.as_ref().map(modified_secs).unwrap_or(0),
-    }))
+    fsutil::write_text(&path, &rel, content)
 }
 
 #[tauri::command]

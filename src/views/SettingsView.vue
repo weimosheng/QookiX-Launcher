@@ -1086,7 +1086,7 @@ onUnmounted(() => {
           <AboutShowcase />
           <div class="about-hero-title">
             <span class="about-name about-hero-name">QookiX Launcher</span>
-            <span class="about-ver">v0.5.16</span>
+            <span class="about-ver">v0.5.17</span>
           </div>
           <p class="about-hero-slogan">现代化、简洁、无广告的 Minecraft 启动器</p>
         </div>
@@ -1391,7 +1391,7 @@ onUnmounted(() => {
   flex: 1;
   width: 100%;
   min-width: 0;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   border: 1px solid var(--border);
   border-radius: 9px;
   color: var(--text-1);
@@ -1415,7 +1415,7 @@ textarea.text-input {
   padding: 7px 13px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   color: var(--text-2);
   font-size: 12px;
   font-weight: 600;
@@ -1424,18 +1424,18 @@ textarea.text-input {
   white-space: nowrap;
 }
 .mini-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
 }
 .mini-btn:disabled {
   opacity: 0.5;
 }
 .mini-btn.danger {
-  border-color: rgba(229, 83, 75, 0.35);
+  border-color: var(--danger-35);
   color: #e5534b;
-  background: rgba(229, 83, 75, 0.08);
+  background: var(--danger-08);
 }
 .mini-btn.danger:hover {
-  background: rgba(229, 83, 75, 0.16);
+  background: var(--danger-16);
 }
 .btn-icon {
   width: 14px;
@@ -1611,7 +1611,7 @@ textarea.text-input {
   padding: 7px 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--w-03);
   color: var(--text-2);
   font-family: inherit;
   text-align: left;
@@ -1679,7 +1679,7 @@ textarea.text-input {
   position: relative;
   height: 10px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   overflow: hidden;
 }
 .mem-gauge-used,
@@ -1764,7 +1764,7 @@ textarea.text-input {
 .seg {
   position: relative;
   display: flex;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
   border-radius: 9px;
   padding: 3px;
 }
@@ -1847,7 +1847,7 @@ textarea.text-input {
   flex: 1;
   font-size: 12px;
   color: var(--text-2);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
   padding: 8px 10px;
   border-radius: 8px;
   overflow: hidden;
@@ -1881,7 +1881,7 @@ textarea.text-input {
   cursor: pointer;
   font-size: 13px;
   color: var(--text-2);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--w-03);
 }
 .migrate-modes label.active {
   border-color: var(--accent);
@@ -2198,7 +2198,7 @@ textarea.text-input {
   height: 24px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   cursor: pointer;
   transition: background 0.18s, border-color 0.18s;
   flex-shrink: 0;
@@ -2235,7 +2235,7 @@ textarea.text-input {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--w-03);
   color: var(--text-2);
   cursor: pointer;
   font-family: inherit;

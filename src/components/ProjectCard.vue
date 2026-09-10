@@ -223,7 +223,7 @@ async function copyName() {
   height: 52px;
   border-radius: 11px;
   object-fit: cover;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
 }
 .p-icon.ph {
   display: flex;
@@ -272,7 +272,7 @@ async function copyName() {
 }
 .cat {
   font-size: 10px;
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--w-07);
   color: var(--text-3);
   padding: 1px 7px;
   border-radius: 6px;

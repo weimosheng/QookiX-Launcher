@@ -465,7 +465,7 @@ onBeforeUnmount(() => {
 .text-input {
   flex: 1;
   min-width: 0;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   border: 1px solid var(--border);
   border-radius: 9px;
   color: var(--text-1);
@@ -543,14 +543,14 @@ textarea.text-input {
   padding: 6px 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   font-size: 13px;
   cursor: pointer;
   color: var(--text-2);
   transition: all 0.12s;
 }
 .mem-mode:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
 }
 .mem-mode.active {
   border-color: var(--accent);
@@ -578,7 +578,7 @@ textarea.text-input {
   position: relative;
   height: 10px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   overflow: hidden;
 }
 .mem-gauge-used,
@@ -659,7 +659,7 @@ textarea.text-input {
   padding: 7px 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   color: var(--text-2);
   font-size: 12px;
   font-weight: 600;
@@ -668,7 +668,7 @@ textarea.text-input {
   transition: all 0.12s;
 }
 .mini-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   color: var(--text-1);
 }
 .mini-btn.accent {
@@ -687,12 +687,12 @@ textarea.text-input {
   cursor: pointer;
   font-family: inherit;
   transition: all 0.14s;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   color: var(--text-1);
   border: 1px solid var(--border);
 }
 .btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--w-10);
 }
 .hint {
   font-size: 12px;

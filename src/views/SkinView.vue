@@ -818,7 +818,7 @@ onMounted(async () => {
   border-radius: 12px;
   background:
     radial-gradient(ellipse at center, var(--accent-08), transparent 70%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(0, 0, 0, 0.12));
+    linear-gradient(180deg, var(--w-03), var(--k-12));
   border: 1px solid var(--border);
   overflow: hidden;
   display: flex;
@@ -841,7 +841,7 @@ onMounted(async () => {
   transform: translateX(-50%);
   font-size: 11px;
   color: var(--text-3);
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--k-30);
   padding: 3px 10px;
   border-radius: 8px;
   pointer-events: none;
@@ -854,7 +854,7 @@ onMounted(async () => {
   left: 10px;
   font-size: 11px;
   color: var(--text-2);
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--k-40);
   padding: 3px 10px;
   border-radius: 8px;
   pointer-events: none;
@@ -872,7 +872,7 @@ onMounted(async () => {
   gap: 6px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   border: 1px solid var(--border);
 }
 .info-row {
@@ -896,13 +896,13 @@ onMounted(async () => {
   padding: 0;
   border: none;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   color: var(--text-3);
   cursor: pointer;
   transition: background 0.15s, color 0.15s, transform 0.2s;
 }
 .info-refresh:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--w-14);
   color: var(--text-1);
 }
 .info-refresh svg {
@@ -946,7 +946,7 @@ onMounted(async () => {
   position: fixed;
   inset: 0;
   z-index: 2000;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--k-50);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1004,7 +1004,7 @@ onMounted(async () => {
   transition: all 0.14s;
 }
 .cape-close-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   color: var(--text-1);
 }
 .cape-dialog-body {
@@ -1047,7 +1047,7 @@ onMounted(async () => {
 }
 .seg {
   display: flex;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
   border-radius: 8px;
   padding: 3px;
   gap: 2px;
@@ -1081,7 +1081,7 @@ onMounted(async () => {
   padding: 8px 12px;
   border-radius: 9px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   color: var(--text-2);
   font-size: 12px;
   font-weight: 600;
@@ -1091,7 +1091,7 @@ onMounted(async () => {
   transition: all 0.14s;
 }
 .mini-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   color: var(--text-1);
 }
 .mini-btn:disabled {
@@ -1145,14 +1145,14 @@ onMounted(async () => {
   padding: 12px;
   border-radius: 11px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--w-03);
   cursor: pointer;
   transition: all 0.14s;
   font-family: inherit;
   text-align: left;
 }
 .skin-card:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--w-07);
   border-color: var(--accent-35);
   transform: translateY(-1px);
 }
@@ -1177,7 +1177,7 @@ onMounted(async () => {
   aspect-ratio: 1 / 1;
   border-radius: 8px;
   overflow: hidden;
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--k-20);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1213,7 +1213,7 @@ onMounted(async () => {
   height: 22px;
   border-radius: 6px;
   border: none;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--k-45);
   color: #f0907f;
   font-size: 12px;
   cursor: pointer;
@@ -1227,7 +1227,7 @@ onMounted(async () => {
   opacity: 1;
 }
 .del-btn:hover {
-  background: rgba(229, 83, 75, 0.3);
+  background: var(--danger-30);
 }
 .modal-body {
   display: flex;

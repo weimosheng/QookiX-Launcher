@@ -161,7 +161,7 @@ onBeforeUnmount(unbind);
   color: #e5534b;
 }
 .ctx-item.danger:hover:not(:disabled) {
-  background: rgba(229, 83, 75, 0.14);
+  background: var(--danger-14);
 }
 
 .ctx-icon {

@@ -673,7 +673,7 @@ onUnmounted(() => {
 }
 .back:hover {
   color: var(--text-1);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
 }
 .mode-tabs {
   display: inline-flex;
@@ -758,7 +758,7 @@ onUnmounted(() => {
   height: 64px;
   border-radius: 16px;
   background: transparent;
-  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border: 1px dashed var(--w-20);
   overflow: hidden;
   cursor: pointer;
   font-size: 30px;
@@ -799,7 +799,7 @@ onUnmounted(() => {
 }
 .ver-cats button {
   border: none;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
   color: var(--text-2);
   padding: 7px 16px;
   border-radius: 8px;
@@ -836,7 +836,7 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-2);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--w-06);
   padding-bottom: 3px;
 }
 .ver-group-title:first-child {
@@ -846,7 +846,7 @@ onUnmounted(() => {
   font-size: 10px;
   font-weight: 400;
   color: var(--text-3);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   border-radius: 8px;
   padding: 0 6px;
   margin-left: 4px;
@@ -866,7 +866,7 @@ onUnmounted(() => {
   text-align: left;
 }
 .ver-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
 }
 .ver-item.active {
   border-color: var(--accent-05);
@@ -885,7 +885,7 @@ onUnmounted(() => {
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   color: var(--text-2);
   margin-top: 2px;
 }
@@ -910,7 +910,7 @@ onUnmounted(() => {
   padding: 8px 16px;
   border-radius: 9px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   color: var(--text-2);
   font-size: 13px;
   font-weight: 600;
@@ -919,7 +919,7 @@ onUnmounted(() => {
   font-family: inherit;
 }
 .loader-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
 }
 .loader-btn.active {
   background: var(--accent-soft);
@@ -937,7 +937,7 @@ onUnmounted(() => {
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--w-03);
 }
 .sum-icon {
   width: 40px;
@@ -946,7 +946,7 @@ onUnmounted(() => {
   overflow: hidden;
   flex-shrink: 0;
   position: relative;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
 }
 .sum-icon :deep(.app-icon) {
   position: absolute;
@@ -1030,7 +1030,7 @@ onUnmounted(() => {
   gap: 8px;
   align-self: flex-start;
   border: 1px dashed var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   color: var(--text-2);
   padding: 9px 16px;
   border-radius: 9px;
@@ -1053,7 +1053,7 @@ onUnmounted(() => {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px 18px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--w-03);
 }
 .scan-row {
   display: flex;
@@ -1088,8 +1088,8 @@ onUnmounted(() => {
   gap: 18px;
 }
 .import-progress {
-  background: var(--glass-2, rgba(255, 255, 255, 0.04));
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  background: var(--glass-2, var(--w-04));
+  border: 1px solid var(--border, var(--w-08));
   border-radius: 12px;
   padding: 12px 14px;
   display: flex;
@@ -1119,7 +1119,7 @@ onUnmounted(() => {
 .ip-bar {
   height: 6px;
   border-radius: 99px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   overflow: hidden;
 }
 .ip-fill {

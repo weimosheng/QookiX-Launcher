@@ -257,7 +257,7 @@ async function saveAs() {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 8px 12px;
-  background: var(--panel-sub, rgba(255, 255, 255, 0.02));
+  background: var(--panel-sub, var(--w-02));
 }
 .dg-title {
   margin: 0 0 6px;
@@ -290,7 +290,7 @@ async function saveAs() {
 .dg-markdown {
   margin: 6px 0 0;
   padding: 8px;
-  background: rgba(0, 0, 0, 0.22);
+  background: var(--k-22);
   border-radius: 6px;
   font-size: 11px;
   line-height: 1.6;
@@ -340,10 +340,10 @@ async function saveAs() {
   border-radius: 6px;
 }
 .dg-history-row:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
 }
 .dg-history-row.active {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
 }
 .dg-history-open {
   flex: 1;

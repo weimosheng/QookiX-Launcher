@@ -972,7 +972,7 @@ onBeforeUnmount(() => {
 }
 .back:hover {
   color: var(--text-1);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
 }
 .head {
   display: flex;
@@ -994,7 +994,7 @@ onBeforeUnmount(() => {
   padding: 3px 9px;
   border-radius: 999px;
   border: 1px solid;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   letter-spacing: 0.02em;
 }
 .head-info h2 {
@@ -1037,12 +1037,12 @@ onBeforeUnmount(() => {
   filter: brightness(1.08);
 }
 .btn.ghost {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   color: var(--text-1);
   border: 1px solid var(--border);
 }
 .btn.ghost:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--w-10);
 }
 .btn.warn {
   background: rgba(224, 168, 90, 0.18);
@@ -1053,12 +1053,12 @@ onBeforeUnmount(() => {
   background: rgba(224, 168, 90, 0.28);
 }
 .btn.danger {
-  background: rgba(229, 83, 75, 0.16);
+  background: var(--danger-16);
   color: #f0907f;
-  border: 1px solid rgba(229, 83, 75, 0.4);
+  border: 1px solid var(--danger-40);
 }
 .btn.danger:hover {
-  background: rgba(229, 83, 75, 0.26);
+  background: var(--danger-26);
 }
 .btn:disabled {
   opacity: 0.55;
@@ -1187,7 +1187,7 @@ onBeforeUnmount(() => {
   padding: 11px 14px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--w-03);
   cursor: pointer;
   font-family: inherit;
   text-align: left;
@@ -1247,7 +1247,7 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 .file-row:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
 }
 .file-name {
   color: var(--text-1);
@@ -1318,7 +1318,7 @@ onBeforeUnmount(() => {
   padding: 9px 14px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   color: var(--text-2);
   font-size: 13px;
   font-weight: 600;
@@ -1339,7 +1339,7 @@ onBeforeUnmount(() => {
 .mask {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--k-45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1426,7 +1426,7 @@ onBeforeUnmount(() => {
   gap: 4px;
   padding: 3px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
   border: 1px solid var(--border);
 }
 .props-mode-tabs button {
@@ -1473,7 +1473,7 @@ onBeforeUnmount(() => {
   gap: 6px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--w-03);
   border: 1px solid var(--border);
 }
 .prop-label {
@@ -1521,14 +1521,14 @@ onBeforeUnmount(() => {
   padding: 8px 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--w-03);
   cursor: pointer;
   font-family: inherit;
   text-align: left;
   transition: all 0.13s;
 }
 .java-item:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--w-07);
 }
 .java-item.active {
   border-color: var(--accent-45);

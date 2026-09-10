@@ -683,7 +683,7 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 .nav:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--w-07);
   color: var(--text-1);
 }
 .nav:disabled {
@@ -717,7 +717,7 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 .crumb:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--w-07);
   color: var(--text-1);
 }
 .crumb.root {
@@ -746,7 +746,7 @@ onBeforeUnmount(() => {
   padding: 5px 9px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--k-18);
   color: var(--text-3);
   font-size: 12px;
 }
@@ -777,7 +777,7 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 .tool:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--w-07);
   color: var(--text-1);
 }
 
@@ -827,7 +827,7 @@ onBeforeUnmount(() => {
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.2px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   color: var(--text-3);
 }
 .fm-badge.dir {
@@ -837,7 +837,7 @@ onBeforeUnmount(() => {
 }
 .fm-badge.code {
   color: #7cb8f5;
-  background: rgba(90, 162, 240, 0.14);
+  background: var(--info-14);
 }
 
 .fm-meta {
@@ -882,7 +882,7 @@ onBeforeUnmount(() => {
 }
 .act:hover {
   color: var(--text-1);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
 }
 
 /* ---- 编辑器 ---- */
@@ -920,7 +920,7 @@ onBeforeUnmount(() => {
   transition: background 0.1s;
 }
 .fm-tab:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
 }
 .fm-tab.active {
   background: var(--accent-12);
@@ -954,7 +954,7 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 .x:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--w-12);
   color: var(--text-1);
 }
 .fm-tabs-right {
@@ -1018,7 +1018,7 @@ onBeforeUnmount(() => {
   position: fixed;
   inset: 0;
   z-index: 900;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--k-45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1052,13 +1052,13 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border);
 }
 .btn.ghost {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   color: var(--text-1);
 }
 .btn.danger {
-  background: rgba(229, 83, 75, 0.14);
+  background: var(--danger-14);
   color: #e5534b;
-  border-color: rgba(229, 83, 75, 0.45);
+  border-color: var(--danger-45);
 }
 .btn:disabled {
   opacity: 0.5;

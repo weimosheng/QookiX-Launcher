@@ -258,7 +258,7 @@ onMounted(() => {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background: rgba(0, 0, 0, 0.22);
+  background: var(--k-22);
   border-radius: 0 0 13px 13px;
   user-select: text;
   -webkit-user-select: text;

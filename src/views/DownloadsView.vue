@@ -436,7 +436,7 @@ function onExpandLeave(el: Element, done: () => void) {
 }
 .tab-count {
   font-size: 11px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--w-10);
   border-radius: 6px;
   padding: 1px 7px;
   font-weight: 700;
@@ -447,7 +447,7 @@ function onExpandLeave(el: Element, done: () => void) {
   align-items: center;
   gap: 7px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
   color: var(--text-1);
   border-radius: 9px;
   padding: 8px 14px;
@@ -457,7 +457,7 @@ function onExpandLeave(el: Element, done: () => void) {
   font-family: inherit;
 }
 .btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--w-10);
 }
 .btn:disabled {
   opacity: 0.4;
@@ -543,11 +543,11 @@ function onExpandLeave(el: Element, done: () => void) {
 }
 .status.ok {
   color: #4ec9a0;
-  background: rgba(78, 201, 160, 0.12);
+  background: var(--success-12);
 }
 .status.fail {
   color: #e5534b;
-  background: rgba(229, 83, 75, 0.12);
+  background: var(--danger-12);
 }
 .task-meta {
   display: flex;
@@ -582,7 +582,7 @@ function onExpandLeave(el: Element, done: () => void) {
   padding: 0 5px;
   border-radius: 5px;
   color: var(--text-3);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
 }
 
 .task-side {
@@ -608,8 +608,8 @@ function onExpandLeave(el: Element, done: () => void) {
   font-weight: 600;
 }
 .task-error {
-  background: rgba(229, 83, 75, 0.1);
-  border: 1px solid rgba(229, 83, 75, 0.3);
+  background: var(--danger-10);
+  border: 1px solid var(--danger-30);
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 13px;
@@ -627,7 +627,7 @@ function onExpandLeave(el: Element, done: () => void) {
 .bar {
   height: 6px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   overflow: hidden;
 }
 .fill {
@@ -686,7 +686,7 @@ function onExpandLeave(el: Element, done: () => void) {
   font-size: 12px;
   padding: 4px 10px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--w-03);
   font-family: "Consolas", "Segoe UI Mono", monospace;
 }
 .file-row.ok {
@@ -716,7 +716,7 @@ function onExpandLeave(el: Element, done: () => void) {
 .file-mini-bar {
   height: 4px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--w-10);
 }
 .file-mini-fill {
   height: 100%;

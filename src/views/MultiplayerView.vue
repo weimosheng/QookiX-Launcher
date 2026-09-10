@@ -927,20 +927,20 @@ onUnmounted(() => stopTcPoll());
   filter: brightness(1.08);
 }
 .btn.ghost {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   color: var(--text-1);
   border: 1px solid var(--border);
 }
 .btn.ghost:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--w-10);
 }
 .btn.danger {
-  background: rgba(229, 83, 75, 0.16);
+  background: var(--danger-16);
   color: #f0907f;
-  border: 1px solid rgba(229, 83, 75, 0.4);
+  border: 1px solid var(--danger-40);
 }
 .btn.danger:hover {
-  background: rgba(229, 83, 75, 0.26);
+  background: var(--danger-26);
 }
 .btn:disabled {
   opacity: 0.55;
@@ -969,7 +969,7 @@ onUnmounted(() => stopTcPoll());
   padding: 3px 9px;
   border-radius: 999px;
   border: 1px solid;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   letter-spacing: 0.02em;
   flex-shrink: 0;
 }
@@ -987,7 +987,7 @@ onUnmounted(() => stopTcPoll());
   gap: 6px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--w-03);
   border: 1px solid var(--border);
 }
 .meta-row {
@@ -1025,7 +1025,7 @@ onUnmounted(() => stopTcPoll());
   color: var(--text-3);
   padding: 3px 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
 }
 .status.on {
   color: #57c98a;
@@ -1041,7 +1041,7 @@ onUnmounted(() => stopTcPoll());
   align-items: center;
   gap: 5px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   color: var(--text-2);
   border-radius: 8px;
   padding: 6px 10px;
@@ -1052,7 +1052,7 @@ onUnmounted(() => stopTcPoll());
   transition: all 0.13s;
 }
 .op:hover {
-  background: rgba(255, 255, 255, 0.09);
+  background: var(--w-09);
   color: var(--text-1);
 }
 .op.start {
@@ -1071,7 +1071,7 @@ onUnmounted(() => stopTcPoll());
 }
 .op.danger:hover {
   color: #e5534b;
-  border-color: rgba(229, 83, 75, 0.5);
+  border-color: var(--danger-50);
 }
 .empty {
   padding: 56px 30px;
@@ -1125,7 +1125,7 @@ onUnmounted(() => stopTcPoll());
   padding: 9px 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   color: var(--text-2);
   cursor: pointer;
   font-family: inherit;
@@ -1133,7 +1133,7 @@ onUnmounted(() => stopTcPoll());
   transition: all 0.13s;
 }
 .core-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
 }
 .core-btn.active {
   background: var(--accent-soft);
@@ -1157,7 +1157,7 @@ onUnmounted(() => stopTcPoll());
 }
 .ver-cats button {
   border: none;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
   color: var(--text-2);
   padding: 7px 16px;
   border-radius: 8px;
@@ -1195,7 +1195,7 @@ onUnmounted(() => stopTcPoll());
   text-align: left;
 }
 .ver-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
 }
 .ver-item.active {
   border-color: var(--accent-05);
@@ -1370,7 +1370,7 @@ onUnmounted(() => stopTcPoll());
 .tc-dl-bar {
   height: 12px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--w-07);
   border: 1px solid var(--border);
   overflow: hidden;
 }
@@ -1392,7 +1392,7 @@ onUnmounted(() => stopTcPoll());
 .tc-hint code {
   padding: 2px 6px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   border: 1px solid var(--border);
   font-size: 11px;
 }
@@ -1415,7 +1415,7 @@ onUnmounted(() => stopTcPoll());
   color: var(--text-3);
   text-align: center;
   white-space: nowrap;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 16px var(--k-20);
 }
 .tc-license a {
   color: var(--text-2);

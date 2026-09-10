@@ -94,7 +94,7 @@ function go(p: number) {
   padding: 0 6px;
   border: 1px solid var(--border);
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   color: var(--text-2);
   font-size: 13px;
   font-weight: 600;
@@ -106,7 +106,7 @@ function go(p: number) {
   transition: all 0.12s;
 }
 .sp-btn:hover:not(:disabled):not(.active) {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   color: var(--text-1);
 }
 .sp-btn.active {

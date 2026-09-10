@@ -1,3 +1,4 @@
+use crate::fsutil::{self, FsEntry};
 use crate::models::*;
 use crate::state::AppState;
 use serde_json::{json, Value};
@@ -7,111 +8,14 @@ use tauri::State;
 // Instance file manager
 // ---------------------------------------------------------------------------
 
-/// Maximum file size (bytes) the built-in editor is willing to load.
-pub(crate) const MAX_EDIT_BYTES: u64 = 4 * 1024 * 1024;
-
-pub(crate) fn fmt_bytes(n: u64) -> String {
-    if n >= 1024 * 1024 {
-        format!("{:.1} MB", n as f64 / 1024.0 / 1024.0)
-    } else if n >= 1024 {
-        format!("{:.1} KB", n as f64 / 1024.0)
-    } else {
-        format!("{n} B")
-    }
-}
-
-pub(crate) fn modified_secs(meta: &std::fs::Metadata) -> u64 {
-    meta.modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-pub(crate) fn ext_of(name: &str) -> String {
-    std::path::Path::new(name)
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_lowercase()
-}
-
-/// Resolve an instance-relative path while guaranteeing the result never
-/// escapes the instance directory (blocks `..`, absolute paths and symlinks
-/// that point outside). Paths that do not exist yet (create / rename targets)
-/// are validated lexically instead.
+/// 实例文件管理器的路径解析：先校验实例 ID，再把相对路径约束在实例目录内。
 fn resolve_instance_path(
     state: &AppState,
     instance_id: &str,
     rel: &str,
 ) -> Result<std::path::PathBuf, String> {
-    if instance_id.is_empty()
-        || instance_id.contains("..")
-        || instance_id.contains('/')
-        || instance_id.contains('\\')
-    {
-        return Err("非法实例 ID".into());
-    }
-    let root = state
-        .instances_dir()
-        .join(instance_id)
-        .canonicalize()
-        .map_err(|e| format!("实例目录不可用: {e}"))?;
-    let cleaned = rel.replace('\\', "/");
-    let cleaned = cleaned.trim_start_matches('/');
-    let target = if cleaned.is_empty() {
-        root.clone()
-    } else {
-        root.join(cleaned)
-    };
-    match target.canonicalize() {
-        Ok(c) => {
-            if c != root && !c.starts_with(&root) {
-                return Err("路径超出实例目录范围".into());
-            }
-            Ok(c)
-        }
-        Err(_) => {
-            // Target does not exist yet: verify every component stays inside.
-            let mut depth = 0i32;
-            for part in std::path::Path::new(cleaned).components() {
-                match part {
-                    std::path::Component::Normal(_) => depth += 1,
-                    std::path::Component::ParentDir => depth -= 1,
-                    std::path::Component::CurDir => {}
-                    other => {
-                        return Err(format!("非法路径: {}", other.as_os_str().to_string_lossy()))
-                    }
-                }
-                if depth < 0 {
-                    return Err("路径超出实例目录范围".into());
-                }
-            }
-            Ok(target)
-        }
-    }
-}
-
-/// Reject names that would create nested paths or escape the parent folder.
-fn validate_name(name: &str) -> Result<(), String> {
-    let t = name.trim();
-    if t.is_empty() || t == "." || t == ".." {
-        return Err("名称不能为空".into());
-    }
-    if t.contains('/') || t.contains('\\') {
-        return Err("名称不能包含路径分隔符".into());
-    }
-    Ok(())
-}
-
-#[derive(serde::Serialize)]
-pub struct FsEntry {
-    pub name: String,
-    pub rel: String,
-    pub size: u64,
-    pub modified: u64,
-    pub is_dir: bool,
-    pub ext: String,
+    fsutil::validate_id(instance_id, "实例")?;
+    fsutil::resolve_in_dir(&state.instances_dir().join(instance_id), rel, "实例")
 }
 
 /// List the contents of any directory inside an instance folder.
@@ -125,40 +29,10 @@ pub async fn list_instance_dir(
     if !dir.is_dir() {
         return Err("不是一个目录".into());
     }
-    let base = rel.trim_end_matches('/').to_string();
-    let entries = tokio::task::spawn_blocking(move || {
-        let mut out: Vec<FsEntry> = Vec::new();
-        let rd = std::fs::read_dir(&dir).map_err(|e| format!("读取目录失败: {e}"))?;
-        for e in rd.flatten() {
-            let meta = match e.metadata() {
-                Ok(m) => m,
-                Err(_) => continue,
-            };
-            let name = e.file_name().to_string_lossy().to_string();
-            let is_dir = meta.is_dir();
-            let child_rel = if base.is_empty() {
-                name.clone()
-            } else {
-                format!("{base}/{name}")
-            };
-            out.push(FsEntry {
-                ext: if is_dir { String::new() } else { ext_of(&name) },
-                name,
-                rel: child_rel,
-                size: if is_dir { 0 } else { meta.len() },
-                modified: modified_secs(&meta),
-                is_dir,
-            });
-        }
-        out.sort_by(|a, b| {
-            b.is_dir
-                .cmp(&a.is_dir)
-                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-        });
-        Ok::<Vec<FsEntry>, String>(out)
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+    let base = rel.clone();
+    let entries: Vec<FsEntry> = tokio::task::spawn_blocking(move || fsutil::list_dir(&dir, &base))
+        .await
+        .map_err(|e| e.to_string())??;
     Ok(json!({ "rel": rel, "entries": entries }))
 }
 
@@ -170,30 +44,7 @@ pub fn read_instance_file(
     rel: String,
 ) -> Result<Value, String> {
     let path = resolve_instance_path(&state, &instance_id, &rel)?;
-    if !path.is_file() {
-        return Err("不是一个文件".into());
-    }
-    let meta = std::fs::metadata(&path).map_err(|e| format!("读取文件失败: {e}"))?;
-    if meta.len() > MAX_EDIT_BYTES {
-        return Err(format!(
-            "文件过大（{}），内置编辑器最多支持 {}",
-            fmt_bytes(meta.len()),
-            fmt_bytes(MAX_EDIT_BYTES)
-        ));
-    }
-    let bytes = std::fs::read(&path).map_err(|e| format!("读取文件失败: {e}"))?;
-    if bytes.iter().take(4096).any(|b| *b == 0) {
-        return Err("这是二进制文件，无法在内置编辑器中打开".into());
-    }
-    let content = String::from_utf8(bytes)
-        .map_err(|_| String::from("文件不是 UTF-8 编码，无法在内置编辑器中打开"))?;
-    let meta2 = std::fs::metadata(&path).ok();
-    Ok(json!({
-        "rel": rel,
-        "content": content,
-        "size": meta.len(),
-        "modified": meta2.as_ref().map(modified_secs).unwrap_or(0),
-    }))
+    fsutil::read_text(&path, &rel)
 }
 
 /// Write text content back to a file inside an instance folder.
@@ -205,20 +56,7 @@ pub fn write_instance_file(
     content: String,
 ) -> Result<Value, String> {
     let path = resolve_instance_path(&state, &instance_id, &rel)?;
-    if path.is_dir() {
-        return Err("目标是一个目录".into());
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
-    }
-    let len = content.len() as u64;
-    std::fs::write(&path, content).map_err(|e| format!("写入文件失败: {e}"))?;
-    let meta = std::fs::metadata(&path).ok();
-    Ok(json!({
-        "rel": rel,
-        "size": meta.as_ref().map(|m| m.len()).unwrap_or(len),
-        "modified": meta.as_ref().map(modified_secs).unwrap_or(0),
-    }))
+    fsutil::write_text(&path, &rel, content)
 }
 
 /// Create a new empty file or a new folder inside an instance folder.
@@ -230,7 +68,7 @@ pub fn create_instance_entry(
     is_dir: bool,
 ) -> Result<Value, String> {
     let last = rel.rsplit('/').next().unwrap_or("");
-    validate_name(last)?;
+    fsutil::validate_name(last)?;
     let path = resolve_instance_path(&state, &instance_id, &rel)?;
     if path.exists() {
         return Err("已存在同名的文件或文件夹".into());
@@ -279,7 +117,7 @@ pub fn rename_instance_path(
     if rel.trim().is_empty() {
         return Err("不能重命名实例根目录".into());
     }
-    validate_name(&new_name)?;
+    fsutil::validate_name(&new_name)?;
     let path = resolve_instance_path(&state, &instance_id, &rel)?;
     if !path.exists() {
         return Err("文件或文件夹不存在".into());
@@ -311,15 +149,7 @@ pub fn reveal_instance_path(
     rel: String,
 ) -> Result<(), String> {
     let path = resolve_instance_path(&state, &instance_id, &rel)?;
-    let open_target = if path.is_file() {
-        path.parent().map(|p| p.to_path_buf()).unwrap_or(path.clone())
-    } else {
-        path.clone()
-    };
-    use tauri_plugin_opener::OpenerExt;
-    app.opener()
-        .open_path(open_target.to_string_lossy().to_string(), None::<&str>)
-        .map_err(|e| e.to_string())
+    fsutil::reveal(&app, &path)
 }
 
 /// Import a local modpack (.mrpack / CurseForge zip): creates an instance

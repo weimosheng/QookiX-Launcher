@@ -52,6 +52,45 @@ body,
   --text-3: #8b8e9c;
   --scrollbar-thumb: rgba(255, 255, 255, 0.12);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
+  /* 中性叠加色阶：--w-* 为白色叠加（表面 / 描边 / 悬停），--k-* 为黑色叠加（遮罩 / 阴影）。
+     命名与 --accent-* 一致，数值 = alpha × 100。 */
+  --w-02: rgba(255, 255, 255, 0.02);
+  --w-03: rgba(255, 255, 255, 0.03);
+  --w-04: rgba(255, 255, 255, 0.04);
+  --w-05: rgba(255, 255, 255, 0.05);
+  --w-06: rgba(255, 255, 255, 0.06);
+  --w-07: rgba(255, 255, 255, 0.07);
+  --w-08: rgba(255, 255, 255, 0.08);
+  --w-09: rgba(255, 255, 255, 0.09);
+  --w-10: rgba(255, 255, 255, 0.1);
+  --w-12: rgba(255, 255, 255, 0.12);
+  --w-14: rgba(255, 255, 255, 0.14);
+  --w-20: rgba(255, 255, 255, 0.2);
+  --k-12: rgba(0, 0, 0, 0.12);
+  --k-15: rgba(0, 0, 0, 0.15);
+  --k-18: rgba(0, 0, 0, 0.18);
+  --k-20: rgba(0, 0, 0, 0.2);
+  --k-22: rgba(0, 0, 0, 0.22);
+  --k-25: rgba(0, 0, 0, 0.25);
+  --k-30: rgba(0, 0, 0, 0.3);
+  --k-40: rgba(0, 0, 0, 0.4);
+  --k-45: rgba(0, 0, 0, 0.45);
+  --k-50: rgba(0, 0, 0, 0.5);
+  /* 语义色阶，与 theme.ts 的 errorColor / successColor / infoColor 对齐 */
+  --danger-08: rgba(229, 83, 75, 0.08);
+  --danger-10: rgba(229, 83, 75, 0.1);
+  --danger-12: rgba(229, 83, 75, 0.12);
+  --danger-14: rgba(229, 83, 75, 0.14);
+  --danger-16: rgba(229, 83, 75, 0.16);
+  --danger-26: rgba(229, 83, 75, 0.26);
+  --danger-30: rgba(229, 83, 75, 0.3);
+  --danger-35: rgba(229, 83, 75, 0.35);
+  --danger-40: rgba(229, 83, 75, 0.4);
+  --danger-45: rgba(229, 83, 75, 0.45);
+  --danger-50: rgba(229, 83, 75, 0.5);
+  --success-12: rgba(78, 201, 160, 0.12);
+  --info-14: rgba(90, 162, 240, 0.14);
+  --info-15: rgba(90, 162, 240, 0.15);
   --pad-panel: 20px 24px;
   --gap-panel: 16px;
   --gap-grid: 16px;
@@ -110,7 +149,7 @@ body,
 }
 :root.has-bg .content h1,
 :root.has-bg .content h3 {
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 1px 3px var(--k-50);
 }
 :root.has-bg.light .content h1,
 :root.has-bg.light .content h3 {

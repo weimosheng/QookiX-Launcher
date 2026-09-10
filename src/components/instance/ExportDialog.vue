@@ -396,7 +396,7 @@ function toggleCollapsed(g: ExportGroup) {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 8px 10px;
-  background: var(--panel-sub, rgba(255, 255, 255, 0.02));
+  background: var(--panel-sub, var(--w-02));
 }
 .ex-group + .ex-group {
   margin-top: 4px;
@@ -410,7 +410,7 @@ function toggleCollapsed(g: ExportGroup) {
   border-radius: 6px;
 }
 .ex-group-head:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--w-03);
 }
 /* 折叠动画：grid 0fr → 1fr */
 .ex-collapse {
@@ -535,7 +535,7 @@ function toggleCollapsed(g: ExportGroup) {
   user-select: none;
 }
 .ex-item:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   color: var(--text-1);
 }
 .ex-name {
@@ -568,7 +568,7 @@ function toggleCollapsed(g: ExportGroup) {
 }
 .badge-green {
   color: #4ec9a0;
-  background: rgba(78, 201, 160, 0.12);
+  background: var(--success-12);
 }
 .ex-size {
   width: 62px;

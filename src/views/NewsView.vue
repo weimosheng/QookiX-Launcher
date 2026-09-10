@@ -119,7 +119,7 @@ onMounted(async () => {
 }
 .news-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 20px var(--k-15);
 }
 .news-card:active {
   transform: scale(0.99);
@@ -129,7 +129,7 @@ onMounted(async () => {
   width: 200px;
   height: 130px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--w-03);
 }
 .news-image img {
   width: 100%;

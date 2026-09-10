@@ -465,9 +465,9 @@ async function stopAll() {
   height: 40px;
   box-sizing: border-box;
   padding: 0 14px;
-  border: 1px solid rgba(229, 83, 75, 0.4);
+  border: 1px solid var(--danger-40);
   border-radius: 10px;
-  background: rgba(229, 83, 75, 0.12);
+  background: var(--danger-12);
   color: #f0907f;
   font-size: 13px;
   font-weight: 600;

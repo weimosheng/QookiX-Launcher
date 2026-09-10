@@ -11,16 +11,12 @@ pub fn now() -> u64 {
         .unwrap_or(0)
 }
 
+/// 服务器 ID 只允许单层名称，且限定 ASCII 字母数字与 `-_.`。
 pub fn validate_server_id(id: &str) -> Result<(), String> {
-    if id.is_empty()
-        || id == "."
-        || id == ".."
-        || id.contains('/')
-        || id.contains('\\')
-        || id.contains("..")
-        || !id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    crate::fsutil::validate_id(id, "服务器")?;
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
     {
         return Err("非法服务器 ID".into());
     }
@@ -1101,41 +1097,7 @@ pub fn resolve_server_path(
     rel: &str,
 ) -> Result<PathBuf, String> {
     validate_server_id(id)?;
-    let root = server_dir(state, id)
-        .canonicalize()
-        .map_err(|e| format!("服务器目录不可用: {e}"))?;
-    let cleaned = rel.replace('\\', "/");
-    let cleaned = cleaned.trim_start_matches('/');
-    let target = if cleaned.is_empty() {
-        root.clone()
-    } else {
-        root.join(cleaned)
-    };
-    match target.canonicalize() {
-        Ok(c) => {
-            if c != root && !c.starts_with(&root) {
-                return Err("路径超出服务器目录范围".into());
-            }
-            Ok(c)
-        }
-        Err(_) => {
-            let mut depth = 0i32;
-            for part in std::path::Path::new(cleaned).components() {
-                match part {
-                    std::path::Component::Normal(_) => depth += 1,
-                    std::path::Component::ParentDir => depth -= 1,
-                    std::path::Component::CurDir => {}
-                    other => {
-                        return Err(format!("非法路径: {}", other.as_os_str().to_string_lossy()))
-                    }
-                }
-                if depth < 0 {
-                    return Err("路径超出服务器目录范围".into());
-                }
-            }
-            Ok(target)
-        }
-    }
+    crate::fsutil::resolve_in_dir(&server_dir(state, id), rel, "服务器")
 }
 
 // ---------------------------------------------------------------------------

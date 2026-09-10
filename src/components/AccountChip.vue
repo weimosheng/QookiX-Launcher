@@ -349,7 +349,7 @@ function typeLabel(a: Account) {
   height: 34px;
   border-radius: 8px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -429,7 +429,7 @@ function typeLabel(a: Account) {
   transition: all 0.12s;
 }
 .acctm-row:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
 }
 .acctm-row.active {
   background: var(--accent-14);
@@ -440,7 +440,7 @@ function typeLabel(a: Account) {
   height: 30px;
   border-radius: 8px;
   image-rendering: pixelated;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--w-06);
   flex-shrink: 0;
 }
 .acctm-avatar-fallback {
@@ -466,11 +466,11 @@ function typeLabel(a: Account) {
   font-weight: 600;
 }
 .acctm-type.microsoft {
-  background: rgba(90, 162, 240, 0.15);
+  background: var(--info-15);
   color: #7cb8f5;
 }
 .acctm-type.offline {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   color: #c6c8d2;
 }
 .acctm-check {
@@ -498,10 +498,10 @@ function typeLabel(a: Account) {
 }
 .acctm-remove:hover {
   color: #e5534b;
-  background: rgba(229, 83, 75, 0.12);
+  background: var(--danger-12);
 }
 .acctm-divider {
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--w-08);
   margin: 2px 0;
 }
 .acctm-add {
@@ -515,8 +515,8 @@ function typeLabel(a: Account) {
   justify-content: center;
   gap: 6px;
   width: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--w-08);
+  background: var(--w-05);
   color: #f2f3f7;
   border-radius: 9px;
   padding: 9px 12px;
@@ -528,7 +528,7 @@ function typeLabel(a: Account) {
   transition: all 0.12s;
 }
 .acctm-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--w-10);
 }
 .acctm-btn.ms {
   background: var(--accent-14);

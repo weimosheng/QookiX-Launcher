@@ -144,8 +144,8 @@ async function retry() {
   user-select: text;
   -webkit-user-select: text;
   cursor: text;
-  background: rgba(229, 83, 75, 0.08);
-  border: 1px solid rgba(229, 83, 75, 0.3);
+  background: var(--danger-08);
+  border: 1px solid var(--danger-30);
   border-radius: 8px;
   padding: 12px;
   width: 100%;

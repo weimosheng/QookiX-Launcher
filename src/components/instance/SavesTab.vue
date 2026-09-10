@@ -542,7 +542,7 @@ watch(
   height: 44px;
   border-radius: 10px;
   image-rendering: pixelated;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
   flex-shrink: 0;
 }
 .world-icon.ph {
@@ -567,7 +567,7 @@ watch(
   height: 44px;
   border-radius: 10px;
   image-rendering: pixelated;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
   flex-shrink: 0;
 }
 .c-info {
@@ -650,7 +650,7 @@ watch(
   padding: 7px 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--w-04);
   color: var(--text-2);
   font-size: 12px;
   font-weight: 600;
@@ -659,7 +659,7 @@ watch(
   transition: all 0.12s;
 }
 .mini-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--w-08);
   color: var(--text-1);
 }
 .mini-btn.play {
@@ -749,6 +749,6 @@ watch(
 }
 .bk-del:hover {
   color: #e5534b;
-  border-color: rgba(229, 83, 75, 0.5);
+  border-color: var(--danger-50);
 }
 </style>

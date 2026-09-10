@@ -228,7 +228,7 @@ onMounted(async () => {
   padding: 0 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--w-05);
   color: var(--text-2);
   font-size: 12px;
   font-weight: 600;
@@ -237,7 +237,7 @@ onMounted(async () => {
   transition: all 0.15s;
 }
 .tb-action:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--w-10);
   color: var(--text-1);
 }
 .tb-action:disabled {

@@ -562,7 +562,7 @@ async function install() {
   color: var(--accent);
 }
 .id-ver-type.alpha {
-  background: rgba(229, 83, 75, 0.14);
+  background: var(--danger-14);
   color: #e5534b;
 }
 .id-ver-mc {
@@ -623,11 +623,11 @@ async function install() {
   border-radius: 5px;
 }
 .id-dep-chip.required .id-dep-tag {
-  background: rgba(229, 83, 75, 0.16);
+  background: var(--danger-16);
   color: #e5534b;
 }
 .id-dep-chip.optional .id-dep-tag {
-  background: rgba(90, 162, 240, 0.15);
+  background: var(--info-15);
   color: #7cb8f5;
 }
 .id-dep-chip.incompatible .id-dep-tag {
