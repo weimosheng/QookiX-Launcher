@@ -2,7 +2,7 @@
 import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { fmtMem, fmtSize, fmtTime } from "../utils/format";
 import { useRouter } from "vue-router";
-import { NButton, NModal, NTooltip, useMessage, useDialog } from "naive-ui";
+import { NButton, NModal, NSelect, NTooltip, useMessage, useDialog } from "naive-ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -293,6 +293,49 @@ const tabs = [
   { key: "storage", label: "存储", icon: IconHardDrive },
   { key: "about", label: "关于", icon: IconFile },
 ];
+
+// ---- 内容翻译 ----
+const translateOptions = [
+  { label: "内置服务", value: "default" },
+  { label: "自定义 API（OpenAI 兼容）", value: "custom" },
+  { label: "百度翻译网页（跳转浏览器）", value: "baidu_web" },
+];
+const testingTranslate = ref(false);
+async function testTranslate() {
+  const s = settings.settings;
+  if (!s) return;
+  if (!s.translate_api_base || !s.translate_api_key || !s.translate_api_model) {
+    message.warning("请先填写 API 地址、API Key 和模型名");
+    return;
+  }
+  testingTranslate.value = true;
+  try {
+    await api.testTranslateApi(s.translate_api_base, s.translate_api_key, s.translate_api_model);
+    message.success("连接成功，翻译服务可用");
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    testingTranslate.value = false;
+  }
+}
+
+// ---- 内容翻译缓存 ----
+const clearingCacheService = ref<"default" | "custom" | null>(null);
+async function clearTranslations(service: "default" | "custom") {
+  if (clearingCacheService.value) return;
+  clearingCacheService.value = service;
+  const label = service === "custom" ? "自定义 API" : "内置服务";
+  try {
+    const freed = await api.clearTranslationCache(service);
+    message.success(
+      freed > 0 ? `已清空${label}的翻译缓存，释放 ${fmtSize(freed)}` : `${label}的翻译缓存已经是空的`
+    );
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    clearingCacheService.value = null;
+  }
+}
 
 const { memTotal, memUsed, memAvailable, startPolling, stopPolling } = useMemoryInfo();
 
@@ -986,6 +1029,70 @@ onUnmounted(() => {
               }}
             </p>
           </div>
+          <div class="card glass">
+            <h3>描述翻译</h3>
+            <n-select
+              v-model:value="settings.settings.translate_provider"
+              :options="translateOptions"
+              size="small"
+              class="tb-select"
+              @update:value="settings.save()"
+            />
+            <template v-if="settings.settings.translate_provider === 'custom'">
+              <input
+                v-model="settings.settings.translate_api_base"
+                class="text-input mono"
+                style="margin-top: 10px"
+                placeholder="OpenAI 兼容 API 地址，如 https://api.deepseek.com/v1"
+                @change="settings.save()"
+              />
+              <input
+                v-model="settings.settings.translate_api_key"
+                class="text-input mono"
+                type="password"
+                style="margin-top: 10px"
+                placeholder="API Key（sk-…）"
+                @change="settings.save()"
+              />
+              <div class="proxy-row" style="margin-top: 10px">
+                <input
+                  v-model="settings.settings.translate_api_model"
+                  class="text-input mono"
+                  placeholder="模型名，如 deepseek-chat"
+                  @change="settings.save()"
+                />
+                <button
+                  class="mirror-btn proxy-test-btn"
+                  :class="{ disabled: testingTranslate }"
+                  @click="testTranslate"
+                >
+                  {{ testingTranslate ? "测试中…" : "测试连接" }}
+                </button>
+              </div>
+              <p class="hint">使用 OpenAI 兼容的 /chat/completions 接口，由你自己的 AI 完成翻译，不消耗内置服务配额。两套服务的翻译缓存相互独立；「翻译有问题」反馈仅内置服务支持。</p>
+            </template>
+            <p v-else-if="settings.settings.translate_provider === 'baidu_web'" class="hint">
+              点选内容卡片时会用系统浏览器打开百度翻译网页（自动带上该内容的英文描述），翻译结果由你在网页上自行查看。此方式不在本地产生翻译记录，也不消耗任何服务配额。
+            </p>
+            <p v-else class="hint">使用内置翻译服务（仅支持 Modrinth 内容）。配额有限，如果你有自己的 AI API（OpenAI 兼容），可在上方切换为自定义服务。</p>
+            <div class="proxy-row" style="margin-top: 12px">
+              <button
+                class="mirror-btn proxy-test-btn"
+                :class="{ disabled: clearingCacheService !== null }"
+                @click="clearTranslations('default')"
+              >
+                {{ clearingCacheService === "default" ? "清理中…" : "清空内置服务缓存" }}
+              </button>
+              <button
+                class="mirror-btn proxy-test-btn"
+                :class="{ disabled: clearingCacheService !== null }"
+                @click="clearTranslations('custom')"
+              >
+                {{ clearingCacheService === "custom" ? "清理中…" : "清空自定义 API 缓存" }}
+              </button>
+            </div>
+            <p class="hint">翻译结果按服务分开缓存在本地（保留 7 天），清空后再次翻译将重新请求对应服务；设置页的「清空缓存」仍会一次清掉两套。</p>
+          </div>
         </div>
       </div>
 
@@ -1086,7 +1193,7 @@ onUnmounted(() => {
           <AboutShowcase />
           <div class="about-hero-title">
             <span class="about-name about-hero-name">QookiX Launcher</span>
-            <span class="about-ver">v0.5.18</span>
+            <span class="about-ver">v0.6.0</span>
           </div>
           <p class="about-hero-slogan">现代化、简洁、无广告的 Minecraft 启动器</p>
         </div>

@@ -214,6 +214,23 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
             "bucket".into()
         };
     }
+    if let Some(v) = patch.get("translate_provider").and_then(|v| v.as_str()) {
+        settings.translate_provider = match v.trim() {
+            "custom" => "custom".into(),
+            "baidu_web" => "baidu_web".into(),
+            _ => "default".into(),
+        };
+    }
+    if let Some(v) = patch.get("translate_api_base").and_then(|v| v.as_str()) {
+        settings.translate_api_base = v.trim().trim_end_matches('/').to_string();
+    }
+    if let Some(v) = patch.get("translate_api_key") {
+        settings.translate_api_key =
+            v.as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    }
+    if let Some(v) = patch.get("translate_api_model").and_then(|v| v.as_str()) {
+        settings.translate_api_model = v.trim().to_string();
+    }
     let cloned = settings.clone();
     drop(settings);
     persist(state)?;

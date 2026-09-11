@@ -3,6 +3,8 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { NButton, NDrawer, NDrawerContent, NSelect, useMessage, type SelectOption } from "naive-ui";
 import { api } from "../api";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { useSettingsStore } from "../stores/settings";
 import InstallDialog from "../components/InstallDialog.vue";
 import ProjectCard from "../components/ProjectCard.vue";
 import SimplePagination from "../components/SimplePagination.vue";
@@ -10,6 +12,7 @@ import {
   IconAlignJustify,
   IconClose,
   IconGrid,
+  IconLayers,
   IconList,
   IconSearch,
   IconSliders,
@@ -21,6 +24,7 @@ import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import type { Instance, ProjectDependency, ProjectHit } from "../types";
 
 const message = useMessage();
+const settingsStore = useSettingsStore();
 const route = useRoute();
 const provider = ref<"all" | "modrinth" | "curseforge">("all");
 const query = ref(typeof route.query.q === "string" ? route.query.q : "");
@@ -332,6 +336,54 @@ watch(route, () => {
   search();
 });
 
+// ---- 描述翻译（自建服务，卡片选择式）----
+const translateMode = ref(false);
+const translatingSlugs = ref<string[]>([]);
+const translatedDescs = ref<Record<string, string>>({});
+
+function toggleTranslateMode() {
+  translateMode.value = !translateMode.value;
+  if (translateMode.value) message.info("翻译模式：点击要翻译的卡片，完成后再点一次按钮退出");
+}
+
+async function translateCard(p: ProjectHit) {
+  const service = settingsStore.settings?.translate_provider ?? "default";
+  // 百度网页模式：只用浏览器打开翻译页（带上英文描述），结果由用户自行查看，
+  // 不做任何自动抓取。两个平台的内容都适用。
+  if (service === "baidu_web") {
+    const q = encodeURIComponent(p.description || p.title);
+    try {
+      await openUrl(`https://fanyi.baidu.com/mtpe-individual/transText?query=${q}&lang=en2zh`);
+    } catch (e) {
+      message.error("打开浏览器失败：" + String(e));
+    }
+    return;
+  }
+  const custom = service === "custom";
+  if (p.provider !== "modrinth" && !custom) {
+    message.info("CurseForge 暂不支持内置翻译，可切换自定义翻译 API");
+    return;
+  }
+  if (translatedDescs.value[p.id] !== undefined) return;
+  if (translatingSlugs.value.includes(p.id)) return;
+  translatingSlugs.value = [...translatingSlugs.value, p.id];
+  try {
+    const r = await api.translateDescriptions(p.provider, [p.id]);
+    const text = r.translations[p.id];
+    if (text) {
+      translatedDescs.value = { ...translatedDescs.value, [p.id]: text };
+    } else if (r.rateLimited) {
+      message.warning("翻译服务繁忙，请稍后再试");
+    } else {
+      message.info("该内容暂时没有翻译");
+    }
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    translatingSlugs.value = translatingSlugs.value.filter((s) => s !== p.id);
+  }
+}
+
 function openInstall(p: ProjectHit) {
   installTarget.value = p;
   showInstall.value = true;
@@ -464,6 +516,13 @@ onMounted(async () => {
           size="small"
           class="tb-select provider"
         />
+        <button
+          class="filter-btn translate-toggle"
+          :class="{ on: translateMode }"
+          @click="toggleTranslateMode"
+        >
+          <IconLayers /> {{ translateMode ? "完成翻译" : "翻译" }}
+        </button>
       </div>
     </div>
 
@@ -501,7 +560,11 @@ onMounted(async () => {
         :key="p.provider + p.id"
         :project="p"
         :view="view"
+        :translate-mode="translateMode"
+        :translating="translatingSlugs.includes(p.id)"
+        :translated-desc="translatedDescs[p.id] ?? null"
         @install="openInstall"
+        @translate="translateCard"
       />
     </div>
 

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useSettingsStore } from "../stores/settings";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useRouter } from "vue-router";
 import { NModal, NSelect, NButton, useMessage } from "naive-ui";
 import { api } from "../api";
@@ -135,6 +137,106 @@ async function loadDeps() {
 
 watch(selectedVersion, () => { if (!isModpack.value) loadDeps(); });
 
+// ---- 描述翻译 ----
+const settingsStore = useSettingsStore();
+/** 当前翻译服务：default（内置）| custom（用户 AI）| baidu_web（跳转浏览器） */
+const translateService = computed(() => settingsStore.settings?.translate_provider ?? "default");
+/** 质量反馈接口仅内置翻译服务支持 */
+const translateIsDefault = computed(() => translateService.value === "default");
+const descZh = ref<string | null>(null);
+const descLoading = ref(false);
+
+/** 百度网页模式：用浏览器打开翻译页，由用户自行查看结果（不做自动抓取） */
+function openBaiduTranslate() {
+  const p = props.project;
+  if (!p) return;
+  const q = encodeURIComponent(p.description || p.title);
+  openUrl(`https://fanyi.baidu.com/mtpe-individual/transText?query=${q}&lang=en2zh`).catch(
+    (e: unknown) => message.error("打开浏览器失败：" + String(e))
+  );
+}
+
+// ---- 翻译反馈面板 ----
+const feedbackPanel = ref(false);
+const feedbackMode = ref<"choose" | "quality">("choose");
+const issueType = ref("wrong_translation");
+const userSuggestion = ref("");
+const userComment = ref("");
+const submittingFeedback = ref(false);
+const ISSUE_TYPES = [
+  { v: "wrong_translation", label: "翻译错了" },
+  { v: "unnatural", label: "生硬不自然" },
+  { v: "missing", label: "漏翻了内容" },
+  { v: "other", label: "其他" },
+] as const;
+
+watch(
+  () => [props.show, props.project?.id, props.project?.provider] as const,
+  async ([show, id, provider]) => {
+    descZh.value = null;
+    feedbackPanel.value = false;
+    const custom = translateService.value === "custom";
+    // 百度网页模式不请求翻译；内置服务只支持 Modrinth；自定义 AI 两个平台都能翻
+    if (!show || !id || !provider || translateService.value === "baidu_web") return;
+    if (provider !== "modrinth" && !custom) return;
+    descLoading.value = true;
+    try {
+      const r = await api.translateDescriptions(provider, [id]);
+      descZh.value = r.translations[id] ?? null;
+    } catch {
+      descZh.value = null;
+    } finally {
+      descLoading.value = false;
+    }
+  }
+);
+
+function toggleFeedbackPanel() {
+  feedbackPanel.value = !feedbackPanel.value;
+  feedbackMode.value = "choose";
+}
+
+async function reportStale() {
+  const p = props.project;
+  if (!p) return;
+  try {
+    const status = await api.reportStaleTranslation(p.provider, p.slug);
+    message.success("感谢反馈");
+    feedbackPanel.value = false;
+    if (status === "updated") {
+      const r = await api.translateDescriptions(p.provider, [p.slug]);
+      descZh.value = r.translations[p.slug] ?? null;
+    }
+  } catch (e) {
+    message.error("反馈失败：" + String(e));
+  }
+}
+
+async function submitQuality() {
+  const p = props.project;
+  if (!p || submittingFeedback.value) return;
+  submittingFeedback.value = true;
+  try {
+    await api.reportQualityFeedback(
+      p.provider,
+      p.slug,
+      issueType.value,
+      userSuggestion.value,
+      userComment.value
+    );
+    message.success("感谢反馈");
+    feedbackPanel.value = false;
+    feedbackMode.value = "choose";
+    issueType.value = "wrong_translation";
+    userSuggestion.value = "";
+    userComment.value = "";
+  } catch (e) {
+    message.error("反馈失败：" + String(e));
+  } finally {
+    submittingFeedback.value = false;
+  }
+}
+
 async function loadVersions() {
   if (!props.project) return;
   loadingVersions.value = true;
@@ -268,7 +370,62 @@ async function install() {
             <span class="id-dl">{{ (props.project.downloads / 10000).toFixed(1) }} 万下载</span>
             <span class="id-type">{{ props.project.project_type }}</span>
           </div>
-          <div class="id-desc">{{ props.project.description }}</div>
+          <div class="id-desc" :class="{ expanded: !!descZh }">
+            <template v-if="descZh">
+              <div class="id-desc-zh">{{ descZh }}</div>
+              <div class="id-desc-en">{{ props.project.description }}</div>
+              <button
+                v-if="descZh && translateIsDefault"
+                class="id-desc-feedback"
+                @click="toggleFeedbackPanel"
+              >
+                {{ feedbackPanel ? "收起" : "翻译有问题？" }}
+              </button>
+              <button
+                v-if="translateService === 'baidu_web'"
+                class="id-desc-feedback"
+                @click="openBaiduTranslate"
+              >用百度翻译打开</button>
+              <div v-if="feedbackPanel" class="id-fb-panel">
+                <template v-if="feedbackMode === 'choose'">
+                  <button class="id-fb-opt" @click="reportStale">描述更新了，翻译是旧的</button>
+                  <button class="id-fb-opt" @click="feedbackMode = 'quality'">翻译质量不好，提建议</button>
+                </template>
+                <template v-else>
+                  <div class="id-fb-types">
+                    <button
+                      v-for="t in ISSUE_TYPES"
+                      :key="t.v"
+                      class="id-fb-type"
+                      :class="{ on: issueType === t.v }"
+                      @click="issueType = t.v"
+                    >{{ t.label }}</button>
+                  </div>
+                  <textarea
+                    v-model="userSuggestion"
+                    class="id-fb-input"
+                    rows="2"
+                    maxlength="500"
+                    placeholder="建议翻译（可选，500 字以内）"
+                  ></textarea>
+                  <textarea
+                    v-model="userComment"
+                    class="id-fb-input"
+                    rows="2"
+                    maxlength="500"
+                    placeholder="补充说明（可选，500 字以内）"
+                  ></textarea>
+                  <div class="id-fb-actions">
+                    <button class="id-fb-back" @click="feedbackMode = 'choose'">返回</button>
+                    <button class="id-fb-submit" :disabled="submittingFeedback" @click="submitQuality">
+                      {{ submittingFeedback ? "提交中…" : "提交反馈" }}
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </template>
+            <template v-else>{{ props.project.description }}</template>
+          </div>
           <div class="id-links">
             <a v-if="mcWikiUrl" :href="mcWikiUrl" target="_blank" class="id-link"><IconGlobe /> MC百科</a>
             <a v-if="sourceUrl" :href="sourceUrl" target="_blank" class="id-link"><IconExternal /> 在浏览器打开</a>
@@ -654,5 +811,128 @@ async function install() {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+.id-desc-zh {
+  color: var(--text-1);
+}
+/* 中英对照模式放开 2 行截断，长描述完整展示 */
+.id-desc.expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+.id-desc-en {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.id-desc-feedback {
+  margin-top: 6px;
+  background: none;
+  border: none;
+  color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.id-desc-feedback:hover {
+  color: var(--text-1);
+}
+.id-desc-feedback:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* ---- 翻译反馈面板 ---- */
+.id-fb-panel {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--w-10);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.id-fb-opt {
+  text-align: left;
+  background: var(--w-04);
+  border: none;
+  border-radius: 8px;
+  color: var(--text-2);
+  font-size: 12px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+.id-fb-opt:hover {
+  background: var(--w-08);
+  color: var(--text-1);
+}
+.id-fb-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.id-fb-type {
+  background: var(--w-04);
+  border: none;
+  border-radius: 14px;
+  color: var(--text-2);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.id-fb-type.on {
+  background: var(--accent-14);
+  color: var(--accent);
+}
+.id-fb-input {
+  background: var(--w-04);
+  border: 1px solid var(--w-08);
+  border-radius: 8px;
+  color: var(--text-1);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 6px 8px;
+  resize: none;
+  font-family: inherit;
+}
+.id-fb-input:focus {
+  outline: none;
+  border-color: var(--accent-35);
+}
+.id-fb-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.id-fb-back {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+.id-fb-back:hover {
+  color: var(--text-1);
+}
+.id-fb-submit {
+  background: var(--accent-14);
+  color: var(--accent);
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.id-fb-submit:hover {
+  background: var(--accent-22);
+}
+.id-fb-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 </style>

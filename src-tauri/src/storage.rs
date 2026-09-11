@@ -305,8 +305,8 @@ pub fn refresh_storage_stats(state: &AppState) -> StorageStats {
     stats
 }
 
-/// 清除可安全清理的缓存（Java 下载临时文件、Java 检测缓存、本统计缓存）。
-/// 不触碰任何实例、库、资源、版本等游戏数据。
+/// 清除可安全清理的缓存（Java 下载临时文件、Java 检测缓存、本统计缓存、
+/// 内容描述翻译缓存）。不触碰任何实例、库、资源、版本等游戏数据。
 pub fn clear_cache(state: &AppState) -> Result<CacheClearResult, String> {
     let mut freed = 0u64;
 
@@ -331,6 +331,13 @@ pub fn clear_cache(state: &AppState) -> Result<CacheClearResult, String> {
     if stat_cache.exists() {
         freed += stat_cache.metadata().map(|m| m.len()).unwrap_or(0);
         crate::util::fs_best_effort("remove_file", &stat_cache, std::fs::remove_file(&stat_cache));
+    }
+
+    // 4. 内容描述翻译缓存（清空后翻译会重新请求服务端）
+    let tr_cache = state.root.join("cache").join("translations.json");
+    if tr_cache.exists() {
+        freed += tr_cache.metadata().map(|m| m.len()).unwrap_or(0);
+        crate::util::fs_best_effort("remove_file", &tr_cache, std::fs::remove_file(&tr_cache));
     }
 
     Ok(CacheClearResult { freed })

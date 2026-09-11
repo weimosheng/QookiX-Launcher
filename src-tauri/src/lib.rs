@@ -25,6 +25,7 @@ mod settings;
 mod state;
 mod storage;
 mod terracotta;
+mod translate;
 mod updater;
 mod util;
 mod world_backup;
@@ -179,6 +180,11 @@ pub fn run() {
             commands::check_dependencies,
   commands::check_updates,
   commands::resolve_missing_mods,
+  commands::translate_mod_descriptions,
+  commands::report_translation_stale,
+  commands::report_translation_quality,
+  commands::clear_translation_cache,
+  commands::test_translate_api,
             commands::apply_update,
             commands::uninstall_content,
             commands::list_content,

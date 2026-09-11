@@ -330,6 +330,62 @@ pub async fn resolve_missing_mods(
     crate::deps::resolve_missing(&state, &instance_id, mod_ids).await
 }
 
+/// 批量翻译模组描述（自建翻译服务，带本地磁盘缓存）。
+#[tauri::command]
+pub async fn translate_mod_descriptions(
+    state: State<'_, AppState>,
+    provider: String,
+    slugs: Vec<String>,
+) -> Result<Value, String> {
+    crate::translate::translate_descriptions(&state, &provider, slugs).await
+}
+
+/// 反馈某条翻译已过期，服务端核实后会重新翻译。
+#[tauri::command]
+pub async fn report_translation_stale(
+    state: State<'_, AppState>,
+    provider: String,
+    slug: String,
+) -> Result<String, String> {
+    crate::translate::report_stale(&state, &provider, &slug).await
+}
+
+/// 反馈翻译质量问题（类型 + 可选的建议翻译与说明）。
+#[tauri::command]
+pub async fn report_translation_quality(
+    state: State<'_, AppState>,
+    provider: String,
+    slug: String,
+    issue_type: String,
+    user_suggestion: Option<String>,
+    user_comment: Option<String>,
+) -> Result<String, String> {
+    crate::translate::report_quality(&state, &provider, &slug, &issue_type, user_suggestion, user_comment)
+        .await
+}
+
+/// 清空翻译缓存；`service` 缺省时全部清空。
+#[tauri::command]
+pub fn clear_translation_cache(
+    state: State<AppState>,
+    service: Option<String>,
+) -> Result<u64, String> {
+    crate::translate::clear_cache(&state, service.as_deref())
+}
+
+/// 测试自定义翻译 API 的连通性（OpenAI 兼容接口）。
+#[tauri::command]
+pub async fn test_translate_api(
+    state: State<'_, AppState>,
+    base: String,
+    key: String,
+    model: String,
+) -> Result<(), String> {
+    crate::translate::chat_translate(&state, &base, &key, &model, "Hello, this is a test.")
+        .await
+        .map(|_| ())
+}
+
 #[tauri::command]
 pub async fn apply_update(
     app: tauri::AppHandle,

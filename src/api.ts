@@ -284,6 +284,36 @@ export const api = {
       },
       { silent: true }
     ),
+  translateDescriptions: (provider: string, slugs: string[]) =>
+    invoke<{ translations: Record<string, string>; failed: string[]; rateLimited: boolean }>(
+      "translate_mod_descriptions",
+      { provider, slugs },
+      { silent: true }
+    ),
+  reportStaleTranslation: (provider: string, slug: string) =>
+    invoke<string>("report_translation_stale", { provider, slug }),
+  reportQualityFeedback: (
+    provider: string,
+    slug: string,
+    issueType: string,
+    userSuggestion?: string,
+    userComment?: string
+  ) =>
+    invoke<string>(
+      "report_translation_quality",
+      {
+        provider,
+        slug,
+        issueType,
+        userSuggestion: userSuggestion ?? null,
+        userComment: userComment ?? null,
+      },
+      { silent: true }
+    ),
+  clearTranslationCache: (service?: "default" | "custom") =>
+    invoke<number>("clear_translation_cache", { service: service ?? null }),
+  testTranslateApi: (base: string, key: string, model: string) =>
+    invoke<void>("test_translate_api", { base, key, model }, { silent: true }),
   checkDependencies: (instanceId: string) =>
     invoke<DependencyReport>("check_dependencies", { instanceId }),
   resolveMissingMods: (instanceId: string, modIds: string[]) =>

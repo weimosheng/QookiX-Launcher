@@ -93,6 +93,15 @@ pub struct Settings {
     pub auto_update: bool,
     /// 应用自更新源："bucket"（对象存储，默认） | "github"（GitHub Releases 官方源）
     pub update_source: String,
+    /// 内容描述翻译服务："default"（自建翻译服务） | "custom"（OpenAI 兼容接口）
+    pub translate_provider: String,
+    /// 自定义翻译 API 的 OpenAI 兼容 base（如 https://api.deepseek.com/v1）
+    pub translate_api_base: String,
+    /// 自定义翻译 API 的密钥
+    #[serde(default)]
+    pub translate_api_key: Option<String>,
+    /// 自定义翻译使用的模型名（如 deepseek-chat）
+    pub translate_api_model: String,
 }
 
 impl Default for Settings {
@@ -129,6 +138,10 @@ impl Default for Settings {
             dismissed_update_version: None,
             auto_update: false,
             update_source: "bucket".into(),
+            translate_provider: "default".into(),
+            translate_api_base: String::new(),
+            translate_api_key: None,
+            translate_api_model: String::new(),
         }
     }
 }

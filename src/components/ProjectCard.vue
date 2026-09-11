@@ -1,14 +1,37 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { IconBox, IconCheck, IconClock, IconCopy, IconDownload, IconHeart } from "./icons";
 import { translateCategory } from "../utils/categories";
 import { fmtRelative as fmtDate, fmtCount as fmt } from "../utils/format";
 import type { ProjectHit } from "../types";
 
-const props = withDefaults(defineProps<{ project: ProjectHit; view?: "grid" | "list" | "compact" }>(), {
-  view: "grid",
-});
-const emit = defineEmits<{ install: [p: ProjectHit] }>();
+const props = withDefaults(
+  defineProps<{
+    project: ProjectHit;
+    view?: "grid" | "list" | "compact";
+    /** 翻译选择模式：点击卡片 = 翻译这条，而不是打开详情 */
+    translateMode?: boolean;
+    /** 该卡片的翻译请求是否进行中 */
+    translating?: boolean;
+    /** 已取到的中文描述；null = 未翻译 */
+    translatedDesc?: string | null;
+  }>(),
+  { view: "grid", translateMode: false, translating: false, translatedDesc: null }
+);
+const emit = defineEmits<{
+  install: [p: ProjectHit];
+  translate: [p: ProjectHit];
+}>();
+
+function onCardClick() {
+  if (props.translateMode) emit("translate", props.project);
+  else emit("install", props.project);
+}
+
+const cardClass = computed(() => [
+  "view-" + props.view,
+  { "in-translate": props.translateMode, "is-translating": props.translating },
+]);
 const iconError = ref(false);
 
 const copied = ref(false);
@@ -25,7 +48,7 @@ async function copyName() {
 </script>
 
 <template>
-  <div class="p-card glass" :class="`view-${view}`" @click="emit('install', project)">
+  <div class="p-card glass" :class="cardClass" @click="onCardClick">
     <template v-if="view === 'grid'">
       <div class="p-main">
         <div class="p-icon-wrap">
@@ -38,7 +61,10 @@ async function copyName() {
             {{ project.author }}
             <span v-if="fmtDate(project.updated)" class="p-updated"><IconClock /> {{ fmtDate(project.updated) }}</span>
           </div>
-          <div class="p-desc">{{ project.description }}</div>
+          <Transition name="descfade" mode="out-in">
+            <div v-if="translating" key="t" class="p-desc desc-loading"><span class="shimmer-bar"></span></div>
+            <div v-else key="d" class="p-desc" :title="translatedDesc ?? project.description">{{ translatedDesc ?? project.description }}</div>
+          </Transition>
           <div class="p-cats">
             <span v-for="c in project.categories.slice(0, 3)" :key="c" class="cat">{{ translateCategory(c) }}</span>
           </div>
@@ -76,7 +102,10 @@ async function copyName() {
           <div class="p-title text-ellipsis" :title="project.title">{{ project.title }}</div>
           <div class="p-author">{{ project.author }}</div>
         </div>
-        <div v-if="view === 'list'" class="p-desc">{{ project.description }}</div>
+        <Transition v-if="view === 'list'" name="descfade" mode="out-in">
+          <div v-if="translating" key="t" class="p-desc desc-loading"><span class="shimmer-bar"></span></div>
+          <div v-else key="d" class="p-desc" :title="translatedDesc ?? project.description">{{ translatedDesc ?? project.description }}</div>
+        </Transition>
         <div class="p-cats">
           <span v-for="c in project.categories.slice(0, 3)" :key="c" class="cat">{{ translateCategory(c) }}</span>
         </div>
@@ -356,5 +385,57 @@ async function copyName() {
 .site-btn:hover {
   color: var(--accent);
   border-color: var(--accent-05);
+}
+/* ---- 翻译选择模式 / 描述切换动画 ---- */
+.p-card.in-translate {
+  cursor: copy;
+  outline: 1px dashed var(--w-20);
+  outline-offset: -1px;
+}
+.p-card.in-translate:hover {
+  border-color: var(--accent-35);
+}
+.p-card.is-translating {
+  pointer-events: none;
+}
+.p-card.is-translating::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 42%, var(--w-08) 50%, transparent 58%);
+  transform: translateX(-100%);
+  animation: card-sweep 1.2s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes card-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+.desc-loading {
+  display: flex;
+  align-items: center;
+}
+.shimmer-bar {
+  display: block;
+  height: 12px;
+  width: 72%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--w-04), var(--w-10), var(--w-04));
+  background-size: 200% 100%;
+  animation: bar-slide 1.2s ease-in-out infinite;
+}
+@keyframes bar-slide {
+  to {
+    background-position: -200% 0;
+  }
+}
+.descfade-enter-active,
+.descfade-leave-active {
+  transition: opacity 0.25s ease;
+}
+.descfade-enter-from,
+.descfade-leave-to {
+  opacity: 0;
 }
 </style>

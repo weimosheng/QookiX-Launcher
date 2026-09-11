@@ -53,6 +53,14 @@ export interface Settings {
   auto_update: boolean;
   /** 应用自更新源："bucket"（对象存储，默认） | "github"（GitHub Releases 官方源） */
   update_source: "bucket" | "github";
+  /** 内容描述翻译服务："default"（自建翻译服务） | "custom"（OpenAI 兼容接口） */
+  translate_provider: string;
+  /** 自定义翻译 API 的 OpenAI 兼容地址 */
+  translate_api_base: string;
+  /** 自定义翻译 API 的密钥 */
+  translate_api_key: string | null;
+  /** 自定义翻译使用的模型名 */
+  translate_api_model: string;
 }
 
 /** 下载镜像源预设 */
