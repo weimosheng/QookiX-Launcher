@@ -53,5 +53,7 @@ png = "0.17"
 strip = true
 panic = "abort"
 lto = "thin"
-codegen-units = 1
+# codegen-units=16：CI release 编译提速明显（=1 时 Windows 打包要 13 分钟）。
+# 启动器对毫秒级运行性能不敏感，thin LTO 仍保留。
+codegen-units = 16
 incremental = false
