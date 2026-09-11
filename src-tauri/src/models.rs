@@ -344,6 +344,21 @@ pub enum Account {
         msa_access_token: String,
         msa_expires_at: u64,
     },
+    /// authlib-injector 皮肤站账号（LittleSkin / 任意自建站）。
+    Yggdrasil {
+        uuid: String,
+        username: String,
+        created: u64,
+        /// 皮肤站角色的 accessToken（登录/刷新获得，启动时作为 auth_access_token）
+        #[serde(serialize_with = "obfuscate_token", deserialize_with = "deobfuscate_token")]
+        access_token: String,
+        /// 登录时生成并保持一致的 clientToken（Yggdrasil 协议要求）
+        client_token: String,
+        /// 皮肤站 Yggdrasil API root（如 https://littleskin.cn/api/yggdrasil）
+        server: String,
+        /// 展示名（如 LittleSkin / 自建站）
+        server_name: String,
+    },
 }
 
 impl Account {
@@ -351,16 +366,25 @@ impl Account {
         match self {
             Account::Offline { uuid, .. } => uuid,
             Account::Microsoft { uuid, .. } => uuid,
+            Account::Yggdrasil { uuid, .. } => uuid,
         }
     }
     pub fn username(&self) -> &str {
         match self {
             Account::Offline { username, .. } => username,
             Account::Microsoft { username, .. } => username,
+            Account::Yggdrasil { username, .. } => username,
         }
     }
     pub fn is_microsoft(&self) -> bool {
         matches!(self, Account::Microsoft { .. })
+    }
+    /// Yggdrasil 账号的皮肤站 API root；其它账号类型为 None。
+    pub fn yggdrasil_server(&self) -> Option<&str> {
+        match self {
+            Account::Yggdrasil { server, .. } => Some(server),
+            _ => None,
+        }
     }
 }
 

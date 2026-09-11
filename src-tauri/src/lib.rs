@@ -29,6 +29,7 @@ mod translate;
 mod updater;
 mod util;
 mod world_backup;
+mod yggdrasil;
 
 use state::AppState;
 use std::collections::HashMap;
@@ -185,6 +186,10 @@ pub fn run() {
   commands::report_translation_quality,
   commands::clear_translation_cache,
   commands::test_translate_api,
+  yggdrasil::yggdrasil_login,
+  yggdrasil::yggdrasil_add_account,
+  yggdrasil::yggdrasil_ensure_token,
+  yggdrasil::yggdrasil_textures,
             commands::apply_update,
             commands::uninstall_content,
             commands::list_content,

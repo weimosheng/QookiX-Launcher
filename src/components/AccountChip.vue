@@ -5,6 +5,7 @@ import { useAccountsStore } from "../stores/accounts";
 import { loadOfflineSkin } from "../composables/useOfflineSkin";
 import { api } from "../api";
 import MsLoginDialog from "./MsLoginDialog.vue";
+import YggdrasilLoginDialog from "./YggdrasilLoginDialog.vue";
 import { IconCheck, IconChevronDown, IconTrash, IconUser, IconPlus } from "./icons";
 import type { Account } from "../types";
 
@@ -69,6 +70,34 @@ function getOfflineAvatar(uuid: string): string {
   return offlineAvatarCache[uuid] ?? "";
 }
 
+/** 皮肤站账号头像缓存（uuid → 裁剪后的 data URL），持久化到 localStorage */
+const yggAvatarCache = reactive<Record<string, string>>({});
+
+async function loadYggAvatar(acc: Extract<Account, { type: "yggdrasil" }>, force = false) {
+  const key = `qookix:yggavatar:${acc.uuid}`;
+  if (!force) {
+    const cached = localStorage.getItem(key);
+    if (cached) {
+      yggAvatarCache[acc.uuid] = cached;
+      return;
+    }
+  }
+  try {
+    // 皮肤站账号的 profile id 就是 uuid
+    const tex = await api.yggdrasilTextures(acc.server, acc.uuid);
+    const skin = tex?.skin || "";
+    if (skin) {
+      const avatar = await skinToAvatar(skin);
+      if (avatar) {
+        yggAvatarCache[acc.uuid] = avatar;
+        localStorage.setItem(key, avatar);
+      }
+    }
+  } catch {
+    /* 皮肤站不可达时静默，显示默认头像 */
+  }
+}
+
 watch(
   () => accounts.accounts.map((a) => `${a.uuid}:${a.type}`).join(","),
   async () => {
@@ -83,6 +112,9 @@ watch(
       if (acc.type === "microsoft") {
         if (!onlineAvatarCache[acc.uuid]) loadOnlineAvatarCache(acc.uuid);
         refreshOnlineAvatar(acc.uuid, AVATAR_SOURCES[0](acc.uuid));
+      }
+      if (acc.type === "yggdrasil" && !yggAvatarCache[acc.uuid]) {
+        void loadYggAvatar(acc);
       }
     }
   },
@@ -102,6 +134,9 @@ watch(
     }
     if (cur && cur.type === "microsoft") {
       refreshOnlineAvatar(cur.uuid, AVATAR_SOURCES[0](cur.uuid));
+    }
+    if (cur && cur.type === "yggdrasil") {
+      void loadYggAvatar(cur, true);
     }
   },
 );
@@ -146,6 +181,10 @@ const avatarAttempt = reactive<Record<string, number>>({});
 function avatar(uuid: string): string {
   const offline = getOfflineAvatar(uuid);
   if (offline) return offline;
+  const ygg = yggAvatarCache[uuid];
+  if (ygg) return ygg;
+  // 皮肤站账号不走正版头像源（crafatar 等只认正版 UUID）
+  if (accounts.accounts.find((a) => a.uuid === uuid)?.type === "yggdrasil") return "";
   const cached = onlineAvatarCache[uuid];
   if (cached) return cached;
   const i = avatarAttempt[uuid] ?? 0;
@@ -212,9 +251,23 @@ function remove(acc: Account) {
 }
 
 function typeLabel(a: Account) {
-  return a.type === "microsoft" ? "正版" : "离线";
+  if (a.type === "microsoft") return "正版";
+  if (a.type === "yggdrasil") return a.server_name || "皮肤站";
+  return "离线";
 }
-</script>
+
+// ---- 皮肤站账号 ----
+const yggDialog = ref<InstanceType<typeof YggdrasilLoginDialog> | null>(null);
+function openYggDialog() {
+  popoverShow.value = false;
+  yggDialog.value?.open();
+}
+function onYggAdded(acc: Account) {
+  void accounts.refresh();
+  void accounts.select(acc.uuid);
+  message.success(`皮肤站账号 ${acc.username} 已添加`);
+}
+  </script>
 
 <template>
   <n-popover
@@ -242,7 +295,9 @@ function typeLabel(a: Account) {
                 current
                   ? current.type === "microsoft"
                     ? "正版账号"
-                    : "离线账号"
+                    : current.type === "yggdrasil"
+                      ? current.server_name
+                      : "离线账号"
                   : "点击添加账号"
               }}
             </div>
@@ -284,12 +339,17 @@ function typeLabel(a: Account) {
         <button class="acctm-btn ms" @click="startMs">
           <IconPlus /> 添加 Microsoft 账户
         </button>
+        <button class="acctm-btn" @click="openYggDialog">
+          <IconPlus /> 添加皮肤站账号
+        </button>
         <button class="acctm-btn" @click="openOfflineDialog">
           <IconPlus /> 添加离线账号
         </button>
       </div>
     </div>
   </n-popover>
+
+  <YggdrasilLoginDialog ref="yggDialog" @added="onYggAdded" />
 
   <!-- offline account name dialog -->
   <n-modal

@@ -156,12 +156,22 @@ export interface InstanceGroup {
 export type Account =
   | { type: "offline"; uuid: string; username: string; created: number }
   | {
-      type: "microsoft";
-      uuid: string;
-      username: string;
-      created: number;
-      msa_expires_at: number;
-    };
+  type: "microsoft";
+  uuid: string;
+  username: string;
+  created: number;
+  msa_expires_at: number;
+  }
+  | {
+  type: "yggdrasil";
+  uuid: string;
+  username: string;
+  created: number;
+  /** 皮肤站 Yggdrasil API root */
+  server: string;
+  /** 展示名（如 LittleSkin） */
+  server_name: string;
+  };
 
 export interface ProjectHit {
   provider: "modrinth" | "curseforge";

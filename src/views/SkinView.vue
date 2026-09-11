@@ -240,7 +240,35 @@ async function loadCurrentAccountSkin(force = false) {
       resetCapeList();
       /* 网络不可达，回退 */
     }
-  } else {
+  }
+  if (acc.type === "yggdrasil") {
+    // 皮肤站账号：皮肤由皮肤站管理，这里只读展示（换肤请去皮肤站网站）
+    resetCapeList();
+    try {
+      const tex = await api.yggdrasilTextures(acc.server, acc.uuid);
+      if (token !== skinLoadToken) return;
+      if (tex?.skin) {
+        const variant = await detectSkinModel(tex.skin);
+        await previewSkin(tex.skin, acc.username, "official", variant);
+        lastAppliedSrc.value = tex.skin;
+        if (tex.cape) {
+          capes.value = [
+            { id: "none", name: "无披风", dataUrl: null },
+            { id: "station", name: "皮肤站披风", dataUrl: tex.cape },
+          ];
+          selectedCapeId.value = "station";
+          renderer.loadCape(tex.cape);
+        }
+        return;
+      }
+      // 该角色在皮肤站还没上传过皮肤：保持默认史蒂夫即可
+    } catch {
+      /* 皮肤站不可达，回退默认皮肤 */
+    }
+    await selectOfficial(BUILTIN_SKINS[0]);
+    return;
+  }
+  {
     resetCapeList();
     const saved = await loadOfflineSkin(acc.uuid);
     if (saved) {
@@ -308,6 +336,10 @@ async function applySkin() {
   }
   if (!currentSrc.value.startsWith("data:")) {
     message.error("当前皮肤无法直接应用，请先「保存到本地」后再应用");
+    return;
+  }
+  if (currentAccount.value!.type === "yggdrasil") {
+    message.info("皮肤站账号的皮肤由皮肤站管理，请到皮肤站网站上传更换");
     return;
   }
   if (!isCurrentMs.value) {

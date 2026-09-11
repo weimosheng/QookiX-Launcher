@@ -164,9 +164,18 @@ async fn launch_instance_inner(
         access_token: match &account {
             Account::Microsoft { msa_access_token, .. } => msa_access_token.clone(),
             Account::Offline { .. } => "0".into(),
+            // 皮肤站账号：启动前校验令牌，失效自动用 clientToken 换新
+            Account::Yggdrasil { .. } => {
+                crate::yggdrasil::ensure_token(&state, account.uuid()).await?
+            }
         },
-        user_type: if account.is_microsoft() { "msa".into() } else { "legacy".into() },
+        user_type: if account.is_microsoft() || matches!(account, Account::Yggdrasil { .. }) {
+            "msa".into()
+        } else {
+            "legacy".into()
+        },
         user_properties: "{}".into(),
+        yggdrasil_server: account.yggdrasil_server().map(|s| s.to_string()),
     };
     let result = launch::launch_game(app.clone(), &state, &instance, resolved, world, server).await?;
     crate::instances::touch_last_played(&state, &instance_id);

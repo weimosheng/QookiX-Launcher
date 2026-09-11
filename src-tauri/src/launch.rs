@@ -17,6 +17,9 @@ pub struct ResolvedAccount {
     /// legacy versions (e.g. 1.12.2) render the online skin without relying on
     /// a runtime sessionserver fetch. Defaults to `"{}"` for offline accounts.
     pub user_properties: String,
+    /// Yggdrasil（authlib-injector 皮肤站）账号的 API root；其它账号为 None。
+    /// 启动时会据此准备 authlib-injector 并注入 javaagent。
+    pub yggdrasil_server: Option<String>,
 }
 
 #[derive(Clone)]
@@ -36,6 +39,8 @@ struct LaunchContext {
     resolution: Option<(u32, u32)>,
     world: Option<String>,
     server: Option<String>,
+    /// 皮肤站账号：(authlib-injector.jar 路径, Yggdrasil API root)。
+    authlib_injector: Option<(PathBuf, String)>,
 }
 
 /// Launch a game instance. Emits `launch://log`, `launch://state` events.
@@ -187,6 +192,24 @@ pub async fn launch_game(
     let sep = if cfg!(windows) { ";" } else { ":" };
     let classpath_str = classpath.join(sep);
 
+    // 皮肤站账号：准备 authlib-injector（javaagent），游戏内才能呈现皮肤/披风
+    let authlib_injector = match &account.yggdrasil_server {
+        Some(root) => {
+            let _ = app.emit(
+                "launch://log",
+                serde_json::json!({
+                    "instanceId": &instance.id, "stream": "out",
+                    "line": format!("[皮肤站] 正在准备 authlib-injector（{}）…", root)
+                }),
+            );
+            match crate::yggdrasil::ensure_authlib_injector(state, root).await {
+                Ok(jar) => Some((jar, root.clone())),
+                Err(e) => return Err(format!("皮肤站组件准备失败: {e}")),
+            }
+        }
+        None => None,
+    };
+
     let ctx = LaunchContext {
         instance: instance.clone(),
         settings: settings.clone(),
@@ -202,6 +225,7 @@ pub async fn launch_game(
         resolution,
         world,
         server,
+        authlib_injector,
     };
 
     let args = build_args(&ctx);
@@ -791,6 +815,11 @@ fn build_args(ctx: &LaunchContext) -> Vec<String> {
     args.push(format!("-Xms{min_mem}M"));
     args.push("-Duser.language=zh".into());
     args.push("-Duser.country=CN".into());
+
+    // 皮肤站账号必须通过 authlib-injector（javaagent）接管认证，才能在线呈现皮肤/披风
+    if let Some((jar, root)) = &ctx.authlib_injector {
+        args.push(format!("-javaagent:{}={}", jar.display(), root));
+    }
 
     // jvm args from json
     let mut features = features_map(ctx.resolution.is_some());

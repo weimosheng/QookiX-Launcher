@@ -480,6 +480,30 @@ export const api = {
   refreshStorageStats: () => invoke<StorageStats>("refresh_storage_stats"),
   clearCache: () => invoke<CacheClearResult>("clear_cache"),
 
+  yggdrasilLogin: (serverUrl: string, username: string, password: string) =>
+    invoke<{
+      accessToken: string;
+      clientToken: string;
+      server: string;
+      serverName: string;
+      links: { homepage: string; register: string };
+      profiles: { id: string; name: string }[];
+    }>("yggdrasil_login", { serverUrl, username, password }, { silent: true }),
+  yggdrasilAddAccount: (payload: {
+    serverUrl: string;
+    serverName: string;
+    accessToken: string;
+    clientToken: string;
+    profileId: string;
+    profileName: string;
+  }) => invoke<Account>("yggdrasil_add_account", payload, { silent: true }),
+  /** 拉取皮肤站账号的皮肤/披风（data URL），无纹理时为 null */
+  yggdrasilTextures: (server: string, profileId: string) =>
+    invoke<{ skin: string | null; cape: string | null } | null>(
+      "yggdrasil_textures",
+      { server, profileId },
+      { silent: true }
+    ),
   // crash analysis
   crashAnalysis: (instanceId: string) =>
     invoke<{ filename: string; modified: number; size: number; kind: string }[]>("list_crash_logs", { id: instanceId }),
