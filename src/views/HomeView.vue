@@ -11,6 +11,7 @@ import { api } from "../api";
 import { supportsQuickPlay } from "../version";
 import { useMessage, NModal } from "naive-ui";
 import AppIcon from "../components/AppIcon.vue";
+import OnboardingBar from "../components/OnboardingBar.vue";
 import type { ServerStatus } from "../types";
 import { IconClose, IconCompass, IconFolder, IconGlobe, IconPlay, IconRepeat, IconUser, IconBookOpen } from "../components/icons";
 import { useOnboarding } from "../composables/useOnboarding";
@@ -101,6 +102,8 @@ async function launchSelected() {
   launching.value = true;
   try {
     await instances.launch(target.id);
+    // 新手引导第 3 步：首次启动成功即完成
+    localStorage.setItem("qookix:onboarding:launched", "1");
     message.success(`已启动 ${target.name}`);
   } catch (e) {
     message.error(String(e));
@@ -206,6 +209,7 @@ onMounted(() => {
 
 <template>
   <div id="home-root" class="home">
+    <OnboardingBar @launch="launchSelected" />
     <section v-if="settingsStore.settings?.show_home_hero" class="hero glass">
       <div class="hero-glow"></div>
       <div class="hero-text">

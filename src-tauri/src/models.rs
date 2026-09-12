@@ -132,7 +132,9 @@ impl Default for Settings {
             selected_account: None,
             proxy_mode: "system".into(),
             proxy: None,
-            mirror: "official".into(),
+            // 默认 BMCLAPI：国内直连 Mojang 官方源经常超时，镜像失败时
+            // 下载器仍会自动回退官方（海外用户手动切回官方即可）
+            mirror: "bmclapi".into(),
             mirror_custom: String::new(),
             background_image: None,
             background_blur: 0,

@@ -20,9 +20,16 @@ pub async fn fetch_manifest(state: &AppState) -> Result<VersionManifest, String>
         }
     }
     let url = crate::mirror::manifest_url(state);
-    // 镜像不可用时回退官方清单，避免因为镜像故障导致整个版本列表打不开
+    // 双向兜底：镜像挂了回退官方，官方直连失败（国内常态）回退镜像
+    const BMCLAPI_MANIFEST: &str =
+        "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json";
     let text = if url == MANIFEST_URL {
-        crate::download::get_text(&state.client, MANIFEST_URL).await?
+        match crate::download::get_text(&state.client, MANIFEST_URL).await {
+            Ok(t) => t,
+            Err(e) => crate::download::get_text(&state.client, BMCLAPI_MANIFEST)
+                .await
+                .map_err(|e2| format!("{e}（镜像源也失败: {e2}）"))?,
+        }
     } else {
         match crate::download::get_text(&state.client, &url).await {
             Ok(t) => t,
@@ -47,8 +54,18 @@ pub async fn fetch_version_json(state: &AppState, id: &str) -> Result<VersionJso
     let entry = find_version(&manifest, id)
         .ok_or_else(|| format!("未找到 Minecraft 版本 {id}"))?;
     let url = crate::mirror::version_json_url(state, &entry.url, id);
+    // 官方直连失败（国内常态）时回退 BMCLAPI 镜像
+    const BMCLAPI_BASE: &str = "https://bmclapi2.bangbang93.com";
     let json: VersionJson = if url == entry.url {
-        crate::download::get_json(&state.client, &url).await?
+        match crate::download::get_json(&state.client, &url).await {
+            Ok(j) => j,
+            Err(e) => crate::download::get_json(
+                &state.client,
+                &format!("{BMCLAPI_BASE}/version/{id}/json"),
+            )
+            .await
+            .map_err(|e2| format!("{e}（镜像源也失败: {e2}）"))?,
+        }
     } else {
         match crate::download::get_json(&state.client, &url).await {
             Ok(j) => j,

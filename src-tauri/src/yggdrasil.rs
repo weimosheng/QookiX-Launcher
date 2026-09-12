@@ -5,7 +5,8 @@
 //! - `POST /authserver/authenticate` 登录
 //! - `POST /authserver/validate` 校验令牌（204 即有效）
 //! - `POST /authserver/refresh` 刷新令牌（rotate：旧令牌立即失效）
-//! - `GET <root>` 返回站点 meta（含 authlib-injector jar 的下载地址与 sha256）
+//! - `GET <root>` 返回站点 meta（serverName / 链接 / skinDomains）
+//! - authlib-injector jar 从官方 artifact 接口获取（皮肤站 meta 不提供）
 
 use crate::models::Account;
 use crate::state::AppState;
@@ -362,50 +363,86 @@ pub async fn yggdrasil_ensure_token(
     ensure_token(state.inner(), &account_uuid).await
 }
 
-/// 确保本地存在与皮肤站 meta 匹配的 authlib-injector.jar，返回其路径。
-/// meta 里带有 jar 的下载地址与 sha256，本地文件哈希不匹配时会重新下载。
+/// 确保本地存在 authlib-injector.jar，返回其路径。
+///
+/// jar 不在皮肤站 meta 里，从官方 artifact 接口（latest.json）获取：
+/// 官方源在前，LittleSkin 镜像兜底（国内直连官方源常超时）。
+/// 本地已有时按 sha256 决定复用还是重新下载；latest.json 拉不到
+/// （如离线）但本地有旧 jar 时宽容复用。
 pub async fn ensure_authlib_injector(
     state: &AppState,
-    api_root: &str,
+    _api_root: &str,
 ) -> Result<PathBuf, String> {
-    let meta: Value = crate::download::get_json(&state.client, api_root).await?;
-    let url = meta
-        .pointer("/meta/authlibInjector")
-        .and_then(|v| v.as_str())
-        .ok_or("皮肤站 meta 缺少 authlib-injector 下载地址")?
-        .to_string();
-    let expected = meta
-        .pointer("/meta/authlibInjectorSha256")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_ascii_lowercase());
+    const OFFICIAL: &str = "https://authlib-injector.moe.yushi.moe";
+    const MIRROR: &str = "https://download.littleskin.cn/moe/yushi/authlibinjector";
 
     let dest_dir = state.root.join("authlib-injector");
     let dest = dest_dir.join("authlib-injector.jar");
+
+    let mut latest: Option<Value> = None;
+    let mut last_err = String::new();
+    for base in [OFFICIAL, MIRROR] {
+        match crate::download::get_json(&state.client, &format!("{base}/artifact/latest.json"))
+            .await
+        {
+            Ok(v) => {
+                latest = Some(v);
+                break;
+            }
+            Err(e) => last_err = e,
+        }
+    }
+    let expected = latest
+        .as_ref()
+        .and_then(|v| v.pointer("/checksums/sha256"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_ascii_lowercase());
+
     if dest.exists() {
-        let matches = expected
-            .as_deref()
-            .map(|want| {
-                crate::util::file_sha256(&dest)
-                    .map(|h| h.eq_ignore_ascii_case(want))
-                    .unwrap_or(false)
-            })
-            .unwrap_or(true); // 站点未提供校验值时信任本地文件
-        if matches {
+        // 没有校验值（latest 全挂）时信任本地文件
+        let usable = match &expected {
+            Some(want) => crate::util::file_sha256(&dest)
+                .map(|h| h.eq_ignore_ascii_case(want))
+                .unwrap_or(false),
+            None => true,
+        };
+        if usable {
             return Ok(dest);
         }
     }
 
-    let bytes = state
-        .client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("下载 authlib-injector 失败: {e}"))?
-        .error_for_status()
-        .map_err(|e| format!("下载 authlib-injector 失败: {e}"))?
-        .bytes()
-        .await
-        .map_err(|e| format!("读取 authlib-injector 失败: {e}"))?;
+    let latest = latest.ok_or_else(|| format!("获取 authlib-injector 版本信息失败: {last_err}"))?;
+    let url = latest
+        .get("url")
+        .and_then(|v| v.as_str())
+        .ok_or("authlib-injector latest.json 缺少下载地址")?
+        .to_string();
+
+    async fn fetch(state: &AppState, url: &str) -> Result<Vec<u8>, String> {
+        state
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?
+            .error_for_status()
+            .map_err(|e| e.to_string())?
+            .bytes()
+            .await
+            .map(|b| b.to_vec())
+            .map_err(|e| e.to_string())
+    }
+    let bytes = match fetch(state, &url).await {
+        Ok(b) => b,
+        Err(e) => {
+            // 官方源不通时，把路径原样映射到 LittleSkin 镜像重试一次
+            let mirror = url.replacen(OFFICIAL, MIRROR, 1);
+            fetch(state, &mirror)
+                .await
+                .map_err(|e2| format!("下载 authlib-injector 失败: {e} / {e2}"))?
+        }
+    };
+
     if let Some(want) = &expected {
         use sha2::Digest;
         let actual = sha2::Sha256::digest(&bytes);

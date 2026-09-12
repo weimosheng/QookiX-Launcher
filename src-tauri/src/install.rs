@@ -218,6 +218,11 @@ async fn install_game_inner(
         if !rules_allow(lib.rules.as_deref().unwrap_or(&[]), &features) {
             continue;
         }
+        // Mojang 官方仓库从未上传这些库的 natives（1.7.x Twitch 集成遗留），
+        // 下载必然 404；HMCL/PCL 同样跳过。主 jar 仍正常下载并进入 classpath。
+        if lib.name.starts_with("tv.twitch:") {
+            continue;
+        }
         if crate::install::is_native_entry(lib) {
             // this library carries native binaries (old style: `natives` field +
             // classifiers map; modern style: separate `...:natives-<os>` entries).
@@ -226,10 +231,21 @@ async fn install_game_inner(
             let name_has_classifier = lib.name.split(':').count() > 3;
             if let Some(classifier) = platform_native_classifier(lib) {
                 let dl = lib.downloads.as_ref();
+                // 部分 json 的 classifiers key 自带 ${arch} 占位符，同时用原始串查一次
+                let raw_classifier = lib
+                    .natives
+                    .as_ref()
+                    .and_then(|n| n.get(os_native()))
+                    .cloned();
                 let meta = dl
                     .and_then(|d| d.classifiers.as_ref())
-                    .and_then(|c| c.get(&classifier))
-                    .cloned()
+                    .and_then(|c| {
+                        c.get(&classifier).cloned().or_else(|| {
+                            raw_classifier
+                                .as_ref()
+                                .and_then(|rc| c.get(rc).cloned())
+                        })
+                    })
                     .or_else(|| dl.and_then(|d| d.artifact.clone()));
                 // 老式版本 json（1.12 前后的 Forge versionInfo 等）没有 downloads
                 // 元数据，只有 maven 仓库基址 `url` + 坐标——按 classifier 拼出
@@ -410,7 +426,16 @@ async fn install_game_inner(
             });
         }
         if !asset_items.is_empty() {
-            download_many(app.clone(), state, task_id, "assets", asset_items).await?;
+            // 资源对象（音效/贴图等）缺失不影响游戏启动，失败时降级为警告
+            // 而不是让整个安装报失败；缺的文件下次安装时会按 dest 存在性补齐。
+            if let Err(e) = download_many(app.clone(), state, task_id, "assets", asset_items).await {
+                if state.install_cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                    return Err("下载已取消".into());
+                }
+                crate::util::log_line(&format!(
+                    "[install] 部分资源文件下载失败（不影响游戏启动，重新安装可补齐）: {e}"
+                ));
+            }
         }
     }
 
@@ -464,14 +489,22 @@ fn os_native() -> &'static str {
     }
 }
 
+/// `${arch}` 占位符对应的位数词（老版本 json 的 natives classifier 用）。
+fn arch_word() -> &'static str {
+    if std::env::consts::ARCH == "x86" { "32" } else { "64" }
+}
+
 /// Which natives classifier this platform needs for the given library
 /// (old style: from the `natives` map; modern style: from a
-/// `...:natives-<os>` name segment).
+/// `...:natives-<os>` name segment). `${arch}` 占位符已替换为实际位数。
 pub fn platform_native_classifier(lib: &Library) -> Option<String> {
     let os = os_native();
     let arch = std::env::consts::ARCH;
     if let Some(natives) = &lib.natives {
-        return natives.get(os).cloned();
+        return natives
+            .get(os)
+            .cloned()
+            .map(|c| c.replace("${arch}", arch_word()));
     }
     let seg = lib.name.split(':').nth(3)?;
     if !seg.starts_with("natives-") {

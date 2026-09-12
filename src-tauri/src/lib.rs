@@ -53,7 +53,10 @@ fn show_main_window(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let default_root = std::path::PathBuf::from(settings::default_root());
+    // QOOKIX_DATA_DIR：调试时指向空目录可模拟全新用户（优先级最高）
+    let default_root = std::env::var("QOOKIX_DATA_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from(settings::default_root()));
     let _ = settings::ensure_layout(&default_root);
 
     // The installer seeds a custom data directory for fresh installs by writing
