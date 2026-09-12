@@ -56,6 +56,8 @@ export interface Settings {
   update_source: "bucket" | "github";
   /** 内容描述翻译服务："default"（自建翻译服务） | "custom"（OpenAI 兼容接口） */
   translate_provider: string;
+  /** 打开内容详情时自动加载正文译文 */
+  body_translate_auto: boolean;
   /** 自定义翻译 API 的 OpenAI 兼容地址 */
   translate_api_base: string;
   /** 自定义翻译 API 的密钥 */

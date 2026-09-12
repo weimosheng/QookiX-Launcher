@@ -107,6 +107,8 @@ pub struct Settings {
     pub translate_api_model: String,
     /// 新手向导是否已完成（首次启动为 false，完成后置 true）
     pub onboarding_completed: bool,
+    /// 打开内容详情时自动加载正文译文（默认关，手动点「翻译」不受此限）
+    pub body_translate_auto: bool,
 }
 
 impl Default for Settings {
@@ -151,6 +153,7 @@ impl Default for Settings {
             translate_api_key: None,
             translate_api_model: String::new(),
             onboarding_completed: false,
+            body_translate_auto: false,
         }
     }
 }

@@ -194,6 +194,127 @@ pub async fn translate_descriptions(
     }))
 }
 
+/// 翻译资源正文（body）：详情弹窗右侧展示，译文优先、原文兜底。
+///
+/// - 内置服务：仅 Modrinth（`/translate/mod` + `include_body: true`）
+/// - 自定义 AI：两平台都支持（CurseForge 正文为 HTML，原样交给 AI 翻译）
+/// - 返回 `{ body: 译文|null, bodyCached, original, supported, error? }`，
+///   `supported=false` 表示当前服务/平台组合不支持正文翻译，前端只显示原文。
+pub async fn translate_body(
+    state: &AppState,
+    provider: &str,
+    slug: &str,
+    translate: bool,
+) -> Result<Value, String> {
+    // 拉原文（无译文时的兜底显示内容）
+    let original = match provider {
+        "curseforge" => crate::curseforge::project_description(state, slug).await,
+        _ => {
+            let info = crate::modrinth::project_info(state, slug).await?;
+            Ok(info
+                .get("body")
+                .and_then(|b| b.as_str())
+                .unwrap_or("")
+                .to_string())
+        }
+    }
+    .unwrap_or_default();
+
+    let (custom_ready, api_base, api_key, api_model) = {
+        let s = state.settings.read().unwrap();
+        (
+            s.translate_provider == "custom",
+            s.translate_api_base.trim().trim_end_matches('/').to_string(),
+            s.translate_api_key.clone().unwrap_or_default(),
+            s.translate_api_model.trim().to_string(),
+        )
+    };
+    let use_custom = custom_ready && !api_base.is_empty() && !api_key.is_empty() && !api_model.is_empty();
+    let service_tag = if use_custom { "custom" } else { provider };
+    // 正文缓存独立于描述缓存：key 多一段 :body 与服务标签
+    let key = format!("{provider}:{slug}:{LANG}:body:{service_tag}");
+    let mut cache = load_cache(&state.root);
+    let now = now_secs();
+    // 缓存优先：手动翻译过的正文再次打开详情时直接展示译文（translate=false 也命中）。
+    // 用户不想要译文时点「显示原文」切换即可；清空缓存可彻底回到未翻译态。
+    if let Some(hit) = cache.get(&key).and_then(|e| {
+        let ts = e.get("ts").and_then(|v| v.as_u64()).unwrap_or(0);
+        let text = e.get("text").and_then(|v| v.as_str()).unwrap_or("");
+        (now.saturating_sub(ts) < CACHE_TTL && !text.is_empty()).then(|| text.to_string())
+    }) {
+        return Ok(json!({ "body": hit, "bodyCached": true, "original": original, "supported": true }));
+    }
+    if original.trim().is_empty() {
+        return Ok(json!({ "body": null, "bodyCached": false, "original": original, "supported": false }));
+    }
+    // translate=false 且无缓存：只返回原文，不调翻译服务
+    if !translate {
+        return Ok(json!({ "body": null, "bodyCached": false, "original": original, "supported": true }));
+    }
+    // 正文超长时截断（与服务端 maxBodyTranslateChars 对齐），避免请求被拒
+    const MAX_BODY_CHARS: usize = 12000;
+    let clipped: String = original.chars().take(MAX_BODY_CHARS).collect();
+
+    let unsupported = json!({ "body": null, "bodyCached": false, "original": original, "supported": false });
+    // 自定义 AI：两平台通用
+    if use_custom {
+        return match chat_translate(state, &api_base, &api_key, &api_model, &clipped).await {
+            Ok(text) => {
+                cache.insert(key, json!({ "text": text, "ts": now }));
+                save_cache(&state.root, &cache);
+                Ok(json!({ "body": text, "bodyCached": false, "original": original, "supported": true }))
+            }
+            Err(e) => Ok(json!({ "body": null, "bodyCached": false, "original": original, "supported": true, "error": e })),
+        };
+    }
+    // 内置服务：仅 Modrinth
+    if provider != "modrinth" {
+        return Ok(unsupported);
+    }
+    let req = json!({ "platform": provider, "lang": LANG, "mod_id": slug, "include_body": true });
+    let resp = state
+        .client
+        .post(format!("{BASE}/translate/mod"))
+        .json(&req)
+        .send()
+        .await
+        .map_err(|e| format!("请求翻译服务失败: {e}"))?;
+    let status = resp.status().as_u16();
+    let parsed: Value = match resp.json().await {
+        Ok(v) => v,
+        Err(_) => return Err(format!("翻译服务响应异常（HTTP {status}）")),
+    };
+    if status != 200 {
+        let msg = parsed.get("error").and_then(|v| v.as_str()).unwrap_or("翻译失败");
+        return Err(format!("翻译服务返回 HTTP {status}: {msg}"));
+    }
+    match parsed
+        .get("body")
+        .and_then(|b| b.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    {
+        Some(text) => {
+            cache.insert(key, json!({ "text": text, "ts": now }));
+            save_cache(&state.root, &cache);
+            Ok(json!({
+                "body": text,
+                "bodyCached": parsed.get("body_cached").and_then(|v| v.as_bool()).unwrap_or(false),
+                "original": original,
+                "supported": true,
+            }))
+        }
+        None => {
+            let err = parsed
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("服务未返回正文译文")
+                .to_string();
+            Ok(json!({ "body": null, "bodyCached": false, "original": original, "supported": true, "error": err }))
+        }
+    }
+}
+
 /// 反馈某条翻译已过期。返回服务端 status；`updated` 时清掉本地缓存，
 /// 下次请求即可拿到重新翻译的结果。
 pub async fn report_stale(state: &AppState, provider: &str, slug: &str) -> Result<String, String> {
@@ -275,6 +396,8 @@ pub fn clear_cache(state: &AppState, service: Option<&str>) -> Result<u64, Strin
         std::fs::remove_file(&path).map_err(|e| format!("清理翻译缓存失败: {e}"))?;
         return Ok(freed);
     };
+    // 前端传 "default" 表示内置服务，缓存 key 用的是 provider（"modrinth"）开头
+    let tag = if tag == "default" { "modrinth" } else { &tag };
     // 按服务标签前缀过滤，另一套服务的缓存原样保留
     let prefix = format!("{tag}:");
     let mut freed = 0u64;

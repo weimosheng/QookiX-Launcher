@@ -63,7 +63,7 @@ async function copyName() {
           </div>
           <Transition name="descfade" mode="out-in">
             <div v-if="translating" key="t" class="p-desc desc-loading"><span class="shimmer-bar"></span></div>
-            <div v-else key="d" class="p-desc" :title="translatedDesc ?? project.description">{{ translatedDesc ?? project.description }}</div>
+            <div v-else :key="translatedDesc ? 'zh' : 'en'" class="p-desc" :title="translatedDesc ?? project.description">{{ translatedDesc ?? project.description }}</div>
           </Transition>
           <div class="p-cats">
             <span v-for="c in project.categories.slice(0, 3)" :key="c" class="cat">{{ translateCategory(c) }}</span>
@@ -104,7 +104,7 @@ async function copyName() {
         </div>
         <Transition v-if="view === 'list'" name="descfade" mode="out-in">
           <div v-if="translating" key="t" class="p-desc desc-loading"><span class="shimmer-bar"></span></div>
-          <div v-else key="d" class="p-desc" :title="translatedDesc ?? project.description">{{ translatedDesc ?? project.description }}</div>
+          <div v-else :key="translatedDesc ? 'zh' : 'en'" class="p-desc" :title="translatedDesc ?? project.description">{{ translatedDesc ?? project.description }}</div>
         </Transition>
         <div class="p-cats">
           <span v-for="c in project.categories.slice(0, 3)" :key="c" class="cat">{{ translateCategory(c) }}</span>

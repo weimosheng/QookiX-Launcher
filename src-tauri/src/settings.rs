@@ -246,6 +246,9 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
     if let Some(v) = patch.get("onboarding_completed").and_then(|v| v.as_bool()) {
         settings.onboarding_completed = v;
     }
+    if let Some(v) = patch.get("body_translate_auto").and_then(|v| v.as_bool()) {
+        settings.body_translate_auto = v;
+    }
     let cloned = settings.clone();
     drop(settings);
     persist(state)?;

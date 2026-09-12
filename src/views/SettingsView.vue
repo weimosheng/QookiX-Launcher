@@ -1102,6 +1102,20 @@ onUnmounted(() => {
               </button>
             </div>
             <p class="hint">翻译结果按服务分开缓存在本地（保留 7 天），清空后再次翻译将重新请求对应服务；设置页的「清空缓存」仍会一次清掉两套。</p>
+            <div class="proxy-row" style="margin-top: 12px; align-items: center">
+              <label class="switch-row" style="display: flex; align-items: center; gap: 8px; cursor: pointer">
+                <input
+                  type="checkbox"
+                  v-model="settings.settings.body_translate_auto"
+                  @change="settings.save()"
+                />
+                <span>自动翻译详情正文</span>
+              </label>
+            </div>
+            <p class="hint">
+              开启后点开内容详情时会自动加载正文译文，默认仅展示原文（可点正文标题旁的「翻译」按钮手动翻译）。
+              正文翻译仅内置服务 + Modrinth 支持；自定义 API 暂不支持正文翻译——AI 输出直接渲染可能存在 Markdown 格式异常。
+            </p>
           </div>
         </div>
       </div>
@@ -1203,7 +1217,7 @@ onUnmounted(() => {
           <AboutShowcase />
           <div class="about-hero-title">
             <span class="about-name about-hero-name">QookiX Launcher</span>
-            <span class="about-ver">v0.6.3</span>
+            <span class="about-ver">v0.6.4</span>
           </div>
           <p class="about-hero-slogan">现代化、简洁、无广告的 Minecraft 启动器</p>
         </div>

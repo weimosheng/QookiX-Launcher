@@ -364,7 +364,13 @@ async function translateCard(p: ProjectHit) {
     message.info("CurseForge 暂不支持内置翻译，可切换自定义翻译 API");
     return;
   }
-  if (translatedDescs.value[p.id] !== undefined) return;
+  // 已翻译过的卡片再点一次：切回英文原文（再点可切回中文）
+  if (translatedDescs.value[p.id] !== undefined) {
+    const next = { ...translatedDescs.value };
+    delete next[p.id];
+    translatedDescs.value = next;
+    return;
+  }
   if (translatingSlugs.value.includes(p.id)) return;
   translatingSlugs.value = [...translatingSlugs.value, p.id];
   try {

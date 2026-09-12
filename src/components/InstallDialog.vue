@@ -5,6 +5,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useRouter } from "vue-router";
 import { NModal, NSelect, NButton, useMessage } from "naive-ui";
 import { api } from "../api";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import { fmtDateStr as fmtDate, instanceLabel } from "../utils/format";
 import { useInstancesStore } from "../stores/instances";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
@@ -288,6 +290,128 @@ async function onOpen() {
     `[fe] 对话框打开 project=${props.project?.provider}/${props.project?.id} type=${props.project?.project_type}`
   );
   resetForProject();
+  loadBody(false);
+}
+
+// —— 正文面板（右侧栏）：译文/原文按钮切换，手动翻译的结果走缓存 ——
+type BodyState = {
+  status: "loading" | "ok" | "error";
+  bodyHtml: string; // 译文渲染后的 HTML（空 = 尚未翻译）
+  originalHtml: string; // 原文渲染后的 HTML
+  showZh: boolean; // 当前显示译文（false = 显示原文）
+  note: string; // 顶部提示（不支持 / 失败原因）
+  translating: boolean; // 正在请求译文
+};
+const bodyState = ref<BodyState | null>(null);
+let bodySeq = 0;
+
+/** 内置服务仅支持 Modrinth 正文翻译；自定义 API / 百度网页模式不支持 */
+const canTranslateBody = computed(
+  () => props.project?.provider === "modrinth" && settingsStore.settings?.translate_provider === "default"
+);
+
+/** 当前应渲染的内容：showZh 且有译文 → 译文，否则原文 */
+const bodyDisplayHtml = computed(() => {
+  const st = bodyState.value;
+  if (!st) return "";
+  return st.showZh && st.bodyHtml ? st.bodyHtml : st.originalHtml;
+});
+const bodyIsZh = computed(() => {
+  const st = bodyState.value;
+  return !!st && st.showZh && !!st.bodyHtml;
+});
+
+/** Modrinth 正文是 Markdown；CurseForge 是 HTML。统一渲染后消毒，防 XSS。 */
+function renderContent(text: string, provider: string): string {
+  const html = provider === "curseforge" ? text : (marked.parse(text, { async: false }) as string);
+  return DOMPurify.sanitize(html);
+}
+
+/** 拉取正文。translate=false 仅原文；缓存命中的译文会随响应直接返回 */
+async function loadBody(translate: boolean) {
+  const p = props.project;
+  if (!p) return;
+  const seq = ++bodySeq;
+  const auto = !!settingsStore.settings?.body_translate_auto;
+  const wantTranslate = translate || (auto && canTranslateBody.value);
+  bodyState.value = {
+    status: "loading",
+    bodyHtml: "",
+    originalHtml: "",
+    showZh: false,
+    note: "",
+    translating: wantTranslate,
+  };
+  try {
+    const r = await api.translateBody(p.provider, p.slug || p.id, wantTranslate);
+    if (seq !== bodySeq) return; // 已切换到别的项目，丢弃过期结果
+    const state: BodyState = {
+      status: "ok",
+      bodyHtml: r.body ? renderContent(r.body, p.provider) : "",
+      originalHtml: r.original ? renderContent(r.original, p.provider) : "",
+      // 缓存命中的译文直接展示；未翻译则显示原文
+      showZh: !!r.body,
+      note: "",
+      translating: false,
+    };
+    if (r.error) state.note = `正文翻译失败：${r.error}`;
+    else if (!r.supported) state.note = "该平台暂无正文内容";
+    bodyState.value = state;
+  } catch (e) {
+    if (seq !== bodySeq) return;
+    bodyState.value = {
+      status: "error",
+      bodyHtml: "",
+      originalHtml: "",
+      showZh: false,
+      note: `正文加载失败：${String(e)}`,
+      translating: false,
+    };
+  }
+}
+
+/** 正文里的链接一律用系统浏览器打开，防止 webview 就地导航覆盖整个应用 */
+function onBodyClick(e: MouseEvent) {
+  const a = (e.target as Element | null)?.closest("a[href]");
+  if (!a) return;
+  e.preventDefault();
+  const href = a.getAttribute("href") ?? "";
+  if (/^https?:\/\//i.test(href)) {
+    openUrl(href).catch(() => {});
+  }
+}
+
+/** 标题右侧按钮：未翻译时发起翻译；已有译文时在中/英之间切换 */
+function onBodyBtn() {
+  const st = bodyState.value;
+  if (!st || st.translating || st.status !== "ok") return;
+  if (st.bodyHtml) {
+    st.showZh = !st.showZh;
+    return;
+  }
+  if (!canTranslateBody.value) {
+    message.info("正文翻译暂不支持当前翻译服务（仅内置服务 + Modrinth 支持）");
+    return;
+  }
+  st.translating = true;
+  const p = props.project;
+  if (!p) return;
+  api
+    .translateBody(p.provider, p.slug || p.id, true)
+    .then((r) => {
+      if (p !== props.project || !bodyState.value) return;
+      if (r.body) {
+        st.bodyHtml = renderContent(r.body, p.provider);
+        st.showZh = true;
+        st.note = "";
+      } else {
+        st.note = r.error ?? "正文翻译失败";
+      }
+    })
+    .catch((e) => message.error("正文翻译失败：" + String(e)))
+    .finally(() => {
+      if (bodyState.value) bodyState.value.translating = false;
+    });
 }
 
 // 弹窗内切换项目（点击前置依赖）时重新加载版本与依赖
@@ -353,7 +477,7 @@ async function install() {
     :show="props.show"
     preset="card"
     :title="props.project?.title ?? '安装内容'"
-    style="width: 640px; max-width: 94vw"
+    style="width: 980px; max-width: 96vw"
     :mask-closable="true"
     :close-on-esc="true"
     @update:show="(v: boolean) => emit('update:show', v)"
@@ -361,6 +485,8 @@ async function install() {
     @after-enter="onOpen"
   >
     <div v-if="props.project" ref="cardRef" class="id-modal">
+      <div class="id-cols">
+      <div class="id-left">
       <div class="id-head">
         <img v-if="props.project.icon_url" :src="props.project.icon_url" class="id-icon" alt="" />
         <div class="id-info">
@@ -492,6 +618,42 @@ async function install() {
           <div v-if="loadingDeps" class="id-deps-loading">正在查询前置…</div>
         </div>
       </div>
+      </div>
+
+      <!-- 右栏：正文（译文优先，原文在后）。标题在滚动区外，永不与内容重叠 -->
+      <aside class="id-right" @click="onBodyClick">
+        <div class="id-body-head">
+          详情正文
+          <button
+            v-if="bodyState && bodyState.status === 'ok' && canTranslateBody"
+            class="id-body-translate-btn"
+            :disabled="bodyState.translating"
+            @click="onBodyBtn"
+          >
+            {{ bodyState.translating
+              ? "翻译中…"
+              : bodyState.showZh && bodyState.bodyHtml ? "显示原文"
+              : bodyState.bodyHtml ? "显示译文" : "翻译" }}
+          </button>
+        </div>
+        <div class="id-body-scroll">
+          <div v-if="!bodyState || bodyState.status === 'loading'" class="id-body-note">加载正文…</div>
+          <template v-else>
+            <div v-if="bodyState.note" class="id-body-note">{{ bodyState.note }}</div>
+            <Transition name="bodyfade" mode="out-in">
+              <div
+                v-if="bodyDisplayHtml"
+                :key="bodyIsZh ? 'zh' : 'en'"
+                class="id-body-content"
+                :class="{ 'id-body-orig': !bodyIsZh }"
+                v-html="bodyDisplayHtml"
+              ></div>
+              <div v-else key="empty" class="id-body-note">暂无正文内容</div>
+            </Transition>
+          </template>
+        </div>
+      </aside>
+      </div>
 
       <div v-if="installMsg" class="id-msg">{{ installMsg }}</div>
       <div v-if="!isModpack && !instances.instances.length" class="id-noinst">
@@ -523,6 +685,166 @@ async function install() {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+/* —— 两栏布局：左=安装操作，右=正文 —— */
+.id-cols {
+  display: flex;
+  gap: 18px;
+  align-items: stretch;
+}
+.id-left {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.id-right {
+  flex: 0 0 44%;
+  max-width: 44%;
+  min-width: 0;
+  border-left: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* 高度完全跟随左栏（stretch 对齐），正文滚动交给 .id-body-scroll */
+  background: var(--n-color, #151924);
+  border-radius: 10px;
+}
+.id-body-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.id-body-head {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-1);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.id-body-translate-btn {
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.id-body-translate-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.id-body-translate-btn:hover:not(:disabled) {
+  background: var(--panel-hover, rgba(255, 255, 255, 0.07));
+}
+/* 与卡片描述翻译一致的淡入淡出 */
+.bodyfade-enter-active,
+.bodyfade-leave-active {
+  transition: opacity 0.25s ease;
+}
+.bodyfade-enter-from,
+.bodyfade-leave-to {
+  opacity: 0;
+}
+.id-body-note {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.id-body-sep {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border, rgba(255, 255, 255, 0.12));
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.id-body-orig {
+  opacity: 0.75;
+  font-size: 13px;
+}
+/* 正文（markdown / html）基础排版 */
+.id-body-content {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-1);
+  word-break: break-word;
+}
+.id-body-content h1,
+.id-body-content h2,
+.id-body-content h3,
+.id-body-content h4 {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 12px 0 6px;
+}
+.id-body-content p {
+  margin: 6px 0;
+}
+.id-body-content ul,
+.id-body-content ol {
+  padding-left: 20px;
+  margin: 6px 0;
+}
+.id-body-content code {
+  background: var(--bg-3, rgba(128, 128, 128, 0.15));
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 12px;
+}
+.id-body-content pre {
+  background: var(--bg-3, rgba(128, 128, 128, 0.12));
+  border-radius: 8px;
+  padding: 10px;
+  overflow-x: auto;
+}
+.id-body-content pre code {
+  background: transparent;
+  padding: 0;
+}
+.id-body-content img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+.id-body-content a {
+  color: var(--accent);
+}
+.id-body-content blockquote {
+  border-left: 3px solid var(--border, rgba(255, 255, 255, 0.15));
+  margin: 6px 0;
+  padding: 2px 12px;
+  color: var(--text-2);
+}
+.id-body-content table {
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+.id-body-content th,
+.id-body-content td {
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  padding: 4px 8px;
+  font-size: 12px;
+}
+/* 窄屏退化为单栏，正文移到下方 */
+@media (max-width: 860px) {
+  .id-cols {
+    flex-direction: column;
+  }
+  .id-right {
+    flex: none;
+    max-width: none;
+    border-left: none;
+    border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+    padding-left: 0;
+    padding-top: 12px;
+    max-height: 45vh;
+  }
 }
 .id-head {
   display: flex;

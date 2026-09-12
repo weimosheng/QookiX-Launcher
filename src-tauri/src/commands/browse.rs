@@ -340,6 +340,18 @@ pub async fn translate_mod_descriptions(
     crate::translate::translate_descriptions(&state, &provider, slugs).await
 }
 
+/// 翻译资源正文（详情弹窗右侧：译文优先、原文兜底）。
+/// `translate=false` 时仅拉取原文，不调用翻译服务。
+#[tauri::command]
+pub async fn translate_project_body(
+    state: State<'_, AppState>,
+    provider: String,
+    slug: String,
+    translate: bool,
+) -> Result<Value, String> {
+    crate::translate::translate_body(&state, &provider, &slug, translate).await
+}
+
 /// 反馈某条翻译已过期，服务端核实后会重新翻译。
 #[tauri::command]
 pub async fn report_translation_stale(

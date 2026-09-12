@@ -475,6 +475,7 @@ pub async fn project_info(state: &AppState, project_id: &str) -> Result<Value, S
         "slug": body.get("slug").and_then(|v| v.as_str()).unwrap_or(""),
         "title": body.get("title").and_then(|v| v.as_str()).unwrap_or(""),
         "description": body.get("description").and_then(|v| v.as_str()).unwrap_or(""),
+        "body": body.get("body").and_then(|v| v.as_str()).unwrap_or(""),
         "author": "",
         "downloads": body.get("downloads").and_then(|v| v.as_u64()).unwrap_or(0),
         "follows": body.get("follows").and_then(|v| v.as_u64()).unwrap_or(0),

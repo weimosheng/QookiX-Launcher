@@ -259,6 +259,16 @@ pub async fn categories(state: &AppState, kind: &str) -> Result<Vec<Value>, Stri
 }
 
 /// Fetch a single CurseForge mod's full info (used when opening a dependency).
+/// 拉取 CurseForge 项目完整正文（HTML），用于详情展示。
+pub async fn project_description(state: &AppState, mod_id: &str) -> Result<String, String> {
+    let body = get(state, &format!("/mods/{mod_id}/description"), &[]).await?;
+    Ok(body
+        .get("data")
+        .and_then(|d| d.as_str())
+        .unwrap_or("")
+        .to_string())
+}
+
 pub async fn project_info(state: &AppState, mod_id: &str) -> Result<Value, String> {
     let body = get(state, &format!("/mods/{mod_id}"), &[]).await?;
     let m = body.get("data").cloned().unwrap_or(body);

@@ -513,6 +513,15 @@ export const api = {
       "yggdrasil_textures",
       { server, profileId }
     ),
+  /** 正文：translate=false 仅拉原文，true 时翻译（内置服务仅 Modrinth） */
+  translateBody: (provider: string, slug: string, translate: boolean) =>
+    invoke<{
+      body: string | null;
+      bodyCached: boolean;
+      original: string;
+      supported: boolean;
+      error?: string;
+    }>("translate_project_body", { provider, slug, translate }, { net: true }),
   // crash analysis
   crashAnalysis: (instanceId: string) =>
     invoke<{ filename: string; modified: number; size: number; kind: string }[]>("list_crash_logs", { id: instanceId }),

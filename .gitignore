@@ -18,6 +18,7 @@ dist-artifacts
 
 # AI/工具会话产物（避免误提交）
 .workbuddy/
+.codebuddy/
 .codegraph/
 .merkle-snapshot.json
 .codeartsdoer/
