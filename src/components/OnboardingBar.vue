@@ -4,6 +4,7 @@ import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useAccountsStore } from "../stores/accounts";
 import { useInstancesStore } from "../stores/instances";
+import { useSettingsStore } from "../stores/settings";
 import { IconClose, IconPlay } from "./icons";
 
 const DONE_KEY = "qookix:onboarding:done";
@@ -14,6 +15,7 @@ const emit = defineEmits<{ launch: [] }>();
 const router = useRouter();
 const accounts = useAccountsStore();
 const instances = useInstancesStore();
+const settingsStore = useSettingsStore();
 
 const dismissed = ref(localStorage.getItem(DONE_KEY) === "1");
 // 启动成功由 HomeView 写标记，这里只读（用 ref 存初值即可，无需响应式追踪 localStorage）
@@ -25,7 +27,14 @@ const step1 = computed(() => !preview && accounts.accounts.length > 0);
 const step2 = computed(() => !preview && instances.instances.length > 0);
 const allDone = computed(() => step1.value && step2.value && launched.value);
 
-const show = computed(() => !dismissed.value && !allDone.value);
+const show = computed(
+  () =>
+    !dismissed.value &&
+    !allDone.value &&
+    // 与新手向导（driver.js tour）错开：tour 播完/跳过（写入 onboarding_completed）
+    // 之前不显示本条，避免首次启动双重引导；tour 结束后由本条接管三步进度
+    !!settingsStore.settings?.onboarding_completed,
+);
 
 function dismiss() {
   dismissed.value = true;

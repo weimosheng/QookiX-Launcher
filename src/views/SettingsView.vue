@@ -332,7 +332,7 @@ async function clearTranslations(service: "default" | "custom") {
   try {
     const freed = await api.clearTranslationCache(service);
     message.success(
-      freed > 0 ? `已清空${label}的翻译缓存，释放 ${fmtSize(freed)}` : `${label}的翻译缓存已经是空的`
+      freed > 0 ? `已清除${label}的翻译缓存，释放 ${fmtSize(freed)}` : `已清除${label}的翻译缓存`
     );
   } catch (e) {
     message.error(String(e));
@@ -1203,7 +1203,7 @@ onUnmounted(() => {
           <AboutShowcase />
           <div class="about-hero-title">
             <span class="about-name about-hero-name">QookiX Launcher</span>
-            <span class="about-ver">v0.6.2</span>
+            <span class="about-ver">v0.6.3</span>
           </div>
           <p class="about-hero-slogan">现代化、简洁、无广告的 Minecraft 启动器</p>
         </div>
