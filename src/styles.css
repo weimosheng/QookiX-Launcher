@@ -300,3 +300,92 @@ a:active {
 .n-loading-bar-container {
   top: 40px !important;
 }
+
+/* —— driver.js 新手引导弹窗主题适配 —— */
+/* 默认深色：深底浅字 */
+.driver-popover {
+  background-color: #1a1d24;
+  color: #f2f3f7;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.5);
+}
+.driver-popover-title {
+  color: #f2f3f7;
+}
+.driver-popover-description {
+  color: #c6c8d2;
+}
+.driver-popover-progress-text {
+  color: #8b8e9c;
+}
+.driver-popover-close-btn {
+  color: #8b8e9c;
+}
+.driver-popover-close-btn:hover,
+.driver-popover-close-btn:focus {
+  color: #f2f3f7;
+}
+.driver-popover-footer-btn {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #c6c8d2;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+}
+.driver-popover-footer-btn:hover,
+.driver-popover-footer-btn:focus {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+.driver-popover-arrow {
+  border-color: #1a1d24;
+}
+/* 引导按钮用主题色强调"下一步/完成" */
+.driver-popover-footer-btn:last-child {
+  background-color: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.driver-popover-footer-btn:last-child:hover {
+  background-color: var(--accent-hover);
+}
+/* 浅色主题：恢复白底深字 */
+:root.light .driver-popover {
+  background-color: #fff;
+  color: #2d2d2d;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.18);
+}
+:root.light .driver-popover-title {
+  color: #1a1d24;
+}
+:root.light .driver-popover-description {
+  color: #4a4d58;
+}
+:root.light .driver-popover-progress-text {
+  color: #55586a;
+}
+:root.light .driver-popover-close-btn {
+  color: #8b8e9c;
+}
+:root.light .driver-popover-close-btn:hover {
+  color: #2d2d2d;
+}
+:root.light .driver-popover-footer-btn {
+  background-color: #fff;
+  color: #4a4d58;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+:root.light .driver-popover-footer-btn:hover {
+  background-color: #f5f5f5;
+}
+:root.light .driver-popover-arrow {
+  border-color: #fff;
+}
+:root.light .driver-popover-footer-btn:last-child {
+  background-color: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+:root.light .driver-popover-footer-btn:last-child:hover {
+  background-color: var(--accent-hover);
+}

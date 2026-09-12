@@ -28,6 +28,7 @@ export interface Settings {
   curseforge_api_key: string | null;
   theme: string;
   theme_color: string;
+  /** 关闭窗口行为："ask"（每次询问，默认）| "minimize" | "quit" */
   close_behavior: string;
   auto_launch: boolean;
   keep_open: boolean;
@@ -61,6 +62,8 @@ export interface Settings {
   translate_api_key: string | null;
   /** 自定义翻译使用的模型名 */
   translate_api_model: string;
+  /** 新手向导是否已完成（首次启动为 false，完成后置 true） */
+  onboarding_completed: boolean;
 }
 
 /** 下载镜像源预设 */

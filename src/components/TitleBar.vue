@@ -92,7 +92,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="titlebar" data-tauri-drag-region>
+  <div class="titlebar" id="app-titlebar" data-tauri-drag-region>
     <div class="tb-left" data-tauri-drag-region>
       <img src="/app-icon.png" class="tb-logo" draggable="false" alt="" />
       <span class="tb-title">QookiX Launcher</span>

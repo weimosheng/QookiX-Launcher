@@ -8,11 +8,13 @@ import SideBar from "./components/SideBar.vue";
 import LoadingBarBridge from "./components/LoadingBarBridge.vue";
 import LaunchProgress from "./components/LaunchProgress.vue";
 import CrashDialog from "./components/CrashDialog.vue";
+import CloseConfirmDialog from "./components/CloseConfirmDialog.vue";
 import UpdaterCheck from "./components/UpdaterCheck.vue";
 import SplashScreen from "./components/SplashScreen.vue";
 import { useSettingsStore } from "./stores/settings";
 import { initDeepLink } from "./composables/deepLink";
 import { MessageBridge } from "./composables/notify";
+import { useOnboarding } from "./composables/useOnboarding";
 
 import { useAccountsStore } from "./stores/accounts";
 import { useInstancesStore } from "./stores/instances";
@@ -33,6 +35,7 @@ const accounts = useAccountsStore();
 const instances = useInstancesStore();
 const tasks = useTasksStore();
 const pins = usePinsStore();
+const onboarding = useOnboarding();
 
 const isDark = computed(() => settings.settings?.theme !== "light");
 const activeTheme = computed(() => (isDark.value ? darkTheme : lightTheme));
@@ -134,6 +137,10 @@ async function boot() {
   // 让 100% 短暂展示后再淡出，避免进度条一闪而过
   setTimeout(() => {
     booted.value = true;
+    // 首次启动且未完成新手向导时，待 splash 淡出后自动弹出
+    if (settings.settings && !settings.settings.onboarding_completed) {
+      setTimeout(() => onboarding.open(), 700);
+    }
   }, 340);
 }
 
@@ -174,7 +181,7 @@ onBeforeUnmount(() => {
                 <TitleBar />
                 <div class="body">
                   <SideBar />
-                  <main class="content">
+                  <main id="app-content" class="content">
                     <router-view v-slot="{ Component, route }">
                       <Transition name="page-rise" mode="out-in">
                         <component :is="Component" :key="route.path" />
@@ -185,6 +192,7 @@ onBeforeUnmount(() => {
                 </div>
                 <LaunchProgress />
                 <CrashDialog />
+                <CloseConfirmDialog />
                 <UpdaterCheck />
                 <SplashScreen :progress="bootProgress" :status="bootStatus" :done="booted" />
               </n-notification-provider>

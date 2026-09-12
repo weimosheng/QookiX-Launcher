@@ -279,7 +279,7 @@ function onYggAdded(acc: Account) {
     class="acctm-popover"
   >
     <template #trigger>
-      <div class="acct-chip clickable" :class="{ empty: !accounts.accounts.length, collapsed: props.collapsed }">
+      <div id="account-chip" class="acct-chip clickable" :class="{ empty: !accounts.accounts.length, collapsed: props.collapsed }">
         <div class="avatar">
           <template v-if="current">
             <img v-if="avatar(current.uuid)" :src="avatar(current.uuid)" alt="" @error="onAvatarError(current.uuid)" />

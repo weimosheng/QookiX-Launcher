@@ -37,7 +37,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    Emitter, Manager,
 };
 
 /// Restore (and focus) the main window — used by the tray icon, which is the
@@ -119,6 +119,7 @@ pub fn run() {
             // settings & java
             commands::get_settings,
             commands::set_settings,
+            commands::resolve_close_request,
             commands::list_mirrors,
             commands::test_mirror,
             commands::test_proxy,
@@ -285,10 +286,20 @@ pub fn run() {
                     let s = state.settings.read().unwrap();
                     s.close_behavior.clone()
                 };
-                if behavior == "minimize" {
+                match behavior.as_str() {
                     // keep the app running (hidden) instead of quitting
-                    api.prevent_close();
-                    let _ = window.hide();
+                    "minimize" => {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                    // 每次询问：拦下关闭，交给前端弹窗让用户选择
+                    // （前端选完再调用 resolve_close_request 执行并写回设置）
+                    "ask" => {
+                        api.prevent_close();
+                        let _ = app.emit("app://close-requested", ());
+                    }
+                    // "quit"（或未知值）：放行，窗口关闭后进程退出
+                    _ => {}
                 }
             }
         })

@@ -12,7 +12,8 @@ import { supportsQuickPlay } from "../version";
 import { useMessage, NModal } from "naive-ui";
 import AppIcon from "../components/AppIcon.vue";
 import type { ServerStatus } from "../types";
-import { IconClose, IconCompass, IconFolder, IconGlobe, IconPlay, IconRepeat, IconUser } from "../components/icons";
+import { IconClose, IconCompass, IconFolder, IconGlobe, IconPlay, IconRepeat, IconUser, IconBookOpen } from "../components/icons";
+import { useOnboarding } from "../composables/useOnboarding";
 
 const router = useRouter();
 const instances = useInstancesStore();
@@ -20,6 +21,7 @@ const accounts = useAccountsStore();
 const message = useMessage();
 const pinsStore = usePinsStore();
 const settingsStore = useSettingsStore();
+const onboarding = useOnboarding();
 const launching = ref(false);
 const showPicker = ref(false);
 const pinLaunching = ref<string>("");
@@ -203,7 +205,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="home">
+  <div id="home-root" class="home">
     <section v-if="settingsStore.settings?.show_home_hero" class="hero glass">
       <div class="hero-glow"></div>
       <div class="hero-text">
@@ -276,7 +278,12 @@ onMounted(() => {
     <section class="section">
       <div v-if="!instances.instances.length" class="empty glass">
         <p>还没有游戏实例</p>
-        <button class="btn primary" @click="router.push('/instances')">创建第一个实例</button>
+        <div class="home-empty-actions">
+          <button class="btn primary" @click="router.push('/instances')">创建第一个实例</button>
+          <button class="btn ghost" @click="onboarding.open">
+            <IconBookOpen /> 新手引导
+          </button>
+        </div>
       </div>
 
       <div v-else-if="selected" class="resident glass">
@@ -638,6 +645,11 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  align-items: center;
+}
+.home-empty-actions {
+  display: flex;
+  gap: 10px;
   align-items: center;
 }
 

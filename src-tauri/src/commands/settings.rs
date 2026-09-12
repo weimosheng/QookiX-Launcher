@@ -3,7 +3,7 @@ use crate::models::*;
 use crate::settings;
 use crate::state::AppState;
 use serde_json::{json, Value};
-use tauri::State;
+use tauri::{Manager, State};
 
 // ---------------------------------------------------------------------------
 // Settings & Java
@@ -24,6 +24,38 @@ pub fn get_settings(state: State<AppState>) -> Result<Settings, String> {
 #[tauri::command]
 pub fn set_settings(state: State<AppState>, patch: Value) -> Result<Settings, String> {
     settings::update_settings(&state, patch)
+}
+
+/// 关闭窗口确认弹窗的落地动作。
+/// `action` 为 "minimize"（最小化到后台）| "quit"（退出程序）；
+/// `remember` 为 true 时把该选择写回 `close_behavior`，之后不再询问。
+#[tauri::command]
+pub fn resolve_close_request(
+    app: tauri::AppHandle,
+    action: String,
+    remember: bool,
+) -> Result<(), String> {
+    if !matches!(action.as_str(), "minimize" | "quit") {
+        return Err(format!("未知的关闭动作: {action}"));
+    }
+    if remember {
+        let state = app.state::<AppState>();
+        {
+            let mut s = state.settings.write().unwrap();
+            s.close_behavior = action.clone();
+            // 勾选「保持我的选择」= 用户的明确选择，之后不再询问也不再被迁移覆盖
+            s.close_behavior_prompted = true;
+        }
+        settings::persist(&state)?;
+    }
+    if action == "minimize" {
+        if let Some(win) = app.get_webview_window("main") {
+            let _ = win.hide();
+        }
+    } else {
+        app.exit(0);
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

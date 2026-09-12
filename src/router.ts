@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useSettingsStore } from "./stores/settings";
+import { trackNavStart, trackNavEnd, trackError } from "./loadingBar";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -18,9 +19,14 @@ const router = createRouter({
   ],
 });
 
-// 关闭「新闻」后，直接访问 /news 会跳回首页（侧边栏入口本身也已隐藏）。
-// 设置尚未加载时按「显示」处理，避免启动瞬间误跳转。
-router.beforeEach((to) => {
+// —— 页面加载指示 ——
+// 顶部加载条只服务于「网络请求」（见 api.ts）与「页面加载」两种场景：
+// 这里让路由切换（含懒加载页面 chunk）期间显示加载条。
+router.beforeEach((to, from) => {
+  if (to.fullPath !== from.fullPath) trackNavStart();
+
+  // 关闭「新闻」后，直接访问 /news 会跳回首页（侧边栏入口本身也已隐藏）。
+  // 设置尚未加载时按「显示」处理，避免启动瞬间误跳转。
   if (to.path !== "/news") return true;
   try {
     const s = useSettingsStore();
@@ -29,6 +35,13 @@ router.beforeEach((to) => {
     // store 尚未初始化（Pinia 未激活）时放行
   }
   return true;
+});
+
+// 导航结束（成功、失败或重定向）都收尾，trackNavEnd 幂等
+router.afterEach(() => trackNavEnd());
+router.onError(() => {
+  trackError();
+  trackNavEnd();
 });
 
 export default router;

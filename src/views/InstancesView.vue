@@ -238,7 +238,7 @@ async function moveTo(groupId: string | null) {
 </script>
 
 <template>
-  <div class="instances-view">
+  <div id="instances-root" class="instances-view">
     <div v-if="instances.loading" class="loading">加载中…</div>
 
     <template v-else-if="totalCount">

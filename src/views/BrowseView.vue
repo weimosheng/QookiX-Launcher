@@ -457,7 +457,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="browse">
+  <div id="browse-root" class="browse">
     <div ref="typeBox" class="type-card glass">
       <div class="indicator" :style="typeIndicatorStyle"></div>
       <button
@@ -472,7 +472,7 @@ onMounted(async () => {
 
     <div class="toolbar glass">
       <div class="toolbar-row">
-        <div class="search-box">
+        <div id="browse-search" class="search-box">
           <IconSearch />
           <input v-model="query" placeholder="搜索内容…（如 sodium / iris / 某整合包）" />
         </div>

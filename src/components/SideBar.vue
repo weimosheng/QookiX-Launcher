@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { useRoute } from "vue-router";
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import AccountChip from "./AccountChip.vue";
 import AppIcon from "./AppIcon.vue";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
+import { useOnboarding } from "../composables/useOnboarding";
 import { useTasksStore } from "../stores/tasks";
 import { useInstancesStore } from "../stores/instances";
 import { useSettingsStore } from "../stores/settings";
@@ -31,6 +32,19 @@ const settingsStore = useSettingsStore();
 const message = useMessage();
 
 const collapsed = ref(true);
+
+// 新手引导期间临时展开侧边栏，便于高亮各导航项；结束后恢复原状
+const { tourActive } = useOnboarding();
+let savedCollapsed: boolean | null = null;
+watch(tourActive, (active) => {
+  if (active) {
+    savedCollapsed = collapsed.value;
+    collapsed.value = false;
+  } else if (savedCollapsed !== null) {
+    collapsed.value = savedCollapsed;
+    savedCollapsed = null;
+  }
+});
 
 const sidebarRef = ref<HTMLElement | null>(null);
 
@@ -109,7 +123,13 @@ watch(
   () => route.path,
   () => nextTick(() => refresh())
 );
-watch(collapsed, () => nextTick(() => snap()));
+// 侧边栏宽度有 0.2s transition，折叠/展开期间测量 getBoundingClientRect 会得到中间尺寸，
+// 导致滑动指示器卡在错误位置。等 width 过渡真正结束后再 snap，位置才准确。
+onMounted(() => {
+  sidebarRef.value?.addEventListener("transitionend", (e: TransitionEvent) => {
+    if (e.propertyName === "width") snap();
+  });
+});
 // 固定实例增删会改变侧边栏高度/布局，需重算指示器位置
 watch(
   () => [pinnedInstances.value.length, nav.value.length],
@@ -131,7 +151,7 @@ async function stopAll() {
 </script>
 
 <template>
-  <aside ref="sidebarRef" class="sidebar" :class="{ collapsed }">
+  <aside ref="sidebarRef" id="app-sidebar" class="sidebar" :class="{ collapsed }">
     <div class="indicator" :style="indicatorStyle"></div>
     <nav ref="navBox" class="nav">
       <router-link
@@ -139,6 +159,7 @@ async function stopAll() {
         :key="n.name"
         :to="n.to"
         class="nav-item"
+        :data-nav="n.name"
         :class="{ active: isActive(n) }"
         :title="collapsed ? n.label : undefined"
       >

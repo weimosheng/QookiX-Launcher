@@ -54,8 +54,11 @@ pub struct Settings {
     pub theme: String,
     /// 主题强调色（hex，如 "#e89a4b"）
     pub theme_color: String,
-    /// What happens when the window is closed: "minimize" | "quit"
+    /// What happens when the window is closed: "ask"（每次询问，默认）| "minimize" | "quit"
     pub close_behavior: String,
+    /// 用户是否已明确选择过关闭行为（设置页点选或弹窗勾选「保持我的选择」）。
+    /// 为 false 且值为旧版默认值 "minimize" 时，会在加载时迁移为新默认「每次询问」。
+    pub close_behavior_prompted: bool,
     /// Auto launch last played instance on startup
     pub auto_launch: bool,
     /// Keep the launcher window on top of the game while it runs
@@ -102,6 +105,8 @@ pub struct Settings {
     pub translate_api_key: Option<String>,
     /// 自定义翻译使用的模型名（如 deepseek-chat）
     pub translate_api_model: String,
+    /// 新手向导是否已完成（首次启动为 false，完成后置 true）
+    pub onboarding_completed: bool,
 }
 
 impl Default for Settings {
@@ -119,7 +124,8 @@ impl Default for Settings {
             curseforge_api_key: None,
             theme: "dark".into(),
             theme_color: "#e89a4b".into(),
-            close_behavior: "minimize".into(),
+            close_behavior: "ask".into(),
+            close_behavior_prompted: false,
             auto_launch: false,
             keep_open: true,
             ms_client_id: "00000000-0000-0000-0000-000000000000".into(),
@@ -142,6 +148,7 @@ impl Default for Settings {
             translate_api_base: String::new(),
             translate_api_key: None,
             translate_api_model: String::new(),
+            onboarding_completed: false,
         }
     }
 }

@@ -590,9 +590,9 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="skin-view">
+  <div id="skin-root" class="skin-view">
     <div class="skin-body">
-      <section class="preview-pane glass">
+      <section id="skin-preview" class="preview-pane glass">
         <div class="preview-stage">
           <canvas ref="canvasRef" class="skin-canvas"></canvas>
           <div class="preview-label" :class="{ applied: appliedToCurrent }">

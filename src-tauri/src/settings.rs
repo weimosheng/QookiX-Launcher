@@ -76,6 +76,13 @@ pub fn load_settings(root: &std::path::Path) -> Settings {
             "system".into()
         };
     }
+    // 兼容迁移：旧版本的「关闭窗口时」默认值是 "minimize"，新默认值是「每次询问」。
+    // 用户从未明确选择过（close_behavior_prompted 为 false）时迁移为 "ask"，
+    // 让老用户也能用上新默认；显式选择过则保留原值。
+    if !settings.close_behavior_prompted && settings.close_behavior == "minimize" {
+        settings.close_behavior = "ask".into();
+        let _ = save_settings(root, &settings);
+    }
     if settings.data_dir.is_empty() {
         settings.data_dir = root.to_string_lossy().to_string();
     }
@@ -147,7 +154,12 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
         }
     }
     if let Some(v) = patch.get("close_behavior").and_then(|v| v.as_str()) {
-        settings.close_behavior = v.to_string();
+        let b = v.trim();
+        if matches!(b, "ask" | "minimize" | "quit") {
+            settings.close_behavior = b.to_string();
+            // 设置页里的点选视为用户的明确选择，之后不再被迁移覆盖
+            settings.close_behavior_prompted = true;
+        }
     }
     if let Some(v) = patch.get("auto_launch").and_then(|v| v.as_bool()) {
         settings.auto_launch = v;
@@ -230,6 +242,9 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
     }
     if let Some(v) = patch.get("translate_api_model").and_then(|v| v.as_str()) {
         settings.translate_api_model = v.trim().to_string();
+    }
+    if let Some(v) = patch.get("onboarding_completed").and_then(|v| v.as_bool()) {
+        settings.onboarding_completed = v;
     }
     let cloned = settings.clone();
     drop(settings);

@@ -443,8 +443,8 @@ onUnmounted(() => stopTcPoll());
 </script>
 
 <template>
-  <div class="mp-view">
-    <div class="mode-tabs glass">
+  <div id="mp-root" class="mp-view">
+    <div id="mp-tabs" class="mode-tabs glass">
       <button :class="{ active: tab === 'servers' }" @click="tab = 'servers'">
         <IconServer /> 服务器
       </button>

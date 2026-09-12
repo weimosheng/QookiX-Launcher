@@ -11,6 +11,7 @@ import { useMemoryInfo } from "../composables/useMemoryInfo";
 import { useSettingsStore } from "../stores/settings";
 import { api } from "../api";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
+import { useOnboarding } from "../composables/useOnboarding";
 import {
   IconCpu,
   IconDownload,
@@ -27,6 +28,7 @@ import {
   IconSearch,
   IconSliders,
   IconTrash,
+  IconBookOpen,
 } from "../components/icons";
 import { peekUpdate, downloadUpdate, updateReady, updateReadyVersion } from "../updater";
 import type { JavaInfo, MirrorPreset, StorageStats } from "../types";
@@ -40,6 +42,7 @@ const settings = useSettingsStore();
 const message = useMessage();
 const dialog = useDialog();
 const router = useRouter();
+const onboarding = useOnboarding();
 
 const checking = ref(false);
 const showDiag = ref(false);
@@ -146,12 +149,13 @@ function onThemeColorInput(e: Event) {
   if (val) settings.patch({ theme_color: val });
 }
 
-// 关闭行为 seg 滑动高亮
+// 关闭行为 seg 滑动高亮（每次询问 / 最小化到后台 / 退出程序）
 const closeSegRef = ref<HTMLElement | null>(null);
+const closeBehaviors = ["ask", "minimize", "quit"] as const;
 const { indicatorStyle: closeSegStyle, refresh: refreshCloseSeg } = useSlidingIndicator(
   closeSegRef,
   () => Array.from(closeSegRef.value?.querySelectorAll<HTMLElement>(".seg button") ?? []),
-  () => (settings.settings?.close_behavior === "quit" ? 1 : 0),
+  () => Math.max(0, closeBehaviors.indexOf((settings.settings?.close_behavior ?? "ask") as (typeof closeBehaviors)[number])),
   { axis: "horizontal" }
 );
 watch(() => settings.settings?.close_behavior, () => nextTick(() => refreshCloseSeg()));
@@ -568,7 +572,7 @@ onUnmounted(() => {
 
 <template>
   <div v-if="settings.settings" class="settings-view">
-    <aside class="settings-nav">
+    <aside id="settings-nav" class="settings-nav">
       <nav class="nav-list">
         <button
           v-for="t in tabs"
@@ -594,6 +598,12 @@ onUnmounted(() => {
               <span>关闭窗口时</span>
               <div ref="closeSegRef" class="seg">
                 <div class="indicator" :style="closeSegStyle"></div>
+                <button
+                  :class="{ active: settings.settings.close_behavior === 'ask' }"
+                  @click="settings.patch({ close_behavior: 'ask' })"
+                >
+                  每次询问
+                </button>
                 <button
                   :class="{ active: settings.settings.close_behavior === 'minimize' }"
                   @click="settings.patch({ close_behavior: 'minimize' })"
@@ -1312,6 +1322,15 @@ onUnmounted(() => {
             <button class="about-link" @click="openUrl('https://github.com/weimosheng/QookiX-Launcher/blob/main/LICENSE')">
               <span class="link-left"><IconFile /> 查看 GPL-3.0 完整文本</span>
               <span class="link-arrow">→</span>
+            </button>
+          </div>
+          <div class="card glass about-replay-card">
+            <div class="about-replay-info">
+              <div class="about-replay-title">新手向导</div>
+              <p class="about-replay-desc">首次使用或想重新了解各功能？跟随引导快速熟悉 QookiX 的每个页面。</p>
+            </div>
+            <button class="mini-btn primary" @click="onboarding.open">
+              <IconBookOpen /> 重播新手向导
             </button>
           </div>
         </div>
@@ -2108,6 +2127,25 @@ textarea.text-input {
   font-size: 13px;
   color: var(--text-2);
   letter-spacing: 0.2px;
+}
+.about-replay-card {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+}
+.about-replay-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.about-replay-desc {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.5;
 }
 .about-name {
   font-size: 18px;
