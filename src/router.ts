@@ -15,6 +15,8 @@ const router = createRouter({
     { path: "/multiplayer", name: "multiplayer", component: () => import("./views/MultiplayerView.vue"), meta: { title: "多人游戏", icon: "users" } },
     { path: "/multiplayer/:id", name: "server-detail", component: () => import("./views/ServerDetailView.vue"), meta: { title: "服务器详情", icon: "users" } },
     { path: "/settings", name: "settings", component: () => import("./views/SettingsView.vue"), meta: { title: "设置", icon: "settings" } },
+    { path: "/toolbox", name: "toolbox", component: () => import("./views/ToolboxView.vue"), meta: { title: "工具箱", icon: "tool" } },
+    { path: "/toolbox/seed", name: "toolbox-seed", component: () => import("./views/SeedMapView.vue"), meta: { title: "种子地图", icon: "tool" } },
     { path: "/skins", name: "skins", component: () => import("./views/SkinView.vue"), meta: { title: "皮肤中心", icon: "user" } },
   ],
 });

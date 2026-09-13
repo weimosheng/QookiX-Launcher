@@ -30,6 +30,7 @@ mod updater;
 mod util;
 mod world_backup;
 mod yggdrasil;
+mod cubiomes;
 
 use state::AppState;
 use std::collections::HashMap;
@@ -280,6 +281,15 @@ pub fn run() {
             updater::check_for_update,
             updater::download_update,
             updater::apply_app_update,
+            // toolbox (工具箱：种子查询)
+            commands::toolbox_query_biome,
+            commands::toolbox_biome_table,
+            commands::toolbox_query_structures,
+            commands::toolbox_slime_chunk,
+            commands::toolbox_query_biome_map,
+            commands::toolbox_world_spawn,
+            commands::toolbox_surface_height,
+            commands::toolbox_read_world_info,
         ])
         .on_window_event(|window, event| {
             use tauri::WindowEvent;

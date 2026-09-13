@@ -28,6 +28,7 @@ import type {
   UpdateInfo,
   PlaytimeStats,
   WorldBackupInfo,
+  WorldInfo,
   ExportPreview,
   ExportSelection,
   IdentifiedMod,
@@ -532,4 +533,61 @@ export const api = {
 
   // news
   fetchNews: () => invoke<NewsItem[]>("fetch_news", undefined, { net: true }),
+
+  // toolbox (工具箱：种子地图，底层 cubiomes)
+  // 种子统一用十进制字符串传：64 位种子超出 JS 安全整数范围，number 会被静默舍入
+  toolboxQueryBiome: (
+    seed: string,
+    mc: string,
+    dim: number,
+    x: number,
+    y: number,
+    z: number,
+    largeBiomes = false,
+  ) => invoke<{ id: number; name: string }>("toolbox_query_biome", { seed, mc, dim, x, y, z, largeBiomes }),
+  toolboxBiomeTable: () =>
+    invoke<{ id: number; name: string; depth: number; scale: number }[]>("toolbox_biome_table"),
+  toolboxQueryStructures: (
+    seed: string,
+    mc: string,
+    centerX: number,
+    centerZ: number,
+    radiusChunks: number,
+    types: string[],
+  ) =>
+    invoke<{ type: string; x: number; z: number; region_x: number; region_z: number }[]>(
+      "toolbox_query_structures",
+      { seed, mc, centerX, centerZ, radiusChunks, types },
+    ),
+  toolboxSlimeChunk: (seed: string, chunkX: number, chunkZ: number) =>
+    invoke<boolean>("toolbox_slime_chunk", { seed, chunkX, chunkZ }),
+  /** 主世界出生点（cubiomes getSpawn） */
+  toolboxWorldSpawn: (seed: string, mc: string, largeBiomes = false) =>
+    invoke<{ x: number; z: number }>("toolbox_world_spawn", { seed, mc, largeBiomes }),
+  /** 估算 (x,z) 处的地表高度（方块），给 /tp 指令的 y 用 */
+  toolboxSurfaceHeight: (seed: string, mc: string, dim: number, x: number, z: number) =>
+    invoke<number>("toolbox_surface_height", { seed, mc, dim, x, z }),
+  /**
+   * 生成一块地图瓦片，返回原始字节（ArrayBuffer）：
+   *   u32 width | u32 height | u32 shadeSize | u32 reserved
+   *   群系 id 字节（width*height）| 山体阴影亮度字节（shadeSize²）
+   * 用原始字节而不是 JSON 数组，单块只有几十 KB，前端也无需解析数字数组。
+   */
+  toolboxQueryBiomeMap: (
+    seed: string,
+    mc: string,
+    dim: number,
+    centerX: number,
+    centerZ: number,
+    size: number,
+    scale: number,
+    largeBiomes = false,
+    wantShade = true,
+  ) =>
+    invoke<ArrayBuffer>("toolbox_query_biome_map", {
+      seed, mc, dim, centerX, centerZ, size, scale, largeBiomes, wantShade,
+    }),
+  /** 读取存档的世界种子 + 存档版本（导入实例存档用） */
+  toolboxReadWorldInfo: (instanceId: string, world: string) =>
+    invoke<WorldInfo>("toolbox_read_world_info", { instanceId, world }),
 };

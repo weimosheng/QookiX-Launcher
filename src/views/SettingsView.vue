@@ -298,6 +298,36 @@ const tabs = [
   { key: "about", label: "关于", icon: IconFile },
 ];
 
+const aboutDeps: Record<
+  "frontend" | "rust" | "thirdparty",
+  { name: string; version: string; license: string; url: string; licenseUrl: string }[]
+> = {
+  frontend: [
+    { name: "Vue", version: "3.5", license: "MIT", url: "https://vuejs.org", licenseUrl: "https://github.com/vuejs/core/blob/main/LICENSE" },
+    { name: "Vue Router", version: "4.4", license: "MIT", url: "https://router.vuejs.org", licenseUrl: "https://github.com/vuejs/router/blob/main/LICENSE" },
+    { name: "Naive UI", version: "2.45", license: "MIT", url: "https://www.naiveui.com", licenseUrl: "https://github.com/tusen-design/naive-ui/blob/main/LICENSE" },
+    { name: "Pinia", version: "2.2", license: "MIT", url: "https://pinia.vuejs.org", licenseUrl: "https://github.com/vuejs/pinia/blob/v2/LICENSE" },
+    { name: "Tauri API", version: "2", license: "MIT/Apache-2.0", url: "https://tauri.app", licenseUrl: "https://github.com/tauri-apps/tauri/blob/dev/LICENSE" },
+    { name: "driver.js", version: "1.8", license: "MIT", url: "https://driverjs.com", licenseUrl: "https://github.com/driverjs/driver.js/blob/main/LICENSE" },
+    { name: "marked", version: "18.0", license: "MIT", url: "https://marked.js.org", licenseUrl: "https://github.com/markedjs/marked/blob/master/LICENSE.md" },
+    { name: "DOMPurify", version: "3.4", license: "Apache-2.0/MPL-2.0", url: "https://github.com/cure53/DOMPurify", licenseUrl: "https://github.com/cure53/DOMPurify/blob/main/LICENSE" },
+    { name: "skinview3d", version: "3.4", license: "MIT", url: "https://github.com/bs-community/skinview3d", licenseUrl: "https://github.com/bs-community/skinview3d/blob/master/LICENSE" },
+  ],
+  rust: [
+    { name: "Tauri", version: "2", license: "MIT/Apache-2.0", url: "https://tauri.app", licenseUrl: "https://github.com/tauri-apps/tauri/blob/dev/LICENSE" },
+    { name: "Tokio", version: "1", license: "MIT", url: "https://tokio.rs", licenseUrl: "https://github.com/tokio-rs/tokio/blob/master/LICENSE" },
+    { name: "reqwest", version: "0.12", license: "MIT/Apache-2.0", url: "https://github.com/seanmonstar/reqwest", licenseUrl: "https://github.com/seanmonstar/reqwest/blob/master/LICENSE" },
+    { name: "serde", version: "1", license: "MIT/Apache-2.0", url: "https://serde.rs", licenseUrl: "https://github.com/serde-rs/serde/blob/master/LICENSE" },
+    { name: "fastnbt", version: "2", license: "MIT", url: "https://github.com/owengage/fastnbt", licenseUrl: "https://github.com/owengage/fastnbt/blob/main/LICENSE" },
+    { name: "cc", version: "1.0", license: "MIT/Apache-2.0", url: "https://github.com/rust-lang/cc-rs", licenseUrl: "https://github.com/rust-lang/cc-rs/blob/main/LICENSE" },
+  ],
+  thirdparty: [
+    { name: "Terracotta", version: "", license: "AGPL-3.0-or-later", url: "https://github.com/burningtnt/Terracotta", licenseUrl: "https://github.com/burningtnt/Terracotta/blob/master/LICENSE" },
+    { name: "Feather Icons", version: "", license: "MIT", url: "https://feathericons.com", licenseUrl: "https://github.com/feathericons/feather/blob/main/LICENSE" },
+    { name: "cubiomes", version: "", license: "MIT", url: "https://github.com/Cubitect/cubiomes", licenseUrl: "https://github.com/Cubitect/cubiomes/blob/master/LICENSE" },
+  ],
+};
+
 // ---- 内容翻译 ----
 const translateOptions = [
   { label: "内置服务", value: "default" },
@@ -1347,6 +1377,51 @@ onUnmounted(() => {
               <IconBookOpen /> 重播新手向导
             </button>
           </div>
+          <div class="card glass about-deps-card">
+            <h3>许可与版权声明</h3>
+            <p class="license-text">QookiX Launcher 的构建得益于以下优秀的开源项目。</p>
+            <div class="deps-groups">
+              <div class="deps-group">
+                <div class="deps-group-title">前端</div>
+                <div v-for="d in aboutDeps.frontend" :key="d.name" class="about-dep-row">
+                  <div class="dep-info">
+                    <span class="dep-name">{{ d.name }}<span class="dep-ver" v-if="d.version">v{{ d.version }}</span></span>
+                    <span class="dep-license">{{ d.license }}</span>
+                  </div>
+                  <div class="dep-links">
+                    <button class="dep-link" @click="openUrl(d.url)">来源 ↗</button>
+                    <button class="dep-link" @click="openUrl(d.licenseUrl)">许可 ↗</button>
+                  </div>
+                </div>
+              </div>
+              <div class="deps-group">
+                <div class="deps-group-title">Rust</div>
+                <div v-for="d in aboutDeps.rust" :key="d.name" class="about-dep-row">
+                  <div class="dep-info">
+                    <span class="dep-name">{{ d.name }}<span class="dep-ver" v-if="d.version">v{{ d.version }}</span></span>
+                    <span class="dep-license">{{ d.license }}</span>
+                  </div>
+                  <div class="dep-links">
+                    <button class="dep-link" @click="openUrl(d.url)">来源 ↗</button>
+                    <button class="dep-link" @click="openUrl(d.licenseUrl)">许可 ↗</button>
+                  </div>
+                </div>
+              </div>
+              <div class="deps-group">
+                <div class="deps-group-title">第三方组件</div>
+                <div v-for="d in aboutDeps.thirdparty" :key="d.name" class="about-dep-row">
+                  <div class="dep-info">
+                    <span class="dep-name">{{ d.name }}<span class="dep-ver" v-if="d.version">v{{ d.version }}</span></span>
+                    <span class="dep-license">{{ d.license }}</span>
+                  </div>
+                  <div class="dep-links">
+                    <button class="dep-link" @click="openUrl(d.url)">来源 ↗</button>
+                    <button class="dep-link" @click="openUrl(d.licenseUrl)">许可 ↗</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -2160,6 +2235,106 @@ textarea.text-input {
   font-size: 12px;
   color: var(--text-3);
   line-height: 1.5;
+}
+.about-deps-card {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.about-deps-card h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.deps-groups {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  margin-top: 4px;
+}
+.deps-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.deps-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+.about-dep-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(var(--glass-blur, 8px));
+  backdrop-filter: blur(var(--glass-blur, 8px));
+  transition: border-color 0.15s;
+  flex-wrap: wrap;
+}
+.about-dep-row:hover {
+  border-color: var(--accent);
+}
+.dep-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+.about-dep-row .dep-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  white-space: nowrap;
+}
+.dep-ver {
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 400;
+}
+.dep-license {
+  font-size: 10px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.dep-links {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.dep-link {
+  font-size: 11px;
+  font-family: inherit;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.dep-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 .about-name {
   font-size: 18px;

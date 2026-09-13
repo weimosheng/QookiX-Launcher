@@ -146,50 +146,48 @@ pub async fn launch_game(
 
     // ---- classpath ----
     let features = features_map(resolution.is_some());
+    let lib_entries = resolve_classpath_entries(state, &version_json, &features);
 
-    // 按 group:artifact 去重，保留最高版本（避免 duplicate ASM classes 等冲突）
-    let mut best_libs: std::collections::HashMap<String, &crate::models::Library> = HashMap::new();
-    for lib in &version_json.libraries {
-        if !rules_allow(lib.rules.as_deref().unwrap_or(&[]), &features) {
-            continue;
-        }
-        // 提取 group:artifact 作为去重键
-        let key = lib.name.split(':').take(2).collect::<Vec<_>>().join(":");
-        match best_libs.get(&key) {
-            Some(existing) => {
-                // 比较版本，保留更高的
-                let existing_ver = existing.name.split(':').nth(2).unwrap_or("0");
-                let new_ver = lib.name.split(':').nth(2).unwrap_or("0");
-                if compare_versions(new_ver, existing_ver) > 0 {
-                    best_libs.insert(key, lib);
-                }
-            }
-            None => {
-                best_libs.insert(key, lib);
+    // 启动前依赖完整性检查：classpath 里指向不存在/损坏的 jar 时，Java 只会抛
+    // ClassNotFoundException（典型如 org/lwjgl/Version），而 Fabric 会把它包装成
+    // 「A mod crashed on startup!」指向最后一个被加载的模组——用户拿着这行根本
+    // 无从下手。这里提前拦下，直接告诉用户是依赖坏了、该怎么修。
+    let mut broken_base: Vec<String> = Vec::new();
+    let mut broken_other = 0usize;
+    for e in &lib_entries {
+        if let Err(why) = entry_state(e) {
+            if is_base_library(&e.name) {
+                broken_base.push(format!("{}（{why}）", e.name));
+            } else {
+                broken_other += 1;
             }
         }
     }
-
-    let mut classpath: Vec<String> = Vec::new();
-    for lib in best_libs.values() {
-        // NOTE: natives jars stay on the classpath — LWJGL 3.4 loads shared
-        // libraries from the classpath (`LibraryResource` + SharedLibraryLoader),
-        // which is how modern versions (26.x) provide lwjgl.dll etc.
-        if let Some(dl) = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()) {
-            if let Some(p) = &dl.path {
-                classpath.push(crate::paths::libraries_dir(state).join(p).to_string_lossy().to_string());
-            } else if let Some(rel) = crate::models::maven_to_path(&lib.name) {
-                classpath.push(crate::paths::libraries_dir(state).join(rel).to_string_lossy().to_string());
-            }
-        } else if let Some(rel) = crate::models::maven_to_path(&lib.name) {
-            classpath.push(crate::paths::libraries_dir(state).join(rel).to_string_lossy().to_string());
-        }
+    if !broken_base.is_empty() {
+        let sample = broken_base.iter().take(3).cloned().collect::<Vec<_>>().join("、");
+        return Err(format!(
+            "游戏依赖不完整：{} 个基础库文件缺失或损坏（{}{}）。这不是模组的问题——请回到实例页点击「重新安装游戏」修复依赖后再启动。",
+            broken_base.len(),
+            sample,
+            if broken_base.len() > 3 { " 等" } else { "" }
+        ));
     }
+    if broken_other > 0 {
+        let _ = app.emit("launch://log", serde_json::json!({
+            "instanceId": instance.id, "stream": "out",
+            "line": format!("[警告] libraries 里有 {broken_other} 个依赖文件缺失或损坏；若启动失败，请在实例页重新安装游戏补齐。"),
+        }));
+    }
+
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let mut classpath: Vec<String> = lib_entries
+        .iter()
+        .map(|e| e.path.to_string_lossy().to_string())
+        .collect();
     let client_jar = crate::paths::resolve_version_dir(state, &instance.id).join(format!("{}.jar", instance.id));
     if client_jar.exists() {
         classpath.push(client_jar.to_string_lossy().to_string());
     }
-    let sep = if cfg!(windows) { ";" } else { ":" };
     let classpath_str = classpath.join(sep);
 
     // 皮肤站账号：准备 authlib-injector（javaagent），游戏内才能呈现皮肤/披风
@@ -751,10 +749,154 @@ fn disable_resource_pack(instance_dir: &std::path::Path, pack_file: &str) {
 }
 
 // ---------------------------------------------------------------------------
+// Classpath 解析
+// ---------------------------------------------------------------------------
+
+/// 缺了它们游戏必然起不来：Fabric / Quilt / Forge 本体、LWJGL，以及 Mojang、
+/// Mixin 等基础库。缺失这些时应该直接报「依赖不完整」，而不是让游戏崩在
+/// 模组入口点里。
+const BASE_LIBRARY_PREFIXES: &[&str] = &[
+    "org.lwjgl:",
+    "com.mojang:",
+    "net.fabricmc:",
+    "org.quiltmc:",
+    "net.minecraftforge:",
+    "net.neoforged:",
+    "org.spongepowered:",
+];
+
+/// 这些库直接来自官方仓库、从不在本地被改写（LWJGL / Mojang / Fabric / Quilt /
+/// Mixin），可以放心拿版本 json 里的 sha1、size 做校验。
+/// 注意 Forge/NeoForge 不在其中：它们的 processor 产物与 maven 原件不同。
+const VERIFIABLE_LIBRARY_PREFIXES: &[&str] = &[
+    "org.lwjgl:",
+    "com.mojang:",
+    "net.fabricmc:",
+    "org.quiltmc:",
+    "org.spongepowered:",
+];
+
+fn is_verifiable_library(name: &str) -> bool {
+    VERIFIABLE_LIBRARY_PREFIXES.iter().any(|p| name.starts_with(p))
+}
+
+fn is_base_library(name: &str) -> bool {
+    BASE_LIBRARY_PREFIXES.iter().any(|p| name.starts_with(p))
+}
+
+/// 一条 classpath 依赖：坐标 + 落盘路径 + 版本 json 里的校验信息。
+pub(crate) struct ClasspathEntry {
+    pub name: String,
+    pub path: PathBuf,
+    /// 版本 json 提供的期望 sha1 / 大小；没有时跳过对应校验。
+    pub sha1: Option<String>,
+    pub size: Option<u64>,
+}
+
+/// 依赖文件是否可用；不可用时给出原因（用于报错文案与自检报告）。
+pub(crate) fn entry_state(e: &ClasspathEntry) -> Result<(), &'static str> {
+    let len = match std::fs::metadata(&e.path) {
+        Ok(m) => m.len(),
+        Err(_) => return Err("文件缺失"),
+    };
+    if len == 0 {
+        return Err("文件为空");
+    }
+    // 只对「内容必然与仓库一致」的库做严格校验。损坏的 jar 大小可能正常，但里面的
+    // 类加载不到——这正是「模组启动时崩溃」最隐蔽的来源，日志里只会看到
+    // ClassNotFoundException。其它依赖只查存在性，避免每次启动读几百 MB。
+    if is_verifiable_library(&e.name) {
+        if let Some(sz) = e.size {
+            if len != sz {
+                return Err("文件大小不符（下载不完整）");
+            }
+        }
+        if let Some(want) = &e.sha1 {
+            match crate::util::file_sha1(&e.path) {
+                Some(got) if got.eq_ignore_ascii_case(want) => {}
+                Some(_) => return Err("内容校验失败（文件已损坏）"),
+                None => return Err("文件无法读取"),
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 由版本 json 推导 classpath 条目。路径推导必须与安装期（`install.rs`）保持一致，
+/// 否则会「装了却找不到」。
+///
+/// 去重规则：按 `group:artifact:classifier` 保留最高版本，**classifier 必须进 key**。
+/// 例：MC 26.2 的 `org.lwjgl:lwjgl:3.4.1` 只列了 `:unsafe`（类 jar，含
+/// `org.lwjgl.Version`）与 `:natives-*`（只有 DLL）两条，按 group:artifact 去重会把
+/// `:unsafe` 丢掉，classpath 上只剩 DLL jar → `org.lwjgl.*` 全部 ClassNotFound，
+/// Fabric 把它报成「某个模组在启动时崩溃」。
+///
+/// natives 条目还要过一遍平台判定：其它系统/架构的变体安装期不会下载，不能进 classpath。
+pub(crate) fn resolve_classpath_entries(
+    state: &AppState,
+    version_json: &VersionJson,
+    features: &HashMap<String, bool>,
+) -> Vec<ClasspathEntry> {
+    let mut best: HashMap<String, &crate::models::Library> = HashMap::new();
+    for lib in &version_json.libraries {
+        if !rules_allow(lib.rules.as_deref().unwrap_or(&[]), features) {
+            continue;
+        }
+        if crate::install::is_native_entry(lib)
+            && crate::install::platform_native_classifier(lib).is_none()
+        {
+            continue;
+        }
+        // group:artifact[:classifier] 作为去重键
+        let classifier = lib.name.split(':').nth(3).unwrap_or("");
+        let key = format!(
+            "{}:{classifier}",
+            lib.name.split(':').take(2).collect::<Vec<_>>().join(":")
+        );
+        match best.get(&key) {
+            Some(existing) => {
+                // 比较版本，保留更高的
+                let existing_ver = existing.name.split(':').nth(2).unwrap_or("0");
+                let new_ver = lib.name.split(':').nth(2).unwrap_or("0");
+                if compare_versions(new_ver, existing_ver) > 0 {
+                    best.insert(key, lib);
+                }
+            }
+            None => {
+                best.insert(key, lib);
+            }
+        }
+    }
+
+    let libs_dir = crate::paths::libraries_dir(state);
+    let mut out: Vec<ClasspathEntry> = Vec::new();
+    for lib in best.values() {
+        // NOTE: natives jars stay on the classpath — LWJGL 3.4 loads shared
+        // libraries from the classpath (`LibraryResource` + SharedLibraryLoader),
+        // which is how modern versions (26.x) provide lwjgl.dll etc.
+        let artifact = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref());
+        let rel = artifact
+            .and_then(|a| a.path.clone())
+            .or_else(|| {
+                crate::models::maven_to_path(&lib.name).map(|p| p.to_string_lossy().to_string())
+            });
+        if let Some(rel) = rel {
+            out.push(ClasspathEntry {
+                name: lib.name.clone(),
+                path: libs_dir.join(rel),
+                sha1: artifact.map(|a| a.sha1.clone()).filter(|s| !s.is_empty()),
+                size: artifact.map(|a| a.size).filter(|s| *s > 0),
+            });
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
 // Argument building
 // ---------------------------------------------------------------------------
 
-fn features_map(custom_resolution: bool) -> HashMap<String, bool> {
+pub(crate) fn features_map(custom_resolution: bool) -> HashMap<String, bool> {
     let mut m = HashMap::new();
     m.insert("is_demo_user".to_string(), false);
     m.insert("has_custom_resolution".to_string(), custom_resolution);
@@ -1139,4 +1281,34 @@ fn diagnose_crash(
         return None;
     }
     Some(diag)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 「基础库」白名单要覆盖缺了就必然起不来的那几个坐标系；
+    /// 普通第三方依赖（ASM / Guava 等）缺失只警告、不拦启动，避免误杀。
+    #[test]
+    fn base_library_whitelist_matches_runtime_core() {
+        for name in [
+            "org.lwjgl:lwjgl:3.3.1",
+            "org.lwjgl:lwjgl-glfw:3.3.1:natives-windows",
+            "com.mojang:brigadier:1.0.18",
+            "net.fabricmc:fabric-loader:0.15.11",
+            "org.quiltmc:quilt-loader:0.23.1",
+            "net.minecraftforge:forge:1.20.1-47.2.0:client",
+            "net.neoforged:neoforge:20.4.237:universal",
+            "org.spongepowered:mixin:0.8.5",
+        ] {
+            assert!(is_base_library(name), "{name} 应视作基础库");
+        }
+        for name in [
+            "org.ow2.asm:asm:9.6",
+            "com.google.guava:guava:32.1.2-jre",
+            "org.apache.commons:commons-lang3:3.12.0",
+        ] {
+            assert!(!is_base_library(name), "{name} 不应视作基础库");
+        }
+    }
 }

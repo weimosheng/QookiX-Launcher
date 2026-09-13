@@ -4,7 +4,10 @@ version = "0.6.5"
 description = "QookiX Launcher - a modern, clean and ad-free Minecraft launcher"
 authors = ["QookiX"]
 edition = "2021"
-# 许可证字段待确定后补充，例如：license = "GPL-3.0-only"
+# 与仓库根目录 LICENSE 保持一致（GNU GPL v3）。
+# 注意：vendored 的 cubiomes（MIT，见 vendor/cubiomes/LICENSE）在此以 GPL-3.0 再分发，
+# MIT 允许如此；其版权与许可声明见 THIRD_PARTY_NOTICES.md。
+license = "GPL-3.0-only"
 repository = "https://github.com/weimosheng/QookiX-Launcher"
 
 [lib]
@@ -16,6 +19,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+cc = "1.0"
 
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }

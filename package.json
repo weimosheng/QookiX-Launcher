@@ -2,6 +2,7 @@
   "name": "qookix-launcher",
   "private": true,
   "version": "0.6.5",
+  "license": "GPL-3.0-only",
   "type": "module",
   "repository": {
     "type": "git",

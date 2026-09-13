@@ -38,6 +38,8 @@ export const IconRepeat = make(`<polyline points="17 1 21 5 17 9"/><path d="M3 1
 export const IconClose = make(`<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>`);
 export const IconMinus = make(`<line x1="5" y1="12" x2="19" y2="12"/>`);
 export const IconSquare = make(`<rect x="5" y="5" width="14" height="14" rx="1"/>`);
+export const IconMaximize = make(`<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>`);
+export const IconMinimize = make(`<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>`);
 export const IconRestore = make(`<rect x="8" y="8" width="12" height="12" rx="1"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/>`);
 export const IconCheck = make(`<polyline points="20 6 9 17 4 12"/>`);
 export const IconPlus = make(`<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>`);
@@ -89,6 +91,8 @@ export const IconInfo = make(`<circle cx="12" cy="12" r="10"/><line x1="12" y1="
 export const IconNewspaper = make(`<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2z"/><path d="M10 14h6"/><path d="M10 18h6"/><path d="M10 6h10"/><path d="M10 10h6"/>`);
 export const IconBookOpen = make(`<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>`);
 export const IconSkin = make(`<path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z" />`);
+// 工具箱（基于 Lucide toolbox，ISC 许可）
+export const IconTool = make(`<rect width="20" height="14" x="2" y="7" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>`);
 // GitHub 官方 logo 为填充型图形（Octicons mark-github，MIT 许可），覆盖默认描边
 export const IconGithub: Component = () =>
   h(

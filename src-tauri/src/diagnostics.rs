@@ -420,6 +420,47 @@ fn collect_instance(state: &AppState, inst: &crate::models::Instance) -> Diagnos
         }
     ));
 
+    // 依赖库完整性：libraries 缺失时游戏启动会崩在模组入口点，Fabric 却报成
+    // 「某个模组启动时崩溃」——这里是唯一能看清真相的地方。
+    if json_path.is_file() {
+        match std::fs::read_to_string(&json_path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<crate::models::VersionJson>(&t).ok())
+        {
+            Some(mut v) => {
+                crate::install::normalize_natives_args(&mut v);
+                let entries = crate::launch::resolve_classpath_entries(
+                    state,
+                    &v,
+                    &crate::launch::features_map(inst.resolution.is_some()),
+                );
+                let problems: Vec<String> = entries
+                    .iter()
+                    .filter_map(|e| {
+                        crate::launch::entry_state(e)
+                            .err()
+                            .map(|why| format!("{}（{why}）", e.name))
+                    })
+                    .collect();
+                lines.push(format!(
+                    "依赖库(libraries): {} 个条目，{}",
+                    entries.len(),
+                    if problems.is_empty() {
+                        "全部就位".to_string()
+                    } else {
+                        format!(
+                            "有 {} 个文件缺失或损坏（{}{}）",
+                            problems.len(),
+                            problems.iter().take(3).cloned().collect::<Vec<_>>().join("、"),
+                            if problems.len() > 3 { " 等" } else { "" }
+                        )
+                    }
+                ));
+            }
+            None => lines.push("依赖库(libraries): 版本 json 无法解析，跳过检查".into()),
+        }
+    }
+
     let mods_dir = dir.join("mods");
     let (mut jars, mut disabled) = (0usize, 0usize);
     if let Ok(rd) = std::fs::read_dir(&mods_dir) {
@@ -896,6 +937,68 @@ mod tests {
         assert_eq!(rest.len(), 2);
         assert!(rest[0].generated_at > rest[1].generated_at);
 
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// classpath 推导：classifier 必须参与去重。
+    ///
+    /// MC 26.2 的 json 里 `org.lwjgl:lwjgl:3.4.1` 只列了 `:unsafe`（真正的类 jar，
+    /// 含 org.lwjgl.Version）与 `:natives-*`（只有 DLL）。按 group:artifact 去重会
+    /// 把 `:unsafe` 丢掉，classpath 上只剩 DLL jar → org.lwjgl.* 全部 ClassNotFound。
+    #[test]
+    fn classpath_keeps_unsafe_and_natives_classifiers() {
+        let root = std::env::temp_dir().join("qookix-diag-classpath");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let state = test_state(&root);
+        let v: crate::models::VersionJson = serde_json::from_str(
+            r#"{
+              "id": "t",
+              "libraries": [
+                {"name":"org.lwjgl:lwjgl:3.4.1:natives-linux","downloads":{"artifact":{"sha1":"","size":1,"url":"u","path":"org/lwjgl/lwjgl/3.4.1/lwjgl-3.4.1-natives-linux.jar"}},"rules":[{"action":"allow","os":{"name":"linux"}}]},
+                {"name":"org.lwjgl:lwjgl:3.4.1:natives-windows","downloads":{"artifact":{"sha1":"","size":2,"url":"u","path":"org/lwjgl/lwjgl/3.4.1/lwjgl-3.4.1-natives-windows.jar"}},"rules":[{"action":"allow","os":{"name":"windows"}}]},
+                {"name":"org.lwjgl:lwjgl:3.4.1:natives-windows-arm64","downloads":{"artifact":{"sha1":"","size":3,"url":"u","path":"org/lwjgl/lwjgl/3.4.1/lwjgl-3.4.1-natives-windows-arm64.jar"}},"rules":[{"action":"allow","os":{"name":"windows"}}]},
+                {"name":"org.lwjgl:lwjgl:3.4.1:unsafe","downloads":{"artifact":{"sha1":"","size":4,"url":"u","path":"org/lwjgl/lwjgl/3.4.1/lwjgl-3.4.1-unsafe.jar"}}},
+                {"name":"org.lwjgl:lwjgl-glfw:3.4.1","downloads":{"artifact":{"sha1":"","size":5,"url":"u","path":"org/lwjgl/lwjgl-glfw/3.4.1/lwjgl-glfw-3.4.1.jar"}}},
+                {"name":"org.lwjgl:lwjgl-glfw:3.4.1:natives-windows","downloads":{"artifact":{"sha1":"","size":6,"url":"u","path":"org/lwjgl/lwjgl-glfw/3.4.1/lwjgl-glfw-3.4.1-natives-windows.jar"}},"rules":[{"action":"allow","os":{"name":"windows"}}]},
+                {"name":"org.ow2.asm:asm:9.6"},
+                {"name":"org.ow2.asm:asm:9.10.1"},
+                {"name":"com.example:disabled:1.0","rules":[{"action":"disallow"}]}
+              ]
+            }"#,
+        )
+        .unwrap();
+        let names: Vec<String> = crate::launch::resolve_classpath_entries(
+            &state,
+            &v,
+            &crate::launch::features_map(false),
+        )
+        .into_iter()
+        .map(|e| e.name)
+        .collect();
+
+        assert!(
+            names.contains(&"org.lwjgl:lwjgl:3.4.1:unsafe".to_string()),
+            "类 jar（:unsafe）必须留在 classpath：{names:?}"
+        );
+        assert!(
+            !names.iter().any(|n| n.ends_with("natives-linux")),
+            "其它系统的 natives 不该进 classpath：{names:?}"
+        );
+        assert!(
+            !names.iter().any(|n| n.ends_with("natives-windows-arm64")),
+            "非本机架构的 natives 不该进 classpath（安装期也不会下载）：{names:?}"
+        );
+        if cfg!(windows) && cfg!(target_arch = "x86_64") {
+            assert!(
+                names.contains(&"org.lwjgl:lwjgl:3.4.1:natives-windows".to_string()),
+                "本机 natives 仍需在 classpath 上（LWJGL 3.4 从 classpath 取 DLL）：{names:?}"
+            );
+        }
+        // 同 classifier 的重复条目仍要去重，且保留最高版本
+        assert!(names.contains(&"org.ow2.asm:asm:9.10.1".to_string()));
+        assert!(!names.contains(&"org.ow2.asm:asm:9.6".to_string()));
+        assert!(!names.iter().any(|n| n.starts_with("com.example:")));
         let _ = std::fs::remove_dir_all(&root);
     }
 }

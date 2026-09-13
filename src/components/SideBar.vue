@@ -22,6 +22,7 @@ import {
   IconSettings,
   IconSkin,
   IconStop,
+  IconTool,
   IconUsers,
 } from "./icons";
 
@@ -56,6 +57,7 @@ const nav = computed(() => {
     { name: "instances", label: "实例", icon: IconGrid, to: "/instances" },
     { name: "multiplayer", label: "多人", icon: IconUsers, to: "/multiplayer" },
     { name: "skins", label: "皮肤", icon: IconSkin, to: "/skins" },
+    { name: "toolbox", label: "工具箱", icon: IconTool, to: "/toolbox" },
     { name: "settings", label: "设置", icon: IconSettings, to: "/settings" },
   ];
   if (settingsStore.settings?.show_news ?? true) {

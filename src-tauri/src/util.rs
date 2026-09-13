@@ -42,6 +42,26 @@ pub fn file_sha256(path: &Path) -> Option<String> {
     file_hash::<Sha256>(path)
 }
 
+/// 已存在的库文件是否可当作 zip/jar 打开（结构完整）。
+///
+/// 安装期用它决定「跳过」还是「重新下载」：之前只看文件是否存在，被截断/写坏的
+/// jar 永远修不好，「重新安装游戏」也没用。注意**不能**拿 json 里的 sha1/size 去
+/// 比对已存在的文件——Forge/NeoForge 的 processor 产物就在同一路径下，内容与
+/// maven 原件不同，比对会把它们误当成损坏并覆盖掉。
+pub fn zip_readable(path: &Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    // 空 zip 的 EOCD 也有 22 字节，比这还小必然不是有效归档
+    if meta.len() < 22 {
+        return false;
+    }
+    std::fs::File::open(path)
+        .ok()
+        .and_then(|f| zip::ZipArchive::new(f).ok())
+        .is_some()
+}
+
 /// Best-effort 文件系统操作兜底：失败仅记录日志（操作 + 路径 + 原因），不中断流程。
 /// 用于替代完全吞掉错误的 `let _ = std::fs::xxx(...)`，让故障可排查。
 /// 「文件/目录不存在」不算故障（清理类操作对首次运行本来就没东西可删），静默跳过。

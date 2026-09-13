@@ -263,6 +263,14 @@ export interface WorldBackupInfo {
   modified: number;
 }
 
+/** 从存档 level.dat 里读出的世界信息 */
+export interface WorldInfo {
+  /** 种子的十进制字符串（64 位，可能超出 JS 安全整数范围）；随机种子世界为 null */
+  seed: string | null;
+  /** `Data.Version.Name`，如 "26.2"；老存档可能没有 */
+  version: string | null;
+}
+
 /** 实例导出预览：一个可勾选条目 */
 export interface ExportItem {
   key: string;

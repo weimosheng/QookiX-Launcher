@@ -329,8 +329,15 @@ async fn install_game_inner(
         if let Some(dl) = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()) {
             let dest = libraries_path(state, &lib.name, None);
             // 同上：老式安装器的 forge 本体条目的 url 往往为空（产物由本地生成），
-            // 或文件已就位（processor / 内嵌解压），都不该再去请求。
-            if dl.url.trim().is_empty() || dest.exists() {
+            // 不该去请求。
+            if dl.url.trim().is_empty() {
+                continue;
+            }
+            // 已存在**且结构完整**才跳过：被截断/写坏的 jar 重装时必须重下，
+            // 否则「重新安装游戏」永远补不上缺失的类（表现为模组启动时崩溃）。
+            // 这里只做 zip 结构校验，不比对 sha1/size —— Forge/NeoForge 的
+            // processor 产物路径相同但内容与 maven 原件不同。
+            if dest.exists() && crate::util::zip_readable(&dest) {
                 continue;
             }
             lib_items.push(DownloadItem {

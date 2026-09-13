@@ -138,7 +138,7 @@ const RULE_SPECS: &[RuleSpec] = &[
         severity: "lwjgl",
         title: "基础依赖库缺失，导致模组 {id} 启动失败",
         reason: "模组 {id} 的入口点执行时找不到类 {class}（被抑制的 NoClassDefFoundError）。",
-        advice: "根因通常不是模组本身，而是 LWJGL 等基础库没有完整安装（常见于导入的实例或 libraries 目录被手动删改）。请先尝试重新安装一次加载器；若仍失败，新建一个相同版本的游戏实例，再把 mods 和存档（saves）目录迁移过去。注意不要手动清理 libraries 目录。",
+        advice: "根因不是模组本身：游戏缺少 LWJGL 等基础库文件（libraries 不完整），{id} 只是最先撞上它的那个模组。请在实例页点击「重新安装游戏」补齐依赖；若重装后依旧缺文件，再删除启动器数据目录下的 libraries 文件夹后重新安装（会重新下载依赖）。注意：新建实例并迁移 mods、saves 也可以绕过损坏的实例目录，但不要手动清理 libraries。",
         pattern: r"Could not execute entrypoint stage '[^']*' due to errors, provided by '(?P<id>[^']+)'(?: at '[^']*')?![\s\S]{0,1200}?NoClassDefFoundError: (?P<class>[\w/$.]+)",
         confidence: 94,
     },
@@ -1430,6 +1430,74 @@ RuntimeException: Mixin transformation of com.ishland.c2me.PreLaunchHandler fail
             d.affected_mods
         );
         assert_eq!(d.affected_mods.len(), 1);
+    }
+
+    /// 用户实测崩溃（含完整被抑制链）：ImmediatelyFast 的 Mixin 插件在加载
+    /// 配置时找不到 `org/lwjgl/system/MathUtil`，Sodium 的 preLaunch 检查也
+    /// 找不到 `org/lwjgl/Version` —— 根因依然是基础库（LWJGL）缺失，绝不能
+    /// 让 92% 的「移除模组 c2me」盖过 94% 的「基础依赖库缺失」。
+    /// 真实日志里 entrypoint 行与被抑制的 NoClassDefFoundError 之间隔着
+    /// MagicLib 的整段堆栈，距离较远。
+    #[test]
+    fn detects_entrypoint_missing_base_lib_with_real_log() {
+        let log = r#"net.fabricmc.loader.impl.FormattedException: java.lang.RuntimeException: Could not execute entrypoint stage 'preLaunch' due to errors, provided by 'c2me' at 'com.ishland.c2me.PreLaunchHandler'!
+	at net.fabricmc.loader.impl.FormattedException.ofLocalized(FormattedException.java:63)
+	at net.fabricmc.loader.impl.launch.knot.Knot.init(Knot.java:158)
+	at net.fabricmc.loader.impl.launch.knot.Knot.launch(Knot.java:66)
+	at net.fabricmc.loader.impl.launch.knot.KnotClient.main(KnotClient.java:23)
+Caused by: java.lang.RuntimeException: Could not execute entrypoint stage 'preLaunch' due to errors, provided by 'c2me' at 'com.ishland.c2me.PreLaunchHandler'!
+	at net.fabricmc.loader.impl.FabricLoaderImpl.lambda$invokeEntrypoints$0(FabricLoaderImpl.java:413)
+	at net.fabricmc.loader.impl.util.ExceptionUtil.gatherExceptions(ExceptionUtil.java:33)
+	at net.fabricmc.loader.impl.FabricLoaderImpl.invokeEntrypoints(FabricLoaderImpl.java:411)
+	at net.fabricmc.loader.impl.launch.knot.Knot.init(Knot.java:156)
+	... 2 more
+	Suppressed: java.lang.IllegalStateException: Platform is not present!
+		at knot//top.hendrixshen.magiclib.impl.platform.PlatformManager.getCurrentPlatform(PlatformManager.java:38)
+		at knot//top.hendrixshen.magiclib.MagicLib.getCurrentPlatform(MagicLib.java:27)
+		at knot//top.hendrixshen.magiclib.impl.dependency.EntryPointDependency.check(EntryPointDependency.java:44)
+		at knot//top.hendrixshen.magiclib.entrypoint.core.MagicLibFabricPreLunch.onPreLaunch(MagicLibFabricPreLunch.java:16)
+		at net.fabricmc.loader.impl.FabricLoaderImpl.invokeEntrypoints(FabricLoaderImpl.java:409)
+		... 3 more
+	Suppressed: java.lang.NoClassDefFoundError: org/lwjgl/Version
+		at knot//net.caffeinemc.mods.sodium.client.compatibility.checks.PreLaunchChecks.isUsingKnownCompatibleLwjglVersion(PreLaunchChecks.java:136)
+		at knot//net.caffeinemc.mods.sodium.client.compatibility.checks.PreLaunchChecks.checkLwjglRuntimeVersion(PreLaunchChecks.java:30)
+		at knot//net.caffeinemc.mods.sodium.fabric.SodiumPreLaunch.onPreLaunch(SodiumPreLaunch.java:11)
+		... 3 more
+	Caused by: java.lang.ClassNotFoundException: org.lwjgl.Version
+		at java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:580)
+		... 8 more
+Caused by: net.fabricmc.loader.api.EntrypointException: Exception while loading entries for entrypoint 'preLaunch' provided by 'c2me'
+Caused by: java.lang.RuntimeException: Mixin transformation of com.ishland.c2me.PreLaunchHandler failed
+	at net.fabricmc.loader.impl.launch.knot.KnotClassDelegate.getPostMixinClassByteArray(KnotClassDelegate.java:440)
+	... 4 more
+Caused by: java.lang.NoClassDefFoundError: org/lwjgl/system/MathUtil
+	at knot//net.raphimc.immediatelyfast.ImmediatelyFast.loadConfig(ImmediatelyFast.java:118)
+	at knot//net.raphimc.immediatelyfast.ImmediatelyFast.earlyInit(ImmediatelyFast.java:50)
+	at knot//net.raphimc.immediatelyfast.injection.ImmediatelyFastMixinPlugin.onLoad(ImmediatelyFastMixinPlugin.java:36)
+	at org.spongepowered.asm.mixin.transformer.PluginHandle.onLoad(PluginHandle.java:119)
+	... 13 more
+	Caused by: java.lang.ClassNotFoundException: org.lwjgl.system.MathUtil
+		at java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:580)
+		... 27 more"#;
+        let d = analyze_text(log, None);
+        assert_eq!(
+            d.severity, "lwjgl",
+            "不应判成模组问题，实际主因：{} / {}",
+            d.title, d.reason
+        );
+        assert!(
+            d.title.contains("基础依赖库缺失"),
+            "主因应是基础库缺失，实际：{}",
+            d.title
+        );
+        assert!(
+            d.causes
+                .iter()
+                .any(|c| c.id == "entrypoint_base_lib_missing"),
+            "应命中 entrypoint_base_lib_missing：{:?}",
+            d.causes.iter().map(|c| c.id.clone()).collect::<Vec<_>>()
+        );
+        assert!(d.affected_mods.iter().any(|m| m == "c2me"));
     }
 
     #[test]

@@ -9,6 +9,7 @@ pub mod pins;
 pub mod settings;
 pub mod skins;
 pub mod storage;
+pub mod toolbox;
 pub mod version;
 pub mod world_backup;
 
@@ -23,5 +24,6 @@ pub use pins::*;
 pub use settings::*;
 pub use skins::*;
 pub use storage::*;
+pub use toolbox::*;
 pub use version::*;
 pub use world_backup::*;

@@ -58,6 +58,14 @@
 - 陶瓦联机的完整许可证文本见 [Terracotta 仓库 LICENSE](https://github.com/burningtnt/Terracotta/blob/master/LICENSE)，第三方组件清单见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 - 本启动器与 Terracotta 是两个相互独立、各自以自身许可证发布的开源项目，二者之间无任何隶属或背书关系
 
+### 第三方开源软件（cubiomes）
+
+- 本启动器「工具箱 → 种子地图」的生物群系 / 结构 / 出生点计算由 [cubiomes](https://github.com/Cubitect/cubiomes)（Copyright © 2020 Cubitect，**MIT License**）提供
+- cubiomes 以**未修改的源码快照**形式随本仓库分发（`src-tauri/vendor/cubiomes/`，含其 LICENSE 与 README），由构建脚本编译并静态链接进本启动器
+- MIT 许可证与本项目的 GNU GPL v3 兼容，其版权与许可声明已在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 中完整保留
+- 本启动器不包含、不分发任何 Minecraft 的专有代码或受保护资产；群系与地形结果由上述开源算法在本地推算得出
+- cubiomes 与本启动器是两个相互独立、各自以自身许可证发布的开源项目，二者之间无任何隶属或背书关系
+
 ### 免责条款
 
 - 本项目按“原样”提供，不附带任何明示或默示担保
@@ -68,6 +76,8 @@
 
 - 界面图标改编自 [Feather Icons](https://feathericons.com/)（MIT License，Copyright (c) 2013-2017 Cole Bemis）
 - 本项目使用的 Feather Icons 遵循其 MIT 许可证要求，已保留其版权声明
+- 部分界面图标改编自 [Lucide](https://lucide.dev/)（ISC License）与 [GitHub Octicons](https://github.com/primer/octicons)（MIT License，Copyright © GitHub, Inc.）
+- 种子地图的计算内核为 [cubiomes](https://github.com/Cubitect/cubiomes)（MIT License，Copyright © 2020 Cubitect）
 - [Terracotta（陶瓦联机）](https://github.com/burningtnt/Terracotta)（AGPL-3.0-or-later，Copyright © burningtnt）——「联机房间」功能依赖的第三方程序
 - Windows 徽标等品牌图标版权归其各自所有者，仅在本项目中用于兼容性展示
 
