@@ -363,6 +363,31 @@ pub async fn yggdrasil_ensure_token(
     ensure_token(state.inner(), &account_uuid).await
 }
 
+/// 从 GitHub Releases 拿最新版 authlib-injector jar 的下载地址（兜底源）。
+async fn github_latest_jar(probe: &reqwest::Client) -> Result<String, String> {
+    let rel: Value = probe
+        .get("https://api.github.com/repos/yushijinhun/authlib-injector/releases/latest")
+        .header("User-Agent", "QookiX-Launcher")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| format!("GitHub 请求失败: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("GitHub 响应异常: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("GitHub 响应解析失败: {e}"))?;
+    for asset in rel.get("assets").and_then(|v| v.as_array()).into_iter().flatten() {
+        let name = asset.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        if name.starts_with("authlib-injector") && name.ends_with(".jar") {
+            if let Some(url) = asset.get("browser_download_url").and_then(|v| v.as_str()) {
+                return Ok(url.to_string());
+            }
+        }
+    }
+    Err("GitHub release 中未找到 jar 资源".into())
+}
+
 /// 确保本地存在 authlib-injector.jar，返回其路径。
 ///
 /// jar 不在皮肤站 meta 里，从官方 artifact 接口（latest.json）获取：
@@ -379,12 +404,24 @@ pub async fn ensure_authlib_injector(
     let dest_dir = state.root.join("authlib-injector");
     let dest = dest_dir.join("authlib-injector.jar");
 
+    // 本地已有 jar：零网络等待直接复用（更新检查只在 jar 缺失时才联网做）
+    if dest.exists() && std::fs::metadata(&dest).map(|m| m.len() > 0).unwrap_or(false) {
+        return Ok(dest);
+    }
+
+    // 版本信息探测用短超时 client：坏源 5 秒快速失败轮转，
+    // 避免点启动后被全局 15s connect timeout 串行拖住近一分钟才报错
+    let probe = reqwest::Client::builder()
+        .user_agent(concat!("QookiX-Launcher/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(12))
+        .build()
+        .map_err(|e| e.to_string())?;
+
     let mut latest: Option<Value> = None;
     let mut last_err = String::new();
     for base in [OFFICIAL, MIRROR] {
-        match crate::download::get_json(&state.client, &format!("{base}/artifact/latest.json"))
-            .await
-        {
+        match crate::download::get_json(&probe, &format!("{base}/artifact/latest.json")).await {
             Ok(v) => {
                 latest = Some(v);
                 break;
@@ -398,25 +435,20 @@ pub async fn ensure_authlib_injector(
         .and_then(|v| v.as_str())
         .map(|s| s.to_ascii_lowercase());
 
-    if dest.exists() {
-        // 没有校验值（latest 全挂）时信任本地文件
-        let usable = match &expected {
-            Some(want) => crate::util::file_sha256(&dest)
-                .map(|h| h.eq_ignore_ascii_case(want))
-                .unwrap_or(false),
-            None => true,
-        };
-        if usable {
-            return Ok(dest);
-        }
-    }
-
-    let latest = latest.ok_or_else(|| format!("获取 authlib-injector 版本信息失败: {last_err}"))?;
-    let url = latest
-        .get("url")
-        .and_then(|v| v.as_str())
-        .ok_or("authlib-injector latest.json 缺少下载地址")?
-        .to_string();
+    // latest.json 两个源都挂：改从 GitHub Releases 兜底（无 sha256，仅可用性优先）
+    let url = match &latest {
+        Some(l) => l
+            .get("url")
+            .and_then(|v| v.as_str())
+            .ok_or("authlib-injector latest.json 缺少下载地址")?
+            .to_string(),
+        None => match github_latest_jar(&probe).await {
+            Ok(u) => u,
+            Err(gh_err) => {
+                return Err(format!("获取 authlib-injector 版本信息失败: {last_err} / {gh_err}"));
+            }
+        },
+    };
 
     async fn fetch(state: &AppState, url: &str) -> Result<Vec<u8>, String> {
         state
@@ -437,6 +469,9 @@ pub async fn ensure_authlib_injector(
         Err(e) => {
             // 官方源不通时，把路径原样映射到 LittleSkin 镜像重试一次
             let mirror = url.replacen(OFFICIAL, MIRROR, 1);
+            if mirror == url {
+                return Err(format!("下载 authlib-injector 失败: {e}"));
+            }
             fetch(state, &mirror)
                 .await
                 .map_err(|e2| format!("下载 authlib-injector 失败: {e} / {e2}"))?
