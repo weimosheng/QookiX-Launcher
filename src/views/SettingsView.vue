@@ -1114,7 +1114,7 @@ onUnmounted(() => {
             <p v-else-if="settings.settings.translate_provider === 'baidu_web'" class="hint">
               点选内容卡片时会用系统浏览器打开百度翻译网页（自动带上该内容的英文描述），翻译结果由你在网页上自行查看。此方式不在本地产生翻译记录，也不消耗任何服务配额。
             </p>
-            <p v-else class="hint">使用内置翻译服务（仅支持 Modrinth 内容）。配额有限，如果你有自己的 AI API（OpenAI 兼容），可在上方切换为自定义服务。</p>
+            <p v-else class="hint">使用内置翻译服务（支持 Modrinth 与 CurseForge 内容）。配额有限，如果你有自己的 AI API（OpenAI 兼容），可在上方切换为自定义服务。</p>
             <div class="proxy-row" style="margin-top: 12px">
               <button
                 class="mirror-btn proxy-test-btn"
@@ -1247,7 +1247,7 @@ onUnmounted(() => {
           <AboutShowcase />
           <div class="about-hero-title">
             <span class="about-name about-hero-name">QookiX Launcher</span>
-            <span class="about-ver">v0.6.7</span>
+            <span class="about-ver">v0.6.8</span>
           </div>
           <p class="about-hero-slogan">现代化、简洁、无广告的 Minecraft 启动器</p>
         </div>

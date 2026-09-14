@@ -186,6 +186,7 @@ pub fn run() {
             commands::check_dependencies,
   commands::check_updates,
   commands::resolve_missing_mods,
+  commands::resolve_dependency_tree,
   commands::translate_mod_descriptions,
   commands::translate_project_body,
   commands::report_translation_stale,

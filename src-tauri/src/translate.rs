@@ -68,10 +68,7 @@ pub async fn translate_descriptions(
         )
     };
     let use_custom = custom_ready && !api_base.is_empty() && !api_key.is_empty() && !api_model.is_empty();
-    // 内置服务只支持 Modrinth；自定义服务用用户自己的 AI，Modrinth / CurseForge 都能翻
-    if provider != "modrinth" && !use_custom {
-        return Ok(json!({ "translations": {}, "failed": slugs, "rateLimited": false }));
-    }
+    // 内置服务已支持 CurseForge 资源，两套服务覆盖相同的平台范围
     // 两套服务的翻译结果质量不同，缓存分开存放，来回切换互不覆盖
     let service_tag = if use_custom { "custom" } else { provider };
     let mut cache = load_cache(&state.root);
@@ -196,10 +193,8 @@ pub async fn translate_descriptions(
 
 /// 翻译资源正文（body）：详情弹窗右侧展示，译文优先、原文兜底。
 ///
-/// - 内置服务：仅 Modrinth（`/translate/mod` + `include_body: true`）
-/// - 自定义 AI：两平台都支持（CurseForge 正文为 HTML，原样交给 AI 翻译）
-/// - 返回 `{ body: 译文|null, bodyCached, original, supported, error? }`，
-///   `supported=false` 表示当前服务/平台组合不支持正文翻译，前端只显示原文。
+/// - 内置服务与自定义 AI 均支持两平台（CurseForge 正文为 HTML）
+/// - 返回 `{ body: 译文|null, bodyCached, original, supported, error? }`
 pub async fn translate_body(
     state: &AppState,
     provider: &str,
@@ -231,8 +226,9 @@ pub async fn translate_body(
     };
     let use_custom = custom_ready && !api_base.is_empty() && !api_key.is_empty() && !api_model.is_empty();
     let service_tag = if use_custom { "custom" } else { provider };
-    // 正文缓存独立于描述缓存：key 多一段 :body 与服务标签
-    let key = format!("{provider}:{slug}:{LANG}:body:{service_tag}");
+    // 正文缓存加格式版本：服务端 2026-09-14 起 CF 正文改为 Markdown，图片内联在原文位置。
+    // 旧缓存里的译文没有图片，会一直被 withImages 兜底堆到文末，必须让它失效重取。
+    let key = format!("{provider}:{slug}:{LANG}:body:v2:{service_tag}");
     let mut cache = load_cache(&state.root);
     let now = now_secs();
     // 缓存优先：手动翻译过的正文再次打开详情时直接展示译文（translate=false 也命中）。
@@ -255,7 +251,6 @@ pub async fn translate_body(
     const MAX_BODY_CHARS: usize = 12000;
     let clipped: String = original.chars().take(MAX_BODY_CHARS).collect();
 
-    let unsupported = json!({ "body": null, "bodyCached": false, "original": original, "supported": false });
     // 自定义 AI：两平台通用
     if use_custom {
         return match chat_translate(state, &api_base, &api_key, &api_model, &clipped).await {
@@ -267,23 +262,26 @@ pub async fn translate_body(
             Err(e) => Ok(json!({ "body": null, "bodyCached": false, "original": original, "supported": true, "error": e })),
         };
     }
-    // 内置服务：仅 Modrinth
-    if provider != "modrinth" {
-        return Ok(unsupported);
-    }
+    // 内置服务已支持 CurseForge 资源，platform 原样传给服务端
+    // 正文翻译同步耗时 10~60s+，用独立长超时 client（全局 client 是 60s 会掐断）
+    let slow = reqwest::Client::builder()
+        .user_agent(concat!("QookiX-Launcher/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(150))
+        .build()
+        .map_err(|e| e.to_string())?;
     let req = json!({ "platform": provider, "lang": LANG, "mod_id": slug, "include_body": true });
-    let resp = state
-        .client
+    let resp = slow
         .post(format!("{BASE}/translate/mod"))
         .json(&req)
         .send()
         .await
         .map_err(|e| format!("请求翻译服务失败: {e}"))?;
     let status = resp.status().as_u16();
-    let parsed: Value = match resp.json().await {
-        Ok(v) => v,
-        Err(_) => return Err(format!("翻译服务响应异常（HTTP {status}）")),
-    };
+    // 400 等错误回包可能是纯文本，先按文本读再尝试 JSON 解析
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    let parsed: Value = serde_json::from_str(&text)
+        .unwrap_or_else(|_| json!({ "error": text.trim().chars().take(200).collect::<String>() }));
     if status != 200 {
         let msg = parsed.get("error").and_then(|v| v.as_str()).unwrap_or("翻译失败");
         return Err(format!("翻译服务返回 HTTP {status}: {msg}"));

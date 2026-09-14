@@ -75,6 +75,9 @@ const loadingDeps = ref(false);
 
 const isModpack = computed(() => props.project?.project_type === "modpack");
 
+/** 精简模式：内容中心已选实例时的快速安装——不加载正文，只留版本/前置/安装 */
+const compactMode = computed(() => !!props.defaultInstance);
+
 const mcWikiUrl = ref("");
 const sourceUrl = computed(() => {
   const p = props.project;
@@ -124,12 +127,44 @@ const filteredVersions = computed(() => {
   return versions.value.filter((v) => versionType(v) === typeFilter.value);
 });
 
+// —— 缺失前置检测（与本体一起由底部「一键安装」统一安装）——
+const missingDeps = ref<{ projectId: string; title: string; provider: string; versionId: string }[]>([]);
+
+async function loadMissing() {
+  missingDeps.value = [];
+  const inst = selectedInstance.value;
+  const ver = selectedVersion.value;
+  if (!inst || !ver || isModpack.value || !deps.value.length) return;
+  if (!props.project) return;
+  try {
+    // 递归解析整棵前置树（含传递前置），返回未安装清单
+    const tree = await api.resolveDependencyTree(
+      inst,
+      props.project.provider,
+      props.project.id,
+      ver
+    );
+    missingDeps.value = tree.missing
+      .filter((m) => m.versionId) // 无兼容版本的装不了，不列入一键安装
+      .map((m) => ({
+        projectId: m.projectId,
+        title: m.title,
+        provider: m.provider,
+        versionId: m.versionId,
+      }));
+  } catch {
+    /* 检测失败不影响正常安装流程 */
+  }
+}
+
 async function loadDeps() {
   deps.value = [];
+  missingDeps.value = [];
   if (!props.project || !selectedVersion.value) return;
   loadingDeps.value = true;
   try {
     deps.value = await api.projectDependencies(props.project.provider, props.project.id, selectedVersion.value);
+    await loadMissing();
   } catch {
     deps.value = [];
   } finally {
@@ -290,7 +325,8 @@ async function onOpen() {
     `[fe] 对话框打开 project=${props.project?.provider}/${props.project?.id} type=${props.project?.project_type}`
   );
   resetForProject();
-  loadBody(false);
+  // 精简模式（已选实例的快速安装）不加载正文，保持弹窗轻量
+  if (!compactMode.value) loadBody(false);
 }
 
 // —— 正文面板（右侧栏）：译文/原文按钮切换，手动翻译的结果走缓存 ——
@@ -305,9 +341,11 @@ type BodyState = {
 const bodyState = ref<BodyState | null>(null);
 let bodySeq = 0;
 
-/** 内置服务仅支持 Modrinth 正文翻译；自定义 API / 百度网页模式不支持 */
+/** 内置服务与自定义 AI 均已支持两平台；百度网页模式不支持 */
 const canTranslateBody = computed(
-  () => props.project?.provider === "modrinth" && settingsStore.settings?.translate_provider === "default"
+  () =>
+    settingsStore.settings?.translate_provider === "default" ||
+    settingsStore.settings?.translate_provider === "custom"
 );
 
 /** 当前应渲染的内容：showZh 且有译文 → 译文，否则原文 */
@@ -321,10 +359,53 @@ const bodyIsZh = computed(() => {
   return !!st && st.showZh && !!st.bodyHtml;
 });
 
-/** Modrinth 正文是 Markdown；CurseForge 是 HTML。统一渲染后消毒，防 XSS。 */
-function renderContent(text: string, provider: string): string {
-  const html = provider === "curseforge" ? text : (marked.parse(text, { async: false }) as string);
-  return DOMPurify.sanitize(html);
+/** 原文渲染：Modrinth 是 Markdown 转 HTML；CurseForge 本身是 HTML 原样保留 */
+function renderOriginal(text: string, provider: string): string {
+  const html =
+    provider === "curseforge" ? text : (marked.parse(text, { async: false }) as string);
+  return sanitizeBody(html);
+}
+
+/** 译文渲染：LLM 输出可能是 Markdown 或 HTML 混合，统一走 Markdown 解析
+ * （marked 对内嵌 HTML 宽容），再消毒。避免 CF 译文按 HTML 渲染时
+ * Markdown 符号（**、#）原样显示导致格式错乱。 */
+function renderTranslated(text: string): string {
+  return sanitizeBody(marked.parse(text, { async: false }) as string);
+}
+
+/** 消毒 + 图片链接修复：http 升级 https（混合内容会被拦截）、相对路径补全 */
+function sanitizeBody(html: string): string {
+  const clean = DOMPurify.sanitize(html);
+  const doc = new DOMParser().parseFromString(clean, "text/html");
+  const base =
+    props.project?.provider === "curseforge"
+      ? "https://www.curseforge.com"
+      : "https://modrinth.com";
+  doc.querySelectorAll("img[src]").forEach((img) => {
+    const src = img.getAttribute("src") ?? "";
+    if (src.startsWith("//")) {
+      img.setAttribute("src", `https:${src}`);
+    } else if (src.startsWith("/") && !src.startsWith("//")) {
+      img.setAttribute("src", `${base}${src}`);
+    } else if (src.startsWith("http://")) {
+      img.setAttribute("src", src.replace(/^http:\/\//, "https://"));
+    }
+  });
+  return doc.body.innerHTML;
+}
+
+/** 正文翻译的项目标识：CF 推荐数字 id（与服务端预热缓存同 key），Modrinth 用 slug */
+function bodyModId(p: ProjectHit): string {
+  return p.provider === "curseforge" ? p.id : p.slug || p.id;
+}
+
+function withImages(zhHtml: string, originalHtml: string): string {
+  if (/<img/i.test(zhHtml)) return zhHtml;
+  const doc = new DOMParser().parseFromString(originalHtml, "text/html");
+  const imgs = Array.from(doc.querySelectorAll("img"))
+    .map((i) => i.outerHTML)
+    .join("");
+  return imgs ? `${zhHtml}<div class="id-body-sep">正文图片</div>${imgs}` : zhHtml;
 }
 
 /** 拉取正文。translate=false 仅原文；缓存命中的译文会随响应直接返回 */
@@ -343,17 +424,18 @@ async function loadBody(translate: boolean) {
     translating: wantTranslate,
   };
   try {
-    const r = await api.translateBody(p.provider, p.slug || p.id, wantTranslate);
+    const r = await api.translateBody(p.provider, bodyModId(p), wantTranslate);
     if (seq !== bodySeq) return; // 已切换到别的项目，丢弃过期结果
     const state: BodyState = {
       status: "ok",
-      bodyHtml: r.body ? renderContent(r.body, p.provider) : "",
-      originalHtml: r.original ? renderContent(r.original, p.provider) : "",
+      bodyHtml: "",
+      originalHtml: r.original ? renderOriginal(r.original, p.provider) : "",
       // 缓存命中的译文直接展示；未翻译则显示原文
       showZh: !!r.body,
       note: "",
       translating: false,
     };
+    if (r.body) state.bodyHtml = withImages(renderTranslated(r.body), state.originalHtml);
     if (r.error) state.note = `正文翻译失败：${r.error}`;
     else if (!r.supported) state.note = "该平台暂无正文内容";
     bodyState.value = state;
@@ -381,6 +463,17 @@ function onBodyClick(e: MouseEvent) {
   }
 }
 
+/** 图片加载失败：替换成带原始 src 的占位，方便定位是 URL 坏了还是被拦截 */
+function onBodyImgError(e: Event) {
+  const img = e.target as HTMLElement;
+  if (img.tagName !== "IMG") return;
+  const src = img.getAttribute("data-failed-src") ?? img.getAttribute("src") ?? "";
+  const holder = document.createElement("div");
+  holder.className = "id-img-broken";
+  holder.textContent = `⚠ 图片加载失败: ${src.slice(0, 120)}`;
+  img.replaceWith(holder);
+}
+
 /** 标题右侧按钮：未翻译时发起翻译；已有译文时在中/英之间切换 */
 function onBodyBtn() {
   const st = bodyState.value;
@@ -397,11 +490,11 @@ function onBodyBtn() {
   const p = props.project;
   if (!p) return;
   api
-    .translateBody(p.provider, p.slug || p.id, true)
+    .translateBody(p.provider, bodyModId(p), true)
     .then((r) => {
       if (p !== props.project || !bodyState.value) return;
       if (r.body) {
-        st.bodyHtml = renderContent(r.body, p.provider);
+        st.bodyHtml = withImages(renderTranslated(r.body), st.originalHtml);
         st.showZh = true;
         st.note = "";
       } else {
@@ -445,24 +538,49 @@ async function install() {
     `[fe] 发起 invoke instanceId=${String(selectedInstance.value)} version=${String(selectedVersion.value)} kind=${props.project.project_type}`
   );
   installing.value = true;
-  message.success(isModpack.value ? "已开始安装，进度见下载中心" : "已添加到下载队列");
+  // 缺失前置与本体一起入队（前置在前，游戏加载时前置需先就位）
+  const missing = missingDeps.value;
+  const total = missing.length + 1;
+  message.success(
+    isModpack.value
+      ? "已开始安装，进度见下载中心"
+      : missing.length
+        ? `正在安装本体与 ${missing.length} 个缺失前置，共 ${total} 项，进度见下载中心`
+        : "已添加到下载队列"
+  );
   // 整合包安装是长任务（下载整包 + 逐个拉取 mod 元数据 + 装游戏本体），
   // 不阻塞对话框——立即关闭，进度与成败都通过 install://progress 事件进下载中心。
-  api
-    .installContent(
-      selectedInstance.value ?? "",
-      props.project.provider,
-      props.project.id,
-      selectedVersion.value,
-      props.project.project_type
-    )
-    .then((r) => {
-      api.logDebug(`[fe] 返回成功 ${JSON.stringify(r)}`);
-      if (!isModpack.value) message.success("安装完成");
-    })
-    .catch((e) => {
-      api.logDebug(`[fe] 返回失败 ${String(e)}`);
-      message.error(String(e));
+  const queue = missing.map((m) =>
+    api
+      .installContent(selectedInstance.value ?? "", m.provider, m.projectId, m.versionId, "mod")
+      .then((r) => api.logDebug(`[fe] 前置 ${m.title} 返回成功 ${JSON.stringify(r)}`))
+      .catch((e) => {
+        api.logDebug(`[fe] 前置 ${m.title} 返回失败 ${String(e)}`);
+        message.error(`前置 ${m.title} 安装失败：${String(e)}`);
+      })
+  );
+  queue.push(
+    api
+      .installContent(
+        selectedInstance.value ?? "",
+        props.project.provider,
+        props.project.id,
+        selectedVersion.value,
+        props.project.project_type
+      )
+      .then((r) => {
+        api.logDebug(`[fe] 返回成功 ${JSON.stringify(r)}`);
+        if (!isModpack.value) message.success("安装完成");
+      })
+      .catch((e) => {
+        api.logDebug(`[fe] 返回失败 ${String(e)}`);
+        message.error(String(e));
+      })
+  );
+  Promise.all(queue)
+    .then(() => {
+      // 全部入队成功后清掉缺失提示；单项失败的话提示已单独弹出
+      missingDeps.value = [];
     })
     .finally(() => {
       installing.value = false;
@@ -477,7 +595,7 @@ async function install() {
     :show="props.show"
     preset="card"
     :title="props.project?.title ?? '安装内容'"
-    style="width: 980px; max-width: 96vw"
+    :style="compactMode ? 'width: 640px; max-width: 94vw' : 'width: 980px; max-width: 96vw'"
     :mask-closable="true"
     :close-on-esc="true"
     @update:show="(v: boolean) => emit('update:show', v)"
@@ -531,15 +649,15 @@ async function install() {
                     v-model="userSuggestion"
                     class="id-fb-input"
                     rows="2"
-                    maxlength="500"
-                    placeholder="建议翻译（可选，500 字以内）"
+                    maxlength="160"
+                    placeholder="建议翻译（可选，160 字以内）"
                   ></textarea>
                   <textarea
                     v-model="userComment"
                     class="id-fb-input"
                     rows="2"
-                    maxlength="500"
-                    placeholder="补充说明（可选，500 字以内）"
+                    maxlength="160"
+                    placeholder="补充说明（可选，160 字以内）"
                   ></textarea>
                   <div class="id-fb-actions">
                     <button class="id-fb-back" @click="feedbackMode = 'choose'">返回</button>
@@ -602,6 +720,11 @@ async function install() {
         <!-- dependencies -->
         <div v-if="(deps.length || loadingDeps) && !isModpack" class="id-deps">
           <span class="id-deps-label">前置依赖</span>
+          <div v-if="missingDeps.length && !loadingDeps" class="id-missing-row">
+            <span class="id-missing-text">
+              {{ missingDeps.length }} 个必需前置未安装，点击右下角「一键安装」会一并安装
+            </span>
+          </div>
           <div v-if="!loadingDeps" class="id-deps-list">
             <button
               v-for="d in deps"
@@ -620,8 +743,8 @@ async function install() {
       </div>
       </div>
 
-      <!-- 右栏：正文（译文优先，原文在后）。标题在滚动区外，永不与内容重叠 -->
-      <aside class="id-right" @click="onBodyClick">
+      <!-- 右栏：正文（译文优先，原文在后）。标题在滚动区外，永不与内容重叠。精简模式隐藏 -->
+      <aside v-if="!compactMode" class="id-right" @click="onBodyClick" @error.capture="onBodyImgError">
         <div class="id-body-head">
           详情正文
           <button
@@ -820,6 +943,15 @@ async function install() {
   margin: 6px 0;
   padding: 2px 12px;
   color: var(--text-2);
+}
+.id-img-broken {
+  font-size: 11px;
+  color: var(--text-3);
+  background: var(--bg-3, rgba(128, 128, 128, 0.15));
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin: 4px 0;
+  word-break: break-all;
 }
 .id-body-content table {
   border-collapse: collapse;
@@ -1063,6 +1195,20 @@ async function install() {
   color: var(--text-3);
   font-size: 13px;
   padding: 16px 0;
+}
+.id-missing-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--panel, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.id-missing-text {
+  font-size: 12px;
+  color: var(--text-2);
 }
 .id-deps {
   display: flex;

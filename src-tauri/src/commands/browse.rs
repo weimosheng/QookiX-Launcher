@@ -340,6 +340,25 @@ pub async fn translate_mod_descriptions(
     crate::translate::translate_descriptions(&state, &provider, slugs).await
 }
 
+/// 递归解析前置依赖树，返回实例中未安装的缺失前置（含间接前置）。
+#[tauri::command]
+pub async fn resolve_dependency_tree(
+    state: State<'_, AppState>,
+    instance_id: String,
+    provider: String,
+    project_id: String,
+    version_id: String,
+) -> Result<Value, String> {
+    crate::deps::resolve_dependency_tree(
+        state.inner(),
+        &instance_id,
+        &provider,
+        &project_id,
+        &version_id,
+    )
+    .await
+}
+
 /// 翻译资源正文（详情弹窗右侧：译文优先、原文兜底）。
 /// `translate=false` 时仅拉取原文，不调用翻译服务。
 #[tauri::command]

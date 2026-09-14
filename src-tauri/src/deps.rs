@@ -149,6 +149,121 @@ pub fn check(state: &AppState, instance_id: &str) -> Result<Value, String> {
     }))
 }
 
+/// 递归解析所选版本的必需前置树（BFS，含传递前置），
+/// 返回实例中尚未安装的缺失清单（每项带推荐安装的版本 id）。
+///
+/// - 已安装判定：实例 mods 目录中 jar 声明的 mod id / 项目 slug / 标题归一化匹配
+/// - 环：按「平台:项目」去重，展开层数上限 64
+/// - 推荐版本：兼容实例 MC 版本与加载器的第一个正式版
+pub async fn resolve_dependency_tree(
+    state: &AppState,
+    instance_id: &str,
+    provider: &str,
+    project_id: &str,
+    version_id: &str,
+) -> Result<Value, String> {
+    let instance = crate::instances::get_instance(state, instance_id)?;
+    let mc = instance.mc_version.clone();
+    let loader = if instance.loader == crate::models::LoaderType::Vanilla {
+        String::new()
+    } else {
+        instance.loader.as_str().to_string()
+    };
+
+    let norm = |s: &str| s.to_lowercase().replace(['-', '_', ' '], "");
+    let dir = state.instances_dir().join(&instance.id).join("mods");
+    let mut provided: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (_, path, enabled) in collect_jars(&dir) {
+        if !enabled {
+            continue;
+        }
+        if let Some(meta) = util::parse_mod_jar(&path) {
+            if let Some(id) = &meta.mod_id {
+                provided.insert(norm(id));
+            }
+        }
+    }
+    let is_installed = |slug: &str, title: &str| -> bool {
+        provided.contains(&norm(slug)) || provided.contains(&norm(title))
+    };
+
+    let mut missing: Vec<Value> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut queue: std::collections::VecDeque<(String, String, String)> =
+        std::collections::VecDeque::new();
+    queue.push_back((provider.to_string(), project_id.to_string(), version_id.to_string()));
+    seen.insert(format!("{provider}:{project_id}"));
+
+    let mut scanned = 0usize;
+    while let Some((prov, pid, vid)) = queue.pop_front() {
+        if scanned >= 64 {
+            break;
+        }
+        scanned += 1;
+        // 该版本的 required 依赖（两平台均返回 enriched：projectId/title/slug/dependencyType）
+        let deps: Vec<Value> = if prov == "curseforge" {
+            crate::curseforge::dependencies(state, &pid, &vid).await?
+        } else {
+            crate::modrinth::dependencies(state, &vid).await?
+        };
+        for d in &deps {
+            if d.get("dependencyType").and_then(|v| v.as_str()) != Some("required") {
+                continue;
+            }
+            let dep_pid = d
+                .get("projectId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if dep_pid.is_empty() {
+                continue;
+            }
+            let dep_prov = if prov == "curseforge" {
+                "curseforge"
+            } else {
+                "modrinth"
+            };
+            let dkey = format!("{dep_prov}:{dep_pid}");
+            if !seen.insert(dkey) {
+                continue; // 环 / 重复
+            }
+            let slug = d.get("slug").and_then(|v| v.as_str()).unwrap_or("");
+            let title = d.get("title").and_then(|v| v.as_str()).unwrap_or("");
+            if is_installed(slug, title) {
+                continue;
+            }
+            // 推荐版本：兼容实例 MC/加载器的第一个正式版
+            let versions = if dep_prov == "curseforge" {
+                crate::curseforge::files(state, &dep_pid, &mc).await?
+            } else {
+                crate::modrinth::versions(state, &dep_pid, &mc, &loader).await?
+            };
+            let pick = versions
+                .iter()
+                .find(|v| {
+                    v.get("release_type").and_then(|x| x.as_u64()) == Some(1)
+                        || v.get("version_type").and_then(|x| x.as_str()) == Some("release")
+                })
+                .or_else(|| versions.first());
+            let Some(ver) = pick else {
+                // 无兼容版本：列入缺失但不入队（无法继续向下解析）
+                missing.push(json!({
+                    "projectId": dep_pid, "provider": dep_prov, "slug": slug,
+                    "title": title, "versionId": "",
+                }));
+                continue;
+            };
+            let ver_id = ver.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            missing.push(json!({
+                "projectId": dep_pid, "provider": dep_prov, "slug": slug,
+                "title": title, "versionId": ver_id,
+            }));
+            queue.push_back((dep_prov.to_string(), dep_pid, ver_id));
+        }
+    }
+    Ok(json!({ "missing": missing, "scanned": scanned }))
+}
+
 /// 把缺失的 mod id 在 Modrinth 上解析成可安装的项目。
 ///
 /// 优先取 slug / title 与 mod id 精确一致（忽略大小写与 `-`/`_` 差异）的条目，

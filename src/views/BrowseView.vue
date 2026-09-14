@@ -359,11 +359,6 @@ async function translateCard(p: ProjectHit) {
     }
     return;
   }
-  const custom = service === "custom";
-  if (p.provider !== "modrinth" && !custom) {
-    message.info("CurseForge 暂不支持内置翻译，可切换自定义翻译 API");
-    return;
-  }
   // 已翻译过的卡片再点一次：切回英文原文（再点可切回中文）
   if (translatedDescs.value[p.id] !== undefined) {
     const next = { ...translatedDescs.value };

@@ -523,6 +523,13 @@ export const api = {
       supported: boolean;
       error?: string;
     }>("translate_project_body", { provider, slug, translate }, { net: true }),
+  /** 递归解析前置依赖树，返回未安装的缺失前置（含间接前置，每项带推荐版本） */
+  resolveDependencyTree: (instanceId: string, provider: string, projectId: string, versionId: string) =>
+    invoke<{ missing: { projectId: string; provider: string; slug: string; title: string; versionId: string }[]; scanned: number }>(
+      "resolve_dependency_tree",
+      { instanceId, provider, projectId, versionId },
+      { net: true }
+    ),
   // crash analysis
   crashAnalysis: (instanceId: string) =>
     invoke<{ filename: string; modified: number; size: number; kind: string }[]>("list_crash_logs", { id: instanceId }),
