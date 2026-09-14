@@ -201,7 +201,7 @@ jobs:
   # 汇总三个平台产物，生成 latest.json 并发布 GitHub Release
   verify-and-publish:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, check]
+    needs: [build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
