@@ -61,12 +61,16 @@ pub fn recommended_memory(available_mb: u64, mod_count: usize) -> (u32, u32) {
 }
 
 pub fn load_settings(root: &std::path::Path) -> Settings {
-    let path = root.join("settings.json");
-    let exists = path.exists();
-    let mut settings = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str::<Settings>(&s).ok())
-        .unwrap_or_default();
+    // 数据库不存在说明是首次启动（或从旧版 JSON 迁移前的首次运行）
+    let fresh = !crate::db::db_path(root).exists();
+    let mut settings = match crate::db::open(root) {
+        Ok(conn) => {
+            let raw = crate::db::get_setting(&conn, "app");
+            raw.and_then(|s| serde_json::from_str::<Settings>(&s).ok())
+                .unwrap_or_default()
+        }
+        Err(_) => Default::default(),
+    };
     // 兼容迁移：旧版本只有 proxy 没有 proxy_mode。
     // 若缺少 proxy_mode 但配置了自定义 proxy，则视为自定义模式。
     if settings.proxy_mode.is_empty() {
@@ -87,7 +91,7 @@ pub fn load_settings(root: &std::path::Path) -> Settings {
         settings.data_dir = root.to_string_lossy().to_string();
     }
     // First launch: auto-detect memory
-    if !exists {
+    if fresh {
         if let Some(total) = total_memory_mb() {
             let avail = crate::settings::available_memory_mb().unwrap_or(total);
             let (max, min) = recommended_memory(avail, 0);
@@ -99,9 +103,9 @@ pub fn load_settings(root: &std::path::Path) -> Settings {
 }
 
 pub fn save_settings(root: &std::path::Path, settings: &Settings) -> Result<(), String> {
-    let path = root.join("settings.json");
-    let json = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    std::fs::write(path, json).map_err(|e| e.to_string())
+    let conn = crate::db::open(root)?;
+    let json = serde_json::to_string(settings).map_err(|e| e.to_string())?;
+    crate::db::set_setting(&conn, "app", &json)
 }
 
 /// Persist current settings from state.

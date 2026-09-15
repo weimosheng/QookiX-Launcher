@@ -179,7 +179,8 @@ export type Account =
   };
 
 export interface ProjectHit {
-  provider: "modrinth" | "curseforge";
+  /** spigot 来源仅用于展示/翻译，不支持程序化安装 */
+  provider: "modrinth" | "curseforge" | "spigot";
   id: string;
   slug: string;
   title: string;
@@ -261,6 +262,27 @@ export interface WorldBackupInfo {
   size: number;
   /** unix 秒 */
   modified: number;
+}
+
+/** 云端存档快照（GitHub Release；大存档可能有多个分卷附件） */
+export interface CloudSnapshot {
+  releaseId: number;
+  tag: string;
+  /** ISO8601 */
+  createdAt: string;
+  assetId: number;
+  /** 全部分卷附件 id（按分卷顺序） */
+  assetIds: number[];
+  assetSize: number;
+  /** 分卷数（1 = 单文件） */
+  partCount: number;
+  worldId: string;
+  worldName: string | null;
+  /** 上传时所属的实例（旧快照可能为 null） */
+  instanceId: string | null;
+  instanceName: string | null;
+  gameVersion: string | null;
+  sha256: string | null;
 }
 
 /** 从存档 level.dat 里读出的世界信息 */

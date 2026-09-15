@@ -384,15 +384,20 @@ pub async fn refresh_microsoft(state: &AppState, account: &Account) -> Result<Ac
 // ---------------------------------------------------------------------------
 
 pub fn load_accounts(state: &AppState) -> Vec<Account> {
-    std::fs::read_to_string(state.accounts_path())
-        .ok()
-        .and_then(|s| serde_json::from_str::<Vec<Account>>(&s).ok())
-        .unwrap_or_default()
+    let conn = state.db.lock().unwrap();
+    crate::db::load_rows_encrypted(&conn, "accounts")
+        .into_iter()
+        .filter_map(|v| serde_json::from_value(v).ok())
+        .collect()
 }
 
 pub fn save_accounts(state: &AppState, accounts: &[Account]) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(accounts).map_err(|e| e.to_string())?;
-    std::fs::write(state.accounts_path(), json).map_err(|e| e.to_string())
+    let conn = state.db.lock().unwrap();
+    let vals: Vec<serde_json::Value> = accounts
+        .iter()
+        .map(|a| serde_json::to_value(a).unwrap_or_default())
+        .collect();
+    crate::db::save_rows_encrypted(&conn, "accounts", &vals)
 }
 
 fn save_account(state: &AppState, account: &Account) -> Result<(), String> {

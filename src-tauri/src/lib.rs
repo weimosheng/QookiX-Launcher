@@ -1,7 +1,9 @@
 mod accounts;
+mod cloud_sync;
 mod commands;
 mod instance_share;
 mod crash;
+mod db;
 mod diagnostics;
 mod curseforge;
 mod deps;
@@ -21,6 +23,7 @@ mod pins;
 mod modrinth;
 mod paths;
 mod servers;
+mod secret;
 mod settings;
 mod state;
 mod storage;
@@ -75,9 +78,18 @@ pub fn run() {
 
     let proxy_mode = loaded.proxy_mode.clone();
     let proxy = loaded.proxy.clone();
+    // 应用数据库（SQLite）：打不开时退化为内存库（应用可用但本次不持久化）
+    let conn = match db::open(&root) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[db] 无法打开数据库，退化为内存模式: {e}");
+            rusqlite::Connection::open_in_memory().expect("内存数据库也打不开")
+        }
+    };
     let app_state = AppState {
         root,
         settings: RwLock::new(loaded),
+        db: Mutex::new(conn),
         client: settings::http_client(&proxy_mode, proxy.as_deref()),
         semaphore: Arc::new(tokio::sync::Semaphore::new(8)),
         game_pids: Arc::new(Mutex::new(HashMap::new())),
@@ -120,6 +132,19 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
+            // cloud sync
+            cloud_sync::cloud_sync_status,
+            cloud_sync::cloud_sync_start_auth,
+            cloud_sync::cloud_sync_poll_auth,
+            cloud_sync::cloud_sync_disconnect,
+            cloud_sync::cloud_sync_init_repo,
+            cloud_sync::cloud_sync_world_info,
+            cloud_sync::cloud_sync_list_all,
+            cloud_sync::cloud_sync_upload,
+            cloud_sync::cloud_sync_restore,
+            cloud_sync::cloud_sync_delete,
+            cloud_sync::cloud_sync_set_auto,
+            cloud_sync::cloud_sync_set_keep,
             // settings & java
             commands::get_settings,
             commands::set_settings,

@@ -289,6 +289,8 @@ pub async fn launch_game(
     let gp = state.game_pids.clone();
     let logs_dir = state.logs_dir();
     let inst_dir = ctx.instance_dir.clone();
+    let auto_world = ctx.world.clone();
+    let auto_game_version = Some(instance.mc_version.clone());
     tauri::async_runtime::spawn(async move {
         let outcome = stream_output(&app2, child, logs_dir.clone(), inst_id.clone()).await;
         {
@@ -313,6 +315,23 @@ pub async fn launch_game(
                 let mut v = serde_json::to_value(&diag).unwrap_or_default();
                 v["instanceId"] = serde_json::json!(inst_id);
                 let _ = app2.emit("launch://crash", v);
+            }
+        }
+        // 云存档自动同步：从某个世界启动且该世界开启了自动同步时，退出后上传
+        if let Some(world) = auto_world {
+            let st = app2.state::<AppState>();
+            let gv = auto_game_version.clone().unwrap_or_default();
+            if let Err(e) =
+                crate::cloud_sync::auto_upload_after_exit(st.inner(), &inst_id, &world, &gv).await
+            {
+                let _ = app2.emit(
+                    "launch://log",
+                    serde_json::json!({
+                        "instanceId": inst_id,
+                        "stream": "err",
+                        "line": format!("[云同步] 自动上传失败: {e}"),
+                    }),
+                );
             }
         }
     });

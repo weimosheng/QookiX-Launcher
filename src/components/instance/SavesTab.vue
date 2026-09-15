@@ -15,6 +15,7 @@ import { supportsQuickPlay } from "../../version";
 import { fmtDateLocale as fmtDate, fmtSize, latencyInfo } from "../../utils/format";
 import {
   IconBox,
+  IconCloud,
   IconFolder,
   IconGlobe,
   IconMapPin,
@@ -22,6 +23,7 @@ import {
   IconRefresh,
   IconTrash,
 } from "../icons";
+import CloudSyncDialog from "../CloudSyncDialog.vue";
 import type { ServerEntry, ServerStatus, WorldBackupInfo } from "../../types";
 
 const props = defineProps<{ instanceId: string }>();
@@ -318,6 +320,24 @@ async function deleteBackup(filename: string) {
   }
 }
 
+// ---- 云同步 ----
+const cloudOpen = ref(false);
+const cloudWorld = ref("");
+
+function openCloudSync(world: string) {
+  cloudWorld.value = world;
+  cloudOpen.value = true;
+}
+// 从云端恢复（不指定世界 → 浏览模式，可找回本地已丢失的世界）
+function openCloudBrowse() {
+  openCloudSync("");
+}
+
+async function onCloudRestored() {
+  await loadFiles();
+}
+
+
 onMounted(() => {
   loadFiles();
 });
@@ -342,10 +362,16 @@ watch(
 
     <!-- 单人游戏：本地世界存档 -->
     <template v-if="worldSub === 'sp'">
+      <div class="sp-toolbar">
+        <button class="mini-btn" title="浏览云端快照，找回本地已丢失的世界" @click="openCloudBrowse">
+          <IconCloud /> 云端恢复
+        </button>
+      </div>
       <div v-if="loadingFiles" class="center">加载中…</div>
       <div v-else-if="!fileItems.length" class="empty glass">
         <p>还没有世界存档</p>
         <p class="hint">安装游戏后创建的世界会出现在这里</p>
+        <p class="hint">之前上传过云端？点上方「云端恢复」可以找回</p>
       </div>
       <div v-else class="content-list glass">
         <div v-for="f in fileItems.filter((x) => x.isDir)" :key="f.name" class="world-row">
@@ -365,6 +391,13 @@ watch(
               @click="openBackups(f.name)"
             >
               <IconBox /> 备份
+            </button>
+            <button
+              class="mini-btn"
+              title="云存档同步（GitHub）"
+              @click="openCloudSync(f.name)"
+            >
+              <IconCloud /> 云同步
             </button>
             <button
               class="mini-btn pin"
@@ -493,6 +526,15 @@ watch(
         </div>
       </div>
     </n-modal>
+
+    <!-- 云存档同步弹窗 -->
+    <CloudSyncDialog
+      v-model:show="cloudOpen"
+      :instance-id="instanceId"
+      :world="cloudWorld"
+      :game-version="instances.get(instanceId)?.mc_version ?? ''"
+      @restored="onCloudRestored"
+    />
   </div>
 </template>
 
@@ -687,6 +729,11 @@ watch(
   padding: 60px;
   text-align: center;
   color: var(--text-3);
+}
+.sp-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
 }
 .empty {
   padding: 40px;

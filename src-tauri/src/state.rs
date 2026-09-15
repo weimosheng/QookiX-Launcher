@@ -8,6 +8,8 @@ use tokio::sync::Semaphore;
 pub struct AppState {
     pub root: PathBuf,
     pub settings: RwLock<Settings>,
+    /// 应用数据库（SQLite）：账号 / 设置 / 首页固定 / 按天游玩时长
+    pub db: Mutex<rusqlite::Connection>,
     pub client: reqwest::Client,
     /// Download concurrency limit
     #[allow(dead_code)]
@@ -63,6 +65,7 @@ impl AppState {
     pub fn settings_path(&self) -> PathBuf {
         self.root.join("settings.json")
     }
+    #[allow(dead_code)]
     pub fn accounts_path(&self) -> PathBuf {
         self.root.join("accounts.json")
     }

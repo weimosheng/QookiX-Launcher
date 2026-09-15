@@ -9,6 +9,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { useMemoryInfo } from "../composables/useMemoryInfo";
 import { useSettingsStore } from "../stores/settings";
+import { useInstancesStore } from "../stores/instances";
 import { api } from "../api";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import { useOnboarding } from "../composables/useOnboarding";
@@ -36,9 +37,12 @@ import devWeimoshengUrl from "../assets/dev-weimosheng.jpg";
 import devZhayiUrl from "../assets/dev-zhayi.jpg";
 import AboutShowcase from "../components/AboutShowcase.vue";
 import DiagnosticsDialog from "../components/DiagnosticsDialog.vue";
+import CloudSyncDialog from "../components/CloudSyncDialog.vue";
+import { IconCloud } from "../components/icons";
 import { error as devError } from "../utils/logger";
 
 const settings = useSettingsStore();
+const instances = useInstancesStore();
 const message = useMessage();
 const dialog = useDialog();
 const router = useRouter();
@@ -46,6 +50,7 @@ const onboarding = useOnboarding();
 
 const checking = ref(false);
 const showDiag = ref(false);
+const cloudOpen = ref(false);
 const updateVersion = ref<string | null>(null);
 
 async function checkUpdate() {
@@ -1155,6 +1160,19 @@ onUnmounted(() => {
         <div class="grid storage-grid">
           <div class="card glass storage-card">
             <div class="storage-header">
+              <h3><IconCloud /> 云存档</h3>
+              <div class="storage-actions">
+                <span class="hint-inline">存放在你的 GitHub 私有仓库，可跨设备恢复</span>
+                <button class="mini-btn" @click="cloudOpen = true">
+                  <IconCloud class="btn-icon" />
+                  浏览云端存档
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card glass storage-card">
+            <div class="storage-header">
               <h3>存储统计</h3>
               <div class="storage-actions">
                 <span class="hint-inline">
@@ -1428,6 +1446,15 @@ onUnmounted(() => {
     </Transition>
 
     <DiagnosticsDialog v-model:show="showDiag" />
+
+    <!-- 云存档浏览（浏览模式：不绑定实例，恢复时在弹窗内选择实例） -->
+    <CloudSyncDialog
+      v-model:show="cloudOpen"
+      instance-id=""
+      world=""
+      game-version=""
+      @restored="instances.load(true)"
+    />
 
     <n-modal v-model:show="migrateModal" preset="card" title="更改数据目录" class="migrate-modal">
       <div v-if="migratePhase === 'select'" class="migrate-body">

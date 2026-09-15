@@ -4,6 +4,7 @@ import type { PinItem } from "./stores/pins";
 import type {
   Account,
   CacheClearResult,
+  CloudSnapshot,
   ContentItem,
   CrashDiagnosis,
   DependencyReport,
@@ -180,6 +181,55 @@ export const api = {
     invoke<void>("restore_world_backup", { instanceId, world, filename }),
   deleteWorldBackup: (instanceId: string, world: string, filename: string) =>
     invoke<void>("delete_world_backup", { instanceId, world, filename }),
+
+  // ---- 云存档同步（GitHub）----
+  cloudSyncStatus: () =>
+    invoke<{ connected: boolean; account: string; repoName: string; keepPerWorld: number }>(
+      "cloud_sync_status",
+    ),
+  cloudSyncStartAuth: () =>
+    invoke<{ userCode: string; verificationUri: string; deviceCode: string; interval: number; expiresIn: number }>(
+      "cloud_sync_start_auth",
+    ),
+  cloudSyncPollAuth: (deviceCode: string) =>
+    invoke<{ status: "pending" | "ok" }>("cloud_sync_poll_auth", { deviceCode }),
+  cloudSyncDisconnect: () => invoke<void>("cloud_sync_disconnect"),
+  cloudSyncInitRepo: () =>
+    invoke<{ repo: string; created: boolean }>("cloud_sync_init_repo"),
+  cloudSyncWorldInfo: (instanceId: string, world: string) =>
+    invoke<{
+      worldId: string;
+      autoSync: boolean;
+      connected: boolean;
+      snapshots: CloudSnapshot[];
+    }>("cloud_sync_world_info", { instanceId, world }),
+  cloudSyncUpload: (
+    instanceId: string,
+    instanceName: string,
+    world: string,
+    worldName: string,
+    gameVersion: string,
+  ) =>
+    invoke<{ releaseId: number; sizeBytes: number; cleaned: number }>("cloud_sync_upload", {
+      instanceId,
+      instanceName,
+      world,
+      worldName,
+      gameVersion,
+    }),
+  cloudSyncListAll: () =>
+    invoke<{ snapshots: CloudSnapshot[] }>("cloud_sync_list_all"),
+  cloudSyncRestore: (instanceId: string, world: string, releaseId: number, worldId?: string) =>
+    invoke<{ backupName: string | null }>("cloud_sync_restore", {
+      instanceId,
+      world,
+      releaseId,
+      worldId: worldId ?? null,
+    }),
+  cloudSyncDelete: (releaseId: number) => invoke<void>("cloud_sync_delete", { releaseId }),
+  cloudSyncSetAuto: (instanceId: string, world: string, enabled: boolean) =>
+    invoke<void>("cloud_sync_set_auto", { instanceId, world, enabled }),
+  cloudSyncSetKeep: (keep: number) => invoke<void>("cloud_sync_set_keep", { keep }),
   estimateDownload: (mcVersion: string) =>
     invoke<{
       download_files: number;
