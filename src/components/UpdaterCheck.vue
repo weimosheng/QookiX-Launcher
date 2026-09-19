@@ -5,11 +5,13 @@ import { NButton, useDialog, useMessage } from "naive-ui";
 import { peekUpdate, downloadUpdate, updateReady } from "../updater";
 import { useSettingsStore } from "../stores/settings";
 import { error as devError } from "../utils/logger";
+import { useI18n } from "vue-i18n";
 
 const dialog = useDialog();
 const message = useMessage();
 const router = useRouter();
 const settings = useSettingsStore();
+const { t } = useI18n();
 const checking = ref(false);
 
 onMounted(() => {
@@ -52,8 +54,8 @@ async function runCheck() {
       dlg = null;
     };
     dlg = dialog.warning({
-      title: "发现新版本",
-      content: `QookiX Launcher 有新版本 v${update.version}，是否下载并安装？`,
+      title: t("updaterCheck.newVersionTitle"),
+      content: t("updaterCheck.newVersionContent", { version: update.version }),
       action: () =>
         h("div", { style: "display:flex; gap:8px; justify-content:flex-end;" }, [
           h(
@@ -66,9 +68,9 @@ async function runCheck() {
                 void dismiss(update.version ?? "");
               },
             },
-            { default: () => "忽略此版本" }
+            { default: () => t("updaterCheck.ignoreVersion") }
           ),
-          h(NButton, { size: "small", ghost: true, onClick: close }, () => "以后再说"),
+          h(NButton, { size: "small", ghost: true, onClick: close }, () => t("updaterCheck.later")),
           h(
             NButton,
             {
@@ -79,7 +81,7 @@ async function runCheck() {
                 void doInstall();
               },
             },
-            { default: () => "下载并更新" }
+            { default: () => t("updaterCheck.downloadAndUpdate") }
           ),
         ]),
     });
@@ -107,10 +109,10 @@ async function doInstall(auto = false) {
     const downloaded = await downloadUpdate();
     if (!downloaded) return;
     // 只下载不安装：安装与重启由标题栏「重启以更新」按钮触发。
-    message.success("更新已下载，点击标题栏的「重启以更新」安装");
+    message.success(t("updaterCheck.downloadedHint"));
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    message.error(detail || "更新失败，请稍后重试或手动下载");
+    message.error(detail || t("updaterCheck.updateFailed"));
     devError("[updater] install error:", err);
   }
 }

@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { highlight, langLabel } from "../utils/highlight";
+
+const { t } = useI18n();
 
 const props = defineProps<{
   modelValue: string;
@@ -244,9 +247,9 @@ onMounted(() => {
 
     <div class="ed-status">
       <span class="ed-lang">{{ langLabel(ext) }}</span>
-      <span>行 {{ cursorLine }}，列 {{ cursorCol }}</span>
-      <span>{{ lines.length }} 行</span>
-      <span class="ed-tip">Ctrl+S 保存 · Tab 缩进</span>
+      <span>{{ t("codeEditor.statusLineCol", { line: cursorLine, col: cursorCol }) }}</span>
+      <span>{{ t("codeEditor.statusLines", { count: lines.length }) }}</span>
+      <span class="ed-tip">{{ t("codeEditor.statusTip") }}</span>
     </div>
   </div>
 </template>

@@ -14,6 +14,7 @@ import { useInstancesStore } from "../stores/instances";
 import { useAccountsStore } from "../stores/accounts";
 import { usePinsStore, type PinTarget } from "../stores/pins";
 import { useMessage, NButton, NModal } from "naive-ui";
+import { useI18n } from "vue-i18n";
 import { api } from "../api";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import LogViewer from "../components/LogViewer.vue";
@@ -52,6 +53,7 @@ const router = useRouter();
 const instances = useInstancesStore();
 const accounts = useAccountsStore();
 const message = useMessage();
+const { t } = useI18n();
 const pins = usePinsStore();
 
 // ---- 确认弹窗（删除实例用）----
@@ -92,32 +94,32 @@ const KIND_BY_TAB: Record<string, string> = {
   shaders: "shader",
   resourcepacks: "resourcepack",
 };
-function kindOf(t: string) {
-  return KIND_BY_TAB[t] ?? t;
+function kindOf(key: string) {
+  return KIND_BY_TAB[key] ?? key;
 }
 
 const ALL_TABS = [
-  { key: "mods", label: "模组", icon: IconBox, folder: "mods" },
-  { key: "shaders", label: "光影", icon: IconLayers, folder: "shaderpacks" },
-  { key: "resourcepacks", label: "材质包", icon: IconImage, folder: "resourcepacks" },
-  { key: "screenshots", label: "截图", icon: IconCamera, folder: "screenshots" },
-  { key: "saves", label: "世界", icon: IconFolder, folder: "saves" },
-  { key: "files", label: "文件", icon: IconHardDrive },
-  { key: "logs", label: "日志", icon: IconFile },
-  { key: "crash", label: "崩溃分析", icon: IconBug },
-  { key: "settings", label: "设置", icon: IconSliders },
+  { key: "mods", label: "instanceDetail.tabMods", icon: IconBox, folder: "mods" },
+  { key: "shaders", label: "instanceDetail.tabShaders", icon: IconLayers, folder: "shaderpacks" },
+  { key: "resourcepacks", label: "instanceDetail.tabResourcePacks", icon: IconImage, folder: "resourcepacks" },
+  { key: "screenshots", label: "instanceDetail.tabScreenshots", icon: IconCamera, folder: "screenshots" },
+  { key: "saves", label: "instanceDetail.tabSaves", icon: IconFolder, folder: "saves" },
+  { key: "files", label: "instanceDetail.tabFiles", icon: IconHardDrive },
+  { key: "logs", label: "instanceDetail.tabLogs", icon: IconFile },
+  { key: "crash", label: "instanceDetail.tabCrash", icon: IconBug },
+  { key: "settings", label: "instanceDetail.tabSettings", icon: IconSliders },
 ];
 
 // folder-backed tabs are only shown when the corresponding folder exists;
 // vanilla instances have no mods and no shaders, so hide those tabs entirely.
 const tabs = computed(() =>
-  ALL_TABS.filter((t) => {
+  ALL_TABS.filter((tabDef) => {
     if (
-      (t.key === "mods" || t.key === "shaders") &&
+      (tabDef.key === "mods" || tabDef.key === "shaders") &&
       instance.value?.loader === "vanilla"
     )
       return false;
-    return !t.folder || folders.value[t.folder] || t.key === tab.value;
+    return !tabDef.folder || folders.value[tabDef.folder] || tabDef.key === tab.value;
   })
 );
 
@@ -126,7 +128,7 @@ watch(
   () => route.query.tab,
   (v) => {
     const next = Array.isArray(v) ? v[0] : v;
-    if (typeof next === "string" && ALL_TABS.some((t) => t.key === next)) {
+    if (typeof next === "string" && ALL_TABS.some((tabDef) => tabDef.key === next)) {
       tab.value = next;
     }
   }
@@ -134,7 +136,7 @@ watch(
 
 // If the active tab is hidden (e.g. "mods" on vanilla), switch to first visible
 watch(tabs, (ts) => {
-  if (!ts.some((t) => t.key === tab.value) && ts.length > 0) {
+  if (!ts.some((tabDef) => tabDef.key === tab.value) && ts.length > 0) {
     tab.value = ts[0].key;
   }
 });
@@ -144,18 +146,18 @@ const tabsBox = ref<HTMLElement | null>(null);
 const { indicatorStyle: tabIndicatorStyle, refresh: refreshTabIndicator } = useSlidingIndicator(
   tabsBox,
   () => Array.from(tabsBox.value?.querySelectorAll<HTMLElement>(".tab") ?? []),
-  () => tabs.value.findIndex((t) => t.key === tab.value),
+  () => tabs.value.findIndex((tabDef) => tabDef.key === tab.value),
   { axis: "horizontal" }
 );
 watch(
-  () => [tab.value, tabs.value.map((t) => t.key).join(",")],
+  () => [tab.value, tabs.value.map((tabDef) => tabDef.key).join(",")],
   () => nextTick(() => refreshTabIndicator())
 );
 
 function loaderLabel() {
   const i = instance.value;
   if (!i) return "";
-  return i.loader === "vanilla" ? "原版" : i.loader.charAt(0).toUpperCase() + i.loader.slice(1);
+  return i.loader === "vanilla" ? t("instanceDetail.vanilla") : i.loader.charAt(0).toUpperCase() + i.loader.slice(1);
 }
 
 // ---- 内容 tab：通过 ref 驱动子组件（tab 栏的检查更新/导入按钮）----
@@ -190,13 +192,13 @@ async function launch() {
   const i = instance.value;
   if (!i) return;
   if (!accounts.accounts.length) {
-    message.warning("请先添加账号（正版或离线）");
+    message.warning(t("instanceDetail.addAccountFirst"));
     accounts.showManager = true;
     return;
   }
   try {
     await instances.launch(i.id);
-    message.success("游戏已启动，可在「日志」查看输出");
+    message.success(t("instanceDetail.gameStarted"));
   } catch (e) {
     message.error(String(e));
   }
@@ -211,8 +213,8 @@ async function openFolder(sub?: string) {
 }
 
 function openTabFolder() {
-  const t = ALL_TABS.find((x) => x.key === tab.value);
-  openFolder(t?.folder);
+  const tabDef = ALL_TABS.find((x) => x.key === tab.value);
+  openFolder(tabDef?.folder);
 }
 
 // ---- 安装游戏本体（导入分享包后的实例需要）----
@@ -221,7 +223,7 @@ async function installGame() {
   installingGame.value = true;
   try {
     await instances.installGame(instanceId);
-    message.success("游戏本体已安装");
+    message.success(t("instanceDetail.gameInstalled"));
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -237,15 +239,17 @@ const showDiag = ref(false);
 function removeInstance() {
   const isSymlink = instance.value?.is_symlink;
   confirmState.value = {
-    title: "删除实例",
+    title: t("instanceDetail.deleteInstance"),
     content: isSymlink
-      ? `此实例通过符号链接导入，删除只会移除启动器中的链接，原始目录${instance.value?.source_path ? `（${instance.value.source_path}）` : ""}的文件会完整保留。确定删除该实例吗？`
-      : "删除实例将移除其游戏目录与全部内容，此操作不可恢复。",
-    positiveText: "删除",
+      ? (instance.value?.source_path
+        ? t("instanceDetail.deleteSymlinkContentWithPath", { path: instance.value.source_path })
+        : t("instanceDetail.deleteSymlinkContent"))
+      : t("instanceDetail.deleteContent"),
+    positiveText: t("instanceDetail.delete"),
     onOk: async () => {
       try {
         await instances.remove(instanceId);
-        message.success("实例已删除");
+        message.success(t("instanceDetail.instanceDeleted"));
         router.push("/instances");
       } catch (e) {
         message.error(String(e));
@@ -302,8 +306,8 @@ onBeforeUnmount(() => {
 // tab 切换时：只有截图需要父组件加载数据，其余 tab 由子组件自行加载
 watch(
   () => tab.value,
-  (t) => {
-    if (t === "screenshots") loadShots();
+  (newTab) => {
+    if (newTab === "screenshots") loadShots();
   },
   { immediate: true }
 );
@@ -331,12 +335,12 @@ watch(
       <div class="d-actions">
         <button class="btn primary" @click="launch">
           <IconPlay />
-          启动游戏
+          {{ t("instanceDetail.launchGame") }}
         </button>
         <button
           class="btn ghost pin"
           :class="{ active: pins.isPinned(homePinId) }"
-          :title="pins.isPinned(homePinId) ? '取消固定到首页' : '固定到首页'"
+          :title="pins.isPinned(homePinId) ? t('instanceDetail.unpinHome') : t('instanceDetail.pinHome')"
           @click="toggleInstancePin('home')"
         >
           <IconMapPin />
@@ -344,21 +348,21 @@ watch(
         <button
           class="btn ghost pin"
           :class="{ active: pins.isPinned(sidebarPinId) }"
-          :title="pins.isPinned(sidebarPinId) ? '取消固定到侧边栏' : '固定到侧边栏'"
+          :title="pins.isPinned(sidebarPinId) ? t('instanceDetail.unpinSidebar') : t('instanceDetail.pinSidebar')"
           @click="toggleInstancePin('sidebar')"
         >
           <IconLayout />
         </button>
-        <button class="btn ghost" title="打开游戏目录" @click="openFolder()">
+        <button class="btn ghost" :title="t('instanceDetail.openGameFolder')" @click="openFolder()">
           <IconFolder />
         </button>
-        <button class="btn ghost" title="导出分享包" @click="showExport = true">
+        <button class="btn ghost" :title="t('instanceDetail.exportPack')" @click="showExport = true">
           <IconExternal />
         </button>
-        <button class="btn ghost" title="生成诊断报告" @click="showDiag = true">
+        <button class="btn ghost" :title="t('instanceDetail.genDiagReport')" @click="showDiag = true">
           <IconInfo />
         </button>
-        <button class="btn danger" title="删除实例" @click="removeInstance">
+        <button class="btn danger" :title="t('instanceDetail.deleteInstance')" @click="removeInstance">
           <IconTrash />
         </button>
       </div>
@@ -366,42 +370,42 @@ watch(
 
     <div v-if="!instance.installed" class="not-installed glass">
       <div>
-        <h3>游戏本体尚未安装</h3>
-        <p>安装 MC {{ instance.mc_version }} 本体后即可启动（mod 已就绪的不受影响）</p>
+        <h3>{{ t("instanceDetail.gameNotInstalledTitle") }}</h3>
+        <p>{{ t("instanceDetail.gameNotInstalledDesc", { version: instance.mc_version }) }}</p>
       </div>
       <button class="btn primary" :disabled="installingGame" @click="installGame">
-        <IconPlay /> {{ installingGame ? "安装中…" : "安装游戏" }}
+        <IconPlay /> {{ installingGame ? t("instanceDetail.installing") : t("instanceDetail.installGame") }}
       </button>
     </div>
 
     <div v-if="instance.is_symlink" class="symlink-notice glass">
       <IconExternal />
-      <span>当前实例通过符号链接方式导入，对 mods / 存档等文件所做的更改会直接影响原始目录<template v-if="instance.source_path">（来源：{{ instance.source_path }}）</template>。下载的 mod 也会保存到原始目录。</span>
+      <span>{{ t("instanceDetail.symlinkNoticePrefix") }}<template v-if="instance.source_path">{{ t("instanceDetail.symlinkNoticeSource", { path: instance.source_path }) }}</template>{{ t("instanceDetail.symlinkNoticeSuffix") }}</span>
     </div>
 
     <div ref="tabsBox" class="tabs glass">
       <div class="indicator" :style="tabIndicatorStyle"></div>
       <button
-        v-for="t in tabs"
-        :key="t.key"
+        v-for="tabItem in tabs"
+        :key="tabItem.key"
         class="tab"
-        :class="{ active: tab === t.key }"
-        @click="tab = t.key"
+        :class="{ active: tab === tabItem.key }"
+        @click="tab = tabItem.key"
       >
-        <component :is="t.icon" />
-        {{ t.label }}
+        <component :is="tabItem.icon" />
+        {{ t(tabItem.label) }}
       </button>
       <div class="tab-right">
         <template v-if="CONTENT_TABS.includes(tab)">
           <button class="mini-btn" :disabled="contentRef?.checkingUpdates" @click="contentRef?.checkUpdates()">
-            <IconRefresh /> 检查更新
+            <IconRefresh /> {{ t("instanceDetail.checkUpdates") }}
             <span v-if="contentRef?.updatesCount" class="upd-n">{{ contentRef?.updatesCount }}</span>
           </button>
-          <button class="mini-btn" @click="contentRef?.importLocal()"><IconPlus /> 导入本地</button>
+          <button class="mini-btn" @click="contentRef?.importLocal()"><IconPlus /> {{ t("instanceDetail.importLocal") }}</button>
         </template>
         <template v-if="tab !== 'logs' && tab !== 'settings'">
-          <button class="mini-btn" title="打开对应文件夹" @click="openTabFolder">
-            <IconFolder /> 打开文件夹
+          <button class="mini-btn" :title="t('instanceDetail.openFolder')" @click="openTabFolder">
+            <IconFolder /> {{ t("instanceDetail.openFolder") }}
           </button>
         </template>
       </div>
@@ -418,10 +422,10 @@ watch(
 
       <!-- screenshots -->
       <template v-if="tab === 'screenshots'">
-        <div v-if="loadingShots" class="center">加载中…</div>
+        <div v-if="loadingShots" class="center">{{ t("instanceDetail.loading") }}</div>
         <div v-else-if="!shotFiles.length" class="empty glass">
-          <p>还没有截图</p>
-          <button class="btn ghost" @click="openTabFolder"><IconFolder /> 打开截图文件夹</button>
+          <p>{{ t("instanceDetail.noScreenshots") }}</p>
+          <button class="btn ghost" @click="openTabFolder"><IconFolder /> {{ t("instanceDetail.openScreenshotsFolder") }}</button>
         </div>
         <div v-else class="shot-grid">
           <div
@@ -475,7 +479,7 @@ watch(
       <div v-if="confirmState" ref="confirmCardRef" style="display: flex; flex-direction: column; gap: 16px;">
         <div style="font-size: 14px; color: var(--text-2); line-height: 1.6;">{{ confirmState.content }}</div>
         <div style="display: flex; justify-content: flex-end; gap: 10px;">
-          <n-button @click="confirmState = null">取消</n-button>
+          <n-button @click="confirmState = null">{{ t("instanceDetail.cancel") }}</n-button>
           <n-button type="error" :loading="confirmLoading" @click="handleConfirm">{{ confirmState.positiveText }}</n-button>
         </div>
       </div>
@@ -485,7 +489,7 @@ watch(
     <n-modal
       v-model:show="showPreview"
       preset="card"
-      title="截图预览"
+      :title="t('instanceDetail.screenshotPreview')"
       style="width: min(860px, 92vw)"
       :mask-closable="true"
       :close-on-esc="true"
@@ -502,7 +506,7 @@ watch(
       :instance-name="instance?.name ?? null"
     />
   </div>
-  <div v-else class="center">实例不存在或已删除</div>
+  <div v-else class="center">{{ t("instanceDetail.notFound") }}</div>
 </template>
 
 <style scoped>

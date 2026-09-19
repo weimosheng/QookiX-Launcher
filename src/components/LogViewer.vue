@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { useMessage } from "naive-ui";
+import { NCheckbox, useMessage } from "naive-ui";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useTasksStore } from "../stores/tasks";
 import { api } from "../api";
 import { IconClose, IconCopy, IconDownload } from "./icons";
+import { useI18n } from "vue-i18n";
 
 const props = defineProps<{ instanceId: string }>();
 const tasks = useTasksStore();
 const message = useMessage();
+const { t } = useI18n();
 const box = ref<HTMLDivElement | null>(null);
 const autoScroll = ref(true);
 
@@ -35,12 +37,12 @@ function onScroll() {
 
 async function copyAll() {
   if (!logText.value) {
-    message.info("暂无日志内容");
+    message.info(t("logViewer.noLogContent"));
     return;
   }
   try {
     await navigator.clipboard.writeText(logText.value);
-    message.success("已复制全部日志");
+    message.success(t("logViewer.copiedAll"));
   } catch {
     // fallback for restricted contexts
     const ta = document.createElement("textarea");
@@ -49,14 +51,14 @@ async function copyAll() {
     ta.select();
     const ok = document.execCommand("copy");
     document.body.removeChild(ta);
-    if (ok) message.success("已复制全部日志");
-    else message.error("复制失败");
+    if (ok) message.success(t("logViewer.copiedAll"));
+    else message.error(t("logViewer.copyFailed"));
   }
 }
 
 async function exportLog() {
   if (!logText.value) {
-    message.info("暂无日志内容");
+    message.info(t("logViewer.noLogContent"));
     return;
   }
   const ts = new Date();
@@ -64,12 +66,12 @@ async function exportLog() {
   const defaultName = `${props.instanceId}-${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.log`;
   const path = await save({
     defaultPath: defaultName,
-    filters: [{ name: "日志文件", extensions: ["log", "txt"] }],
+    filters: [{ name: t("logViewer.logFile"), extensions: ["log", "txt"] }],
   });
   if (!path) return;
   try {
     await api.saveTextFile(path as string, logText.value);
-    message.success(`已导出到 ${path}`);
+    message.success(t("logViewer.exportedTo", { path }));
   } catch (e) {
     message.error(String(e));
   }
@@ -79,26 +81,25 @@ async function exportLog() {
 <template>
   <div class="log-panel glass">
     <div class="log-toolbar">
-      <span class="log-title">游戏日志输出</span>
+      <span class="log-title">{{ t("logViewer.title") }}</span>
       <div class="log-actions">
-        <label class="auto">
-          <input v-model="autoScroll" type="checkbox" />
-          自动滚动
-        </label>
-        <button class="mini" title="复制全部日志" @click="copyAll">
-          <IconCopy /> 复制
+        <n-checkbox v-model:checked="autoScroll" size="small" class="auto">
+          {{ t("logViewer.autoScroll") }}
+        </n-checkbox>
+        <button class="mini" :title="t('logViewer.copyAllLog')" @click="copyAll">
+          <IconCopy /> {{ t("logViewer.copy") }}
         </button>
-        <button class="mini" title="导出日志文件" @click="exportLog">
-          <IconDownload /> 导出
+        <button class="mini" :title="t('logViewer.exportLogFile')" @click="exportLog">
+          <IconDownload /> {{ t("logViewer.export") }}
         </button>
-        <button class="mini" title="清空日志" @click="clear">
-          <IconClose /> 清空
+        <button class="mini" :title="t('logViewer.clearLog')" @click="clear">
+          <IconClose /> {{ t("logViewer.clear") }}
         </button>
       </div>
     </div>
     <div ref="box" class="log-box mono" @scroll="onScroll">
       <div v-if="!logs.length" class="log-empty">
-        {{ tasks.runningInstance === instanceId ? "游戏正在启动…" : "暂无日志。启动游戏后这里会实时显示输出。" }}
+        {{ tasks.runningInstance === instanceId ? t("logViewer.gameStarting") : t("logViewer.empty") }}
       </div>
       <div
         v-for="(l, i) in logs"
@@ -108,7 +109,7 @@ async function exportLog() {
       >{{ l.line }}</div>
     </div>
     <div v-if="tasks.lastExit && tasks.lastExit.instanceId === instanceId && !tasks.gameRunning" class="exit-info">
-      游戏已退出（退出码 {{ tasks.lastExit.code ?? "未知" }}）
+      {{ t("logViewer.gameExited", { code: tasks.lastExit.code ?? t("logViewer.unknown") }) }}
     </div>
   </div>
 </template>
@@ -141,11 +142,11 @@ async function exportLog() {
 .auto {
   font-size: 12px;
   color: var(--text-3);
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  cursor: pointer;
   margin-right: 6px;
+}
+.auto :deep(.n-checkbox__label) {
+  font-size: 12px;
+  color: var(--text-3);
 }
 .mini {
   display: inline-flex;

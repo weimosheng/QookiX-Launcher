@@ -3,7 +3,9 @@ import { ref, watch } from "vue";
 import { NButton, NModal } from "naive-ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useAccountsStore } from "../stores/accounts";
+import { useI18n } from "vue-i18n";
 
+const { t } = useI18n();
 const accounts = useAccountsStore();
 const show = ref(false);
 
@@ -53,7 +55,7 @@ async function retry() {
   <n-modal
     :show="show || !!accounts.msError"
     preset="card"
-    title="登录 Microsoft 账户"
+    :title="t('msLogin.title')"
     style="width: 460px; max-width: 92vw"
     :mask-closable="false"
   >
@@ -62,21 +64,21 @@ async function retry() {
         <div class="qkms-error-box">{{ accounts.msError }}</div>
       </template>
       <template v-else>
-        <p>已自动复制代码并打开浏览器，在浏览器中粘贴并授权即可</p>
+        <p>{{ t('msLogin.autoCopiedHint') }}</p>
         <a class="qkms-link" @click="accounts.msFlow && openUrl(accounts.msFlow.verificationUri)">{{ accounts.msFlow?.verificationUri || "…" }}</a>
-        <div class="qkms-code mono">{{ accounts.msFlow?.userCode || "等待中…" }}</div>
-        <p class="qkms-hint">等待你在浏览器中完成授权，本窗口会自动继续…</p>
-        <div v-if="accounts.msPolling" class="qkms-polling">正在等待授权…</div>
+        <div class="qkms-code mono">{{ accounts.msFlow?.userCode || t('msLogin.waitingCode') }}</div>
+        <p class="qkms-hint">{{ t('msLogin.waitingAuth') }}</p>
+        <div v-if="accounts.msPolling" class="qkms-polling">{{ t('msLogin.polling') }}</div>
       </template>
     </div>
     <template #footer>
       <div class="qkms-footer">
-        <n-button @click="close">关闭</n-button>
+        <n-button @click="close">{{ t('msLogin.close') }}</n-button>
         <template v-if="!accounts.msError">
-          <n-button @click="copyCode">复制代码</n-button>
-          <n-button type="primary" @click="accounts.manualCheck">我已登录</n-button>
+          <n-button @click="copyCode">{{ t('msLogin.copyCode') }}</n-button>
+          <n-button type="primary" @click="accounts.manualCheck">{{ t('msLogin.iLoggedIn') }}</n-button>
         </template>
-        <n-button v-if="accounts.msError" type="primary" @click="retry">重试</n-button>
+        <n-button v-if="accounts.msError" type="primary" @click="retry">{{ t('msLogin.retry') }}</n-button>
       </div>
     </template>
   </n-modal>

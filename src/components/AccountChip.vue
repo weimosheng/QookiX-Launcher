@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { NButton, NInput, NModal, NPopover, useMessage } from "naive-ui";
 import { useAccountsStore } from "../stores/accounts";
 import { loadOfflineSkin } from "../composables/useOfflineSkin";
@@ -13,6 +14,7 @@ const props = defineProps<{ collapsed?: boolean }>();
 
 const accounts = useAccountsStore();
 const message = useMessage();
+const { t } = useI18n();
 
 const popoverShow = ref(false);
 const showOfflineDialog = ref(false);
@@ -203,7 +205,7 @@ function onAvatarError(uuid: string) {
 
 async function select(acc: Account) {
   await accounts.select(acc.uuid);
-  message.success(`当前游玩账号：${acc.username}`);
+  message.success(t("accountChip.currentPlaying", { username: acc.username }));
   popoverShow.value = false;
 }
 
@@ -215,14 +217,14 @@ function openOfflineDialog() {
 async function addOffline() {
   const name = offlineName.value.trim();
   if (!name) {
-    message.warning("请输入用户名");
+    message.warning(t("accountChip.pleaseEnterUsername"));
     return;
   }
   addingOffline.value = true;
   try {
     await accounts.addOffline(name);
     showOfflineDialog.value = false;
-    message.success("离线账号已添加");
+    message.success(t("accountChip.offlineAccountAdded"));
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -246,14 +248,14 @@ async function startMs() {
 function remove(acc: Account) {
   accounts
     .remove(acc.uuid)
-    .then(() => message.success("账号已移除"))
+    .then(() => message.success(t("accountChip.accountRemoved")))
     .catch((e) => message.error(String(e)));
 }
 
 function typeLabel(a: Account) {
-  if (a.type === "microsoft") return "正版";
-  if (a.type === "yggdrasil") return a.server_name || "皮肤站";
-  return "离线";
+  if (a.type === "microsoft") return t("accountChip.typeMicrosoft");
+  if (a.type === "yggdrasil") return a.server_name || t("accountChip.typeYggdrasil");
+  return t("accountChip.typeOffline");
 }
 
 // ---- 皮肤站账号 ----
@@ -265,7 +267,7 @@ function openYggDialog() {
 function onYggAdded(acc: Account) {
   void accounts.refresh();
   void accounts.select(acc.uuid);
-  message.success(`皮肤站账号 ${acc.username} 已添加`);
+  message.success(t("accountChip.yggAccountAdded", { username: acc.username }));
 }
   </script>
 
@@ -289,16 +291,16 @@ function onYggAdded(acc: Account) {
         </div>
         <template v-if="!props.collapsed">
           <div class="acct-info">
-            <div class="acct-name text-ellipsis">{{ current?.username ?? "未登录" }}</div>
+            <div class="acct-name text-ellipsis">{{ current?.username ?? t("accountChip.notLoggedIn") }}</div>
             <div class="acct-type">
               {{
                 current
                   ? current.type === "microsoft"
-                    ? "正版账号"
+                    ? t("accountChip.microsoftAccount")
                     : current.type === "yggdrasil"
                       ? current.server_name
-                      : "离线账号"
-                  : "点击添加账号"
+                      : t("accountChip.offlineAccount")
+                  : t("accountChip.clickToAddAccount")
               }}
             </div>
           </div>
@@ -309,9 +311,9 @@ function onYggAdded(acc: Account) {
     </template>
 
     <div class="acctm-body">
-      <div class="acctm-title">当前游玩账号</div>
+      <div class="acctm-title">{{ t("accountChip.currentPlayingLabel") }}</div>
 
-      <div v-if="!accounts.accounts.length" class="acctm-empty">还没有账号</div>
+      <div v-if="!accounts.accounts.length" class="acctm-empty">{{ t("accountChip.noAccount") }}</div>
       <div v-else class="acctm-list">
         <div
           v-for="acc in accounts.accounts"
@@ -327,7 +329,7 @@ function onYggAdded(acc: Account) {
             <span class="acctm-type" :class="acc.type">{{ typeLabel(acc) }}</span>
           </div>
           <IconCheck v-if="current?.uuid === acc.uuid" class="acctm-check" />
-          <button class="acctm-remove" title="移除账号" @click.stop="remove(acc)">
+          <button class="acctm-remove" :title="t('accountChip.removeAccount')" @click.stop="remove(acc)">
             <IconTrash />
           </button>
         </div>
@@ -337,13 +339,13 @@ function onYggAdded(acc: Account) {
 
       <div class="acctm-add">
         <button class="acctm-btn ms" @click="startMs">
-          <IconPlus /> 添加 Microsoft 账户
+          <IconPlus /> {{ t("accountChip.addMicrosoftAccount") }}
         </button>
         <button class="acctm-btn" @click="openYggDialog">
-          <IconPlus /> 添加皮肤站账号
+          <IconPlus /> {{ t("accountChip.addYggAccount") }}
         </button>
         <button class="acctm-btn" @click="openOfflineDialog">
-          <IconPlus /> 添加离线账号
+          <IconPlus /> {{ t("accountChip.addOfflineAccount") }}
         </button>
       </div>
     </div>
@@ -355,23 +357,23 @@ function onYggAdded(acc: Account) {
   <n-modal
     v-model:show="showOfflineDialog"
     preset="card"
-    title="添加离线账号"
+    :title="t('accountChip.addOfflineAccountTitle')"
     style="width: 380px; max-width: 90vw"
   >
     <div class="acctm-offline-box">
       <n-input
         v-model:value="offlineName"
-        placeholder="游戏内用户名（≤16 字符）"
+        :placeholder="t('accountChip.offlineNamePlaceholder')"
         :maxlength="16"
         clearable
         @keyup.enter="addOffline"
       />
-      <p class="acctm-offline-hint">离线账号的 UUID 由用户名确定，可与官方启动器互通。</p>
+      <p class="acctm-offline-hint">{{ t("accountChip.offlineHint") }}</p>
     </div>
     <template #footer>
       <div class="acctm-offline-footer">
-        <n-button @click="showOfflineDialog = false">取消</n-button>
-        <n-button type="primary" :loading="addingOffline" @click="addOffline">添加</n-button>
+        <n-button @click="showOfflineDialog = false">{{ t("accountChip.cancel") }}</n-button>
+        <n-button type="primary" :loading="addingOffline" @click="addOffline">{{ t("accountChip.add") }}</n-button>
       </div>
     </template>
   </n-modal>

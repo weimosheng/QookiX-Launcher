@@ -28,6 +28,8 @@ export interface Settings {
   curseforge_api_key: string | null;
   theme: string;
   theme_color: string;
+  /** 界面语言："zh-CN" | "en-US" */
+  language: string;
   /** 关闭窗口行为："ask"（每次询问，默认）| "minimize" | "quit" */
   close_behavior: string;
   auto_launch: boolean;

@@ -4,6 +4,7 @@
  * 存档 / 附属数据文件夹 / 设置文件），支持自定义整合包名称与版本。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { NCollapse, NCollapseItem, NButton, NInput, NModal, NScrollbar, useMessage } from "naive-ui";
 import { listen } from "@tauri-apps/api/event";
 import { save } from "@tauri-apps/plugin-dialog";
@@ -14,6 +15,7 @@ import { fmtCount } from "../../utils/format";
 const props = defineProps<{ instanceId: string; instanceName: string }>();
 const show = defineModel<boolean>("show", { required: true });
 
+const { t } = useI18n();
 const message = useMessage();
 const loading = ref(false);
 const exporting = ref(false);
@@ -74,9 +76,9 @@ function toggleGroup(g: ExportGroup, on: boolean) {
 /** 从后端 hint 文案提取徽标（已禁用 / 在线 / 未登记） */
 function itemBadges(it: ExportItem): { text: string; cls: string }[] {
   const out: { text: string; cls: string }[] = [];
-  if (it.hint?.includes("已禁用")) out.push({ text: "已禁用", cls: "badge-gray" });
-  if (it.hint?.includes("在线来源")) out.push({ text: "在线", cls: "badge-blue" });
-  if (it.hint?.includes("未登记")) out.push({ text: "未登记", cls: "badge-yellow" });
+  if (it.hint?.includes("已禁用")) out.push({ text: t("exportDialog.badgeDisabled"), cls: "badge-gray" });
+  if (it.hint?.includes("在线来源")) out.push({ text: t("exportDialog.badgeOnline"), cls: "badge-blue" });
+  if (it.hint?.includes("未登记")) out.push({ text: t("exportDialog.badgeUnregistered"), cls: "badge-yellow" });
   return out;
 }
 function itemTitle(it: ExportItem): string {
@@ -164,13 +166,13 @@ async function doExport() {
   if (!preview.value) return;
   const dest = await save({
     defaultPath: `${packName.value.trim() || preview.value.name}.qkxinst`,
-    filters: [{ name: "QookiX 实例分享包", extensions: ["qkxinst"] }],
+    filters: [{ name: t("exportDialog.packFilterName"), extensions: ["qkxinst"] }],
   });
   if (!dest) return;
   exporting.value = true;
   try {
     const n = await api.exportInstancePack(props.instanceId, dest as string, buildSelection());
-    message.success(`已导出 ${fmtCount(n)} 个内容到 ${dest}`);
+    message.success(t("exportDialog.exported", { count: fmtCount(n), dest }));
     show.value = false;
   } catch (e) {
     message.error(String(e));
@@ -188,7 +190,7 @@ async function runIdentify() {
     adopted.value = new Set(
       identified.value.filter((m) => m.confidence === "hash").map((m) => m.filename),
     );
-    if (!identified.value.length) message.info("没有找到可在 Modrinth 上定位的未登记模组");
+    if (!identified.value.length) message.info(t("exportDialog.noUnregisteredFound"));
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -214,21 +216,21 @@ function toggleCollapsed(g: ExportGroup) {
   <n-modal
     v-model:show="show"
     preset="card"
-    title="导出实例分享包"
+    :title="t('exportDialog.title')"
     style="width: 640px; max-width: 94vw"
     :mask-closable="true"
     :close-on-esc="true"
   >
     <div class="ex-body">
-      <div v-if="loading" class="ex-loading">正在扫描实例内容…</div>
+      <div v-if="loading" class="ex-loading">{{ t("exportDialog.scanning") }}</div>
       <template v-else-if="preview">
         <div class="ex-meta">
           <label class="ex-field">
-            <span>整合包名称</span>
-            <n-input v-model:value="packName" size="small" placeholder="分享包的名称" />
+            <span>{{ t("exportDialog.packName") }}</span>
+            <n-input v-model:value="packName" size="small" :placeholder="t('exportDialog.packNamePlaceholder')" />
           </label>
           <label class="ex-field ex-ver">
-            <span>版本</span>
+            <span>{{ t("exportDialog.version") }}</span>
             <n-input v-model:value="packVersion" size="small" placeholder="1.0.0" />
           </label>
         </div>
@@ -250,10 +252,10 @@ function toggleCollapsed(g: ExportGroup) {
                 <span v-if="g.hint" class="ex-group-hint">{{ g.hint }}</span>
                 <span v-if="!g.required && g.items.length" class="ex-group-ops" @click.stop>
                   <button v-if="g.key === 'mods'" :disabled="identifying" @click="runIdentify">
-                    {{ identifying ? `识别中 ${identProgress?.done ?? 0}/${identProgress?.total ?? "?"}` : "识别来源" }}
+                    {{ identifying ? t("exportDialog.identifying", { done: identProgress?.done ?? 0, total: identProgress?.total ?? '?' }) : t("exportDialog.identifySource") }}
                   </button>
-                  <button @click="toggleGroup(g, true)">全选</button>
-                  <button @click="toggleGroup(g, false)">清空</button>
+                  <button @click="toggleGroup(g, true)">{{ t("exportDialog.selectAll") }}</button>
+                  <button @click="toggleGroup(g, false)">{{ t("exportDialog.clearAll") }}</button>
                 </span>
                 <svg v-if="!g.required" class="ex-arrow" :class="{ open: !collapsed[g.key] }" viewBox="0 0 12 12">
                   <path d="M3 4.5 6 7.5 9 4.5" />
@@ -283,20 +285,20 @@ function toggleCollapsed(g: ExportGroup) {
                     </div>
 
                     <div v-if="g.key === 'mods' && identifying && identProgress" class="ex-ident-progress">
-                      正在识别 {{ identProgress.done }}/{{ identProgress.total }}
+                      {{ t("exportDialog.identifyingProgress", { done: identProgress.done, total: identProgress.total }) }}
                       <span v-if="identProgress.current" class="ex-ident-current">· {{ identProgress.current }}</span>
                     </div>
 
                     <template v-if="g.key === 'mods' && identified.length">
                       <div class="ex-ident-warn">
-                        以下未登记模组在 Modrinth 上找到了来源，勾选后只记录版本 ID（导入时重新下载），可显著减小包体积。
-                        <b>「按文件名猜测」可能因重名装错模组，确认无误再勾；不确定就保持打包文件。</b>
+                        {{ t("exportDialog.identifyWarnPrefix") }}
+                        <b>{{ t("exportDialog.identifyWarnSuffix") }}</b>
                       </div>
                       <div
                         v-for="m in identified"
                         :key="m.filename"
                         class="ex-item"
-                        :title="`${m.name}\n${m.filename}\n${m.confidence === 'hash' ? '按文件哈希精确匹配' : '按文件名猜测，可能错配'}`"
+                        :title="`${m.name}\n${m.filename}\n${m.confidence === 'hash' ? t('exportDialog.hashMatch') : t('exportDialog.nameGuess')}`"
                         @click="toggleAdopt(m.filename, !adopted.has(m.filename))"
                       >
                         <span class="cb" :class="{ on: adopted.has(m.filename) }">
@@ -305,14 +307,14 @@ function toggleCollapsed(g: ExportGroup) {
                         <span class="ex-name">
                           {{ m.name }}
                           <i class="ex-badge" :class="m.confidence === 'hash' ? 'badge-green' : 'badge-yellow'">
-                            {{ m.confidence === "hash" ? "哈希精确" : "文件名猜测" }}
+                            {{ m.confidence === "hash" ? t("exportDialog.hashExact") : t("exportDialog.nameGuessBadge") }}
                           </i>
                         </span>
                         <span class="ex-file">{{ m.filename }}</span>
                       </div>
                     </template>
 
-                    <div v-if="!g.items.length" class="ex-empty">（无）</div>
+                    <div v-if="!g.items.length" class="ex-empty">{{ t("exportDialog.empty") }}</div>
                   </div>
                 </div>
               </div>
@@ -321,28 +323,25 @@ function toggleCollapsed(g: ExportGroup) {
         </n-scrollbar>
 
         <p class="ex-tip">
-          已选约 <b>{{ fmtSize(selectedSize) }}</b
-          >。在线安装的模组默认只记录版本 ID，导入时自动重新下载；游戏本体不在包内，导入后会自动安装。
+          {{ t("exportDialog.selectedSizePrefix") }}<b>{{ fmtSize(selectedSize) }}</b>{{ t("exportDialog.selectedSizeSuffix") }}
         </p>
 
         <n-collapse>
-          <n-collapse-item title="高级选项" name="adv">
+          <n-collapse-item :title="t('exportDialog.advancedOptions')" name="adv">
             <div class="ex-adv">
               <label class="ex-adv-row">
                 <n-checkbox v-model:checked="bundleOnlineFiles" />
-                <span>打包资源文件，以避免在导入时下载</span>
+                <span>{{ t("exportDialog.bundleFilesLabel") }}</span>
               </label>
               <p class="ex-adv-hint">
-                将模组、资源包、光影包的文件直接放入整合包中，导入时无需联网下载。
-                建议仅在无法稳定连接 CurseForge 或 Modrinth 时勾选。
+                {{ t("exportDialog.bundleFilesHint") }}
               </p>
               <label class="ex-adv-row" :class="{ disabled: !bundleOnlineFiles }">
                 <n-checkbox v-model:checked="modrinthOnly" :disabled="!bundleOnlineFiles" />
-                <span>仅打包 Modrinth 来源的资源文件</span>
+                <span>{{ t("exportDialog.modrinthOnlyLabel") }}</span>
               </label>
               <p class="ex-adv-hint">
-                CurseForge 的分发协议禁止第三方整合包转打包其文件，Modrinth 无此限制；
-                开启后 CurseForge 来源的模组仍只记录版本 ID。
+                {{ t("exportDialog.modrinthOnlyHint") }}
               </p>
             </div>
           </n-collapse-item>
@@ -350,9 +349,9 @@ function toggleCollapsed(g: ExportGroup) {
       </template>
 
       <div class="ex-actions">
-        <n-button @click="show = false">取消</n-button>
+        <n-button @click="show = false">{{ t("exportDialog.cancel") }}</n-button>
         <n-button type="primary" :loading="exporting" :disabled="!preview || loading" @click="doExport">
-          选择位置并导出
+          {{ t("exportDialog.selectAndExport") }}
         </n-button>
       </div>
     </div>

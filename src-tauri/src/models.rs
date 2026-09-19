@@ -54,6 +54,8 @@ pub struct Settings {
     pub theme: String,
     /// 主题强调色（hex，如 "#e89a4b"）
     pub theme_color: String,
+    /// 界面语言："zh-CN" | "en-US"
+    pub language: String,
     /// What happens when the window is closed: "ask"（每次询问，默认）| "minimize" | "quit"
     pub close_behavior: String,
     /// 用户是否已明确选择过关闭行为（设置页点选或弹窗勾选「保持我的选择」）。
@@ -126,6 +128,7 @@ impl Default for Settings {
             curseforge_api_key: None,
             theme: "dark".into(),
             theme_color: "#e89a4b".into(),
+            language: "zh-CN".into(),
             close_behavior: "ask".into(),
             close_behavior_prompted: false,
             auto_launch: false,

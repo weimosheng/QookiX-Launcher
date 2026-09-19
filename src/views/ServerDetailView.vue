@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from "vue";
+import { useI18n } from "vue-i18n";
 import { fmtSize } from "../utils/format";
 import { useRoute, useRouter } from "vue-router";
 import { NInput, NInputNumber, NCheckbox, NSwitch, NSelect, NModal, useMessage } from "naive-ui";
@@ -24,6 +25,7 @@ import {
 
 const route = useRoute();
 const router = useRouter();
+const { t } = useI18n();
 const servers = useServersStore();
 const message = useMessage();
 
@@ -36,18 +38,18 @@ const running = computed(() => servers.isRunning(serverId));
 const tab = ref<string>("logs");
 const folders = ref<Record<string, boolean>>({});
 const ALL_TABS = [
-  { key: "logs", label: "日志" },
-  { key: "settings", label: "设置" },
-  { key: "config", label: "配置文件" },
-  { key: "mods", label: "模组", folder: "mods" },
-  { key: "plugins", label: "插件", folder: "plugins" },
-  { key: "files", label: "文件" },
+  { key: "logs", label: "serverDetail.tab.logs" },
+  { key: "settings", label: "serverDetail.tab.settings" },
+  { key: "config", label: "serverDetail.tab.config" },
+  { key: "mods", label: "serverDetail.tab.mods", folder: "mods" },
+  { key: "plugins", label: "serverDetail.tab.plugins", folder: "plugins" },
+  { key: "files", label: "serverDetail.tab.files" },
 ];
 const tabs = computed(() =>
-  ALL_TABS.filter((t) => !t.folder || folders.value[t.folder] || t.key === tab.value),
+  ALL_TABS.filter((tb) => !tb.folder || folders.value[tb.folder] || tb.key === tab.value),
 );
 watch(tabs, (ts) => {
-  if (!ts.some((t) => t.key === tab.value) && ts.length > 0) tab.value = ts[0].key;
+  if (!ts.some((tb) => tb.key === tab.value) && ts.length > 0) tab.value = ts[0].key;
 });
 
 // ---- 启动设置表单 ----
@@ -156,46 +158,46 @@ type PropField = {
 };
 
 const PROPS_SCHEMA: PropField[] = [
-  { key: "server-port", label: "服务器端口", desc: "玩家连接的端口号", type: "int", min: 1, max: 65535, group: "基本" },
-  { key: "max-players", label: "最大玩家数", desc: "同时在线玩家上限", type: "int", min: 0, group: "基本" },
-  { key: "motd", label: "服务器描述", desc: "在服务器列表中显示的文本", type: "string", group: "基本" },
-  { key: "player-idle-timeout", label: "空闲踢出", desc: "玩家无操作多少分钟后踢出，0 为禁用", type: "int", min: 0, group: "基本" },
-  { key: "gamemode", label: "游戏模式", desc: "新玩家进入时的默认模式", type: "enum", options: ["survival", "creative", "adventure", "spectator"], group: "玩法" },
-  { key: "difficulty", label: "难度", desc: "怪物强度与饥饿伤害", type: "enum", options: ["peaceful", "easy", "normal", "hard"], group: "玩法" },
-  { key: "pvp", label: "允许 PVP", desc: "玩家之间能否互相攻击", type: "bool", group: "玩法" },
-  { key: "hardcore", label: "极限模式", desc: "死亡后封禁账号，仅可旁观", type: "bool", group: "玩法" },
-  { key: "force-gamemode", label: "强制游戏模式", desc: "玩家加入时强制切换到默认模式", type: "bool", group: "玩法" },
-  { key: "allow-flight", label: "允许飞行", desc: "允许玩家在生存模式下飞行", type: "bool", group: "玩法" },
-  { key: "enable-command-block", label: "命令方块", desc: "启用命令方块功能", type: "bool", group: "玩法" },
-  { key: "level-name", label: "世界名称", desc: "主世界存档文件夹名", type: "string", group: "世界" },
-  { key: "level-seed", label: "世界种子", desc: "留空则随机生成", type: "string", group: "世界" },
-  { key: "level-type", label: "世界类型", desc: "地形生成方式", type: "enum", options: ["minecraft:normal", "minecraft:flat", "minecraft:large_biomes", "minecraft:amplified"], group: "世界" },
-  { key: "generate-structures", label: "生成结构", desc: "村庄、神殿、废弃矿井等结构", type: "bool", group: "世界" },
-  { key: "allow-nether", label: "允许下界", desc: "生成下界维度", type: "bool", group: "世界" },
-  { key: "spawn-animals", label: "生成动物", desc: "生成牛、羊、猪等动物", type: "bool", group: "世界" },
-  { key: "spawn-monsters", label: "生成怪物", desc: "生成僵尸、骷髅等怪物", type: "bool", group: "世界" },
-  { key: "spawn-npcs", label: "生成 NPC", desc: "生成村民等 NPC", type: "bool", group: "世界" },
-  { key: "max-world-size", label: "最大世界大小", desc: "世界边界半径（方块数）", type: "int", min: 0, group: "世界" },
-  { key: "online-mode", label: "正版验证", desc: "验证玩家账号，关闭可允许离线模式加入", type: "bool", group: "安全" },
-  { key: "white-list", label: "白名单", desc: "仅白名单内玩家可加入", type: "bool", group: "安全" },
-  { key: "enforce-secure-profile", label: "强制安全配置", desc: "1.19+ 聊天签名验证", type: "bool", group: "安全" },
-  { key: "prevent-proxy-connections", label: "防止代理连接", desc: "拒绝通过代理连接的玩家", type: "bool", group: "安全" },
-  { key: "view-distance", label: "视距", desc: "发送给玩家的区块半径", type: "int", min: 3, max: 32, group: "性能" },
-  { key: "simulation-distance", label: "模拟距离", desc: "实体与方块更新的区块半径", type: "int", min: 3, max: 32, group: "性能" },
-  { key: "network-compression-threshold", label: "网络压缩阈值", desc: "数据包大于此值才压缩，-1 禁用", type: "int", group: "性能" },
-  { key: "max-tick-time", label: "最大 Tick 时间", desc: "单 tick 超时毫秒数，-1 禁用看门狗", type: "int", group: "性能" },
-  { key: "use-native-transport", label: "原生传输", desc: "Linux 上使用 io_uring 加速网络", type: "bool", group: "性能" },
-  { key: "sync-chunk-writes", label: "同步区块写入", desc: "区块数据同步写入磁盘", type: "bool", group: "性能" },
-  { key: "entity-broadcast-range-percentage", label: "实体广播范围", desc: "实体动作同步范围百分比", type: "int", min: 0, max: 100, group: "性能" },
-  { key: "enable-jmx-monitoring", label: "JMX 监控", desc: "启用 JMX 性能监控", type: "bool", group: "性能" },
-  { key: "enable-rcon", label: "RCON 远程控制", desc: "允许通过 RCON 协议远程执行命令", type: "bool", group: "远程" },
-  { key: "rcon.port", label: "RCON 端口", desc: "RCON 服务端口", type: "int", min: 1, max: 65535, group: "远程" },
-  { key: "rcon.password", label: "RCON 密码", desc: "RCON 认证密码", type: "string", group: "远程" },
-  { key: "enable-query", label: "Query 协议", desc: "允许外部查询服务器状态", type: "bool", group: "远程" },
-  { key: "query.port", label: "Query 端口", desc: "Query 服务端口", type: "int", min: 1, max: 65535, group: "远程" },
-  { key: "resource-pack", label: "资源包 URL", desc: "玩家加入时下载的资源包地址", type: "string", group: "资源包" },
-  { key: "resource-pack-sha1", label: "资源包校验", desc: "资源包 SHA1 哈希值", type: "string", group: "资源包" },
-  { key: "require-resource-pack", label: "强制资源包", desc: "拒绝加载资源包则踢出玩家", type: "bool", group: "资源包" },
+  { key: "server-port", label: "serverDetail.props.serverPortLabel", desc: "serverDetail.props.serverPortDesc", type: "int", min: 1, max: 65535, group: "basic" },
+  { key: "max-players", label: "serverDetail.props.maxPlayersLabel", desc: "serverDetail.props.maxPlayersDesc", type: "int", min: 0, group: "basic" },
+  { key: "motd", label: "serverDetail.props.motdLabel", desc: "serverDetail.props.motdDesc", type: "string", group: "basic" },
+  { key: "player-idle-timeout", label: "serverDetail.props.playerIdleTimeoutLabel", desc: "serverDetail.props.playerIdleTimeoutDesc", type: "int", min: 0, group: "basic" },
+  { key: "gamemode", label: "serverDetail.props.gamemodeLabel", desc: "serverDetail.props.gamemodeDesc", type: "enum", options: ["survival", "creative", "adventure", "spectator"], group: "gameplay" },
+  { key: "difficulty", label: "serverDetail.props.difficultyLabel", desc: "serverDetail.props.difficultyDesc", type: "enum", options: ["peaceful", "easy", "normal", "hard"], group: "gameplay" },
+  { key: "pvp", label: "serverDetail.props.pvpLabel", desc: "serverDetail.props.pvpDesc", type: "bool", group: "gameplay" },
+  { key: "hardcore", label: "serverDetail.props.hardcoreLabel", desc: "serverDetail.props.hardcoreDesc", type: "bool", group: "gameplay" },
+  { key: "force-gamemode", label: "serverDetail.props.forceGamemodeLabel", desc: "serverDetail.props.forceGamemodeDesc", type: "bool", group: "gameplay" },
+  { key: "allow-flight", label: "serverDetail.props.allowFlightLabel", desc: "serverDetail.props.allowFlightDesc", type: "bool", group: "gameplay" },
+  { key: "enable-command-block", label: "serverDetail.props.enableCommandBlockLabel", desc: "serverDetail.props.enableCommandBlockDesc", type: "bool", group: "gameplay" },
+  { key: "level-name", label: "serverDetail.props.levelNameLabel", desc: "serverDetail.props.levelNameDesc", type: "string", group: "world" },
+  { key: "level-seed", label: "serverDetail.props.levelSeedLabel", desc: "serverDetail.props.levelSeedDesc", type: "string", group: "world" },
+  { key: "level-type", label: "serverDetail.props.levelTypeLabel", desc: "serverDetail.props.levelTypeDesc", type: "enum", options: ["minecraft:normal", "minecraft:flat", "minecraft:large_biomes", "minecraft:amplified"], group: "world" },
+  { key: "generate-structures", label: "serverDetail.props.generateStructuresLabel", desc: "serverDetail.props.generateStructuresDesc", type: "bool", group: "world" },
+  { key: "allow-nether", label: "serverDetail.props.allowNetherLabel", desc: "serverDetail.props.allowNetherDesc", type: "bool", group: "world" },
+  { key: "spawn-animals", label: "serverDetail.props.spawnAnimalsLabel", desc: "serverDetail.props.spawnAnimalsDesc", type: "bool", group: "world" },
+  { key: "spawn-monsters", label: "serverDetail.props.spawnMonstersLabel", desc: "serverDetail.props.spawnMonstersDesc", type: "bool", group: "world" },
+  { key: "spawn-npcs", label: "serverDetail.props.spawnNpcsLabel", desc: "serverDetail.props.spawnNpcsDesc", type: "bool", group: "world" },
+  { key: "max-world-size", label: "serverDetail.props.maxWorldSizeLabel", desc: "serverDetail.props.maxWorldSizeDesc", type: "int", min: 0, group: "world" },
+  { key: "online-mode", label: "serverDetail.props.onlineModeLabel", desc: "serverDetail.props.onlineModeDesc", type: "bool", group: "security" },
+  { key: "white-list", label: "serverDetail.props.whiteListLabel", desc: "serverDetail.props.whiteListDesc", type: "bool", group: "security" },
+  { key: "enforce-secure-profile", label: "serverDetail.props.enforceSecureProfileLabel", desc: "serverDetail.props.enforceSecureProfileDesc", type: "bool", group: "security" },
+  { key: "prevent-proxy-connections", label: "serverDetail.props.preventProxyConnectionsLabel", desc: "serverDetail.props.preventProxyConnectionsDesc", type: "bool", group: "security" },
+  { key: "view-distance", label: "serverDetail.props.viewDistanceLabel", desc: "serverDetail.props.viewDistanceDesc", type: "int", min: 3, max: 32, group: "security" },
+  { key: "simulation-distance", label: "serverDetail.props.simulationDistanceLabel", desc: "serverDetail.props.simulationDistanceDesc", type: "int", min: 3, max: 32, group: "performance" },
+  { key: "network-compression-threshold", label: "serverDetail.props.networkCompressionThresholdLabel", desc: "serverDetail.props.networkCompressionThresholdDesc", type: "int", group: "performance" },
+  { key: "max-tick-time", label: "serverDetail.props.maxTickTimeLabel", desc: "serverDetail.props.maxTickTimeDesc", type: "int", group: "performance" },
+  { key: "use-native-transport", label: "serverDetail.props.useNativeTransportLabel", desc: "serverDetail.props.useNativeTransportDesc", type: "bool", group: "performance" },
+  { key: "sync-chunk-writes", label: "serverDetail.props.syncChunkWritesLabel", desc: "serverDetail.props.syncChunkWritesDesc", type: "bool", group: "performance" },
+  { key: "entity-broadcast-range-percentage", label: "serverDetail.props.entityBroadcastRangePercentageLabel", desc: "serverDetail.props.entityBroadcastRangePercentageDesc", type: "int", min: 0, max: 100, group: "performance" },
+  { key: "enable-jmx-monitoring", label: "serverDetail.props.enableJmxMonitoringLabel", desc: "serverDetail.props.enableJmxMonitoringDesc", type: "bool", group: "performance" },
+  { key: "enable-rcon", label: "serverDetail.props.enableRconLabel", desc: "serverDetail.props.enableRconDesc", type: "bool", group: "remote" },
+  { key: "rcon.port", label: "serverDetail.props.rconPortLabel", desc: "serverDetail.props.rconPortDesc", type: "int", min: 1, max: 65535, group: "remote" },
+  { key: "rcon.password", label: "serverDetail.props.rconPasswordLabel", desc: "serverDetail.props.rconPasswordDesc", type: "string", group: "remote" },
+  { key: "enable-query", label: "serverDetail.props.enableQueryLabel", desc: "serverDetail.props.enableQueryDesc", type: "bool", group: "remote" },
+  { key: "query.port", label: "serverDetail.props.queryPortLabel", desc: "serverDetail.props.queryPortDesc", type: "int", min: 1, max: 65535, group: "remote" },
+  { key: "resource-pack", label: "serverDetail.props.resourcePackLabel", desc: "serverDetail.props.resourcePackDesc", type: "string", group: "resourcePack" },
+  { key: "resource-pack-sha1", label: "serverDetail.props.resourcePackSha1Label", desc: "serverDetail.props.resourcePackSha1Desc", type: "string", group: "resourcePack" },
+  { key: "require-resource-pack", label: "serverDetail.props.requireResourcePackLabel", desc: "serverDetail.props.requireResourcePackDesc", type: "bool", group: "resourcePack" },
 ];
 
 const PROPS_DEFAULTS: Record<string, string> = {
@@ -280,7 +282,7 @@ async function savePropsForm() {
     const text = buildProperties();
     await api.writeHostedServerFile(serverId, "server.properties", text);
     propsSource.value = text;
-    message.success("配置已保存");
+    message.success(t("serverDetail.msg.configSaved"));
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -297,7 +299,7 @@ async function savePropsSource() {
     for (const f of PROPS_SCHEMA) merged[f.key] = data[f.key] ?? PROPS_DEFAULTS[f.key] ?? "";
     propsData.value = merged;
     propsExtra.value = extra;
-    message.success("配置已保存");
+    message.success(t("serverDetail.msg.configSaved"));
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -307,23 +309,23 @@ async function savePropsSource() {
 
 // ---- 其他配置文件 ----
 const CONFIG_DOCS: Record<string, string> = {
-  "eula.txt": "Mojang 最终用户许可协议，必须设为 eula=true 服务器才能启动",
-  "ops.json": "管理员（OP）列表，记录拥有管理权限的玩家及其权限等级",
-  "whitelist.json": "白名单列表，开启白名单后仅其中的玩家可加入服务器",
-  "banned-players.json": "被封禁的玩家列表，记录封禁原因与到期时间",
-  "banned-ips.json": "被封禁的 IP 地址列表",
-  "spigot.yml": "Spigot 服务端配置：性能调优、调试、命令、网络设置",
-  "paper.yml": "Paper 旧版配置（新版已迁移到 paper-global.yml 与 paper-world-defaults.yml）",
-  "paper-global.yml": "Paper 全局配置：异步区块、性能修复、压缩、网络等服务器级选项",
-  "paper-world-defaults.yml": "Paper 世界默认配置：每个世界的默认优化与修复选项",
-  "purpur.yml": "Purpur 配置：更细粒度的玩法调整与性能选项",
-  "bukkit.yml": "Bukkit 配置：世界生成、数据库、调试设置",
-  "commands.yml": "命令配置：命令别名与权限映射",
-  "pufferfish.yml": "Pufferfish 配置：性能与优化选项",
-  "permissions.yml": "权限配置",
-  "help.yml": "帮助命令配置",
-  "fabric-server.properties": "Fabric 服务端配置",
-  "logs.yml": "日志输出配置",
+  "eula.txt": "serverDetail.configDoc.eula.txt",
+  "ops.json": "serverDetail.configDoc.ops.json",
+  "whitelist.json": "serverDetail.configDoc.whitelist.json",
+  "banned-players.json": "serverDetail.configDoc.banned-players.json",
+  "banned-ips.json": "serverDetail.configDoc.banned-ips.json",
+  "spigot.yml": "serverDetail.configDoc.spigot.yml",
+  "paper.yml": "serverDetail.configDoc.paper.yml",
+  "paper-global.yml": "serverDetail.configDoc.paper-global.yml",
+  "paper-world-defaults.yml": "serverDetail.configDoc.paper-world-defaults.yml",
+  "purpur.yml": "serverDetail.configDoc.purpur.yml",
+  "bukkit.yml": "serverDetail.configDoc.bukkit.yml",
+  "commands.yml": "serverDetail.configDoc.commands.yml",
+  "pufferfish.yml": "serverDetail.configDoc.pufferfish.yml",
+  "permissions.yml": "serverDetail.configDoc.permissions.yml",
+  "help.yml": "serverDetail.configDoc.help.yml",
+  "fabric-server.properties": "serverDetail.configDoc.fabric-server.properties",
+  "logs.yml": "serverDetail.configDoc.logs.yml",
 };
 
 type ConfigFile = { name: string; rel: string; size: number; modified: number };
@@ -332,9 +334,9 @@ const loadingConfigs = ref(false);
 
 function configDoc(rel: string): string {
   const name = rel.split("/").pop() ?? rel;
-  if (CONFIG_DOCS[name]) return CONFIG_DOCS[name];
-  if (rel.startsWith("config/")) return "模组 / 插件配置文件，由对应模组生成，可调整其行为参数";
-  return "自定义配置文件";
+  if (CONFIG_DOCS[name]) return t(CONFIG_DOCS[name]);
+  if (rel.startsWith("config/")) return t("serverDetail.configDoc.modConfig");
+  return t("serverDetail.configDoc.custom");
 }
 
 async function loadConfigFiles() {
@@ -395,7 +397,7 @@ async function saveEditor() {
   ed.saving = true;
   try {
     await api.writeHostedServerFile(serverId, ed.rel, ed.content);
-    message.success("配置已保存");
+    message.success(t("serverDetail.msg.configSaved"));
     editor.value = null;
     loadConfigFiles();
   } catch (e) {
@@ -460,10 +462,10 @@ function clearLogs() {
 const logText = computed(() => logs.value.map((l) => l.line).join("\n"));
 
 async function copyLogs() {
-  if (!logText.value) return message.info("暂无日志内容");
+  if (!logText.value) return message.info(t("serverDetail.msg.noLogs"));
   try {
     await navigator.clipboard.writeText(logText.value);
-    message.success("已复制全部日志");
+    message.success(t("serverDetail.msg.logsCopied"));
   } catch {
     const ta = document.createElement("textarea");
     ta.value = logText.value;
@@ -471,24 +473,24 @@ async function copyLogs() {
     ta.select();
     const ok = document.execCommand("copy");
     document.body.removeChild(ta);
-    if (ok) message.success("已复制全部日志");
-    else message.error("复制失败");
+    if (ok) message.success(t("serverDetail.msg.logsCopied"));
+    else message.error(t("serverDetail.msg.copyFailed"));
   }
 }
 
 async function exportLogs() {
-  if (!logText.value) return message.info("暂无日志内容");
+  if (!logText.value) return message.info(t("serverDetail.msg.noLogs"));
   const ts = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   const defaultName = `server-${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.log`;
   const path = await save({
     defaultPath: defaultName,
-    filters: [{ name: "日志文件", extensions: ["log", "txt"] }],
+    filters: [{ name: t("serverDetail.msg.logFileFilter"), extensions: ["log", "txt"] }],
   });
   if (!path) return;
   try {
     await api.saveTextFile(path as string, logText.value);
-    message.success("日志已导出");
+    message.success(t("serverDetail.msg.logsExported"));
   } catch (e) {
     message.error(String(e));
   }
@@ -499,7 +501,7 @@ const starting = ref(false);
 async function start() {
   if (!server.value) return;
   if (!server.value.eula) {
-    message.warning("请先在「设置」中同意 Minecraft EULA");
+    message.warning(t("serverDetail.msg.agreeEula"));
     tab.value = "settings";
     return;
   }
@@ -508,15 +510,15 @@ async function start() {
   try {
     try {
       await servers.start(serverId);
-      message.success("服务器已启动");
+      message.success(t("serverDetail.msg.serverStarted"));
       tab.value = "logs";
     } catch (e) {
       const msg = String(e);
       if (msg.includes("server.jar 不存在")) {
-        message.info("首次启动，正在准备服务器核心…");
+        message.info(t("serverDetail.msg.preparingCore"));
         await servers.installCore(serverId);
         await servers.start(serverId);
-        message.success("服务器已启动");
+        message.success(t("serverDetail.msg.serverStarted"));
         tab.value = "logs";
       } else {
         throw e;
@@ -532,7 +534,7 @@ async function start() {
 async function stop() {
   try {
     await servers.stop(serverId);
-    message.success("已停止服务器");
+    message.success(t("serverDetail.msg.serverStopped"));
   } catch (e) {
     message.error(String(e));
   }
@@ -547,7 +549,7 @@ const confirmDelete = ref(false);
 async function doDelete() {
   try {
     await servers.remove(serverId);
-    message.success("服务器已删除");
+    message.success(t("serverDetail.msg.serverDeleted"));
     router.push("/multiplayer");
   } catch (e) {
     message.error(String(e));
@@ -590,7 +592,7 @@ onMounted(async () => {
       if (ev.payload.serverId !== serverId) return;
       servers.setRunning(serverId, ev.payload.state === "running");
       if (ev.payload.state === "exited") {
-        pushLog("err", `[进程已退出，代码 ${ev.payload.code ?? "?"}]`);
+        pushLog("err", t("serverDetail.msg.processExited", { code: ev.payload.code ?? "?" }));
       }
     },
   );
@@ -602,7 +604,7 @@ onMounted(async () => {
       const detail = ev.payload.tail.length
         ? "\n" + ev.payload.tail.join("\n")
         : "";
-      message.error(`服务器进程异常退出（代码 ${ev.payload.code}）${detail}`, { duration: 8000 });
+      message.error(t("serverDetail.msg.processError", { code: ev.payload.code, detail }), { duration: 8000 });
     },
   );
   unlisteners.push(u3);
@@ -617,7 +619,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="server-detail" v-if="server">
     <button class="back" @click="router.push('/multiplayer')">
-      <IconChevronLeft /> 返回服务器列表
+      <IconChevronLeft /> {{ t('serverDetail.back') }}
     </button>
 
     <div class="head glass">
@@ -630,66 +632,66 @@ onBeforeUnmount(() => {
         </span>
         <h2>{{ server.name }}</h2>
         <p class="head-sub">
-          <span class="mono">{{ server.mc_version }}</span> · 端口 {{ server.port }} ·
+          <span class="mono">{{ server.mc_version }}</span> · {{ t('serverDetail.port') }} {{ server.port }} ·
           {{ server.max_memory_mb }} MB
         </p>
       </div>
       <div class="head-ops">
         <button v-if="!running" class="btn primary" :disabled="starting" @click="start">
-          <IconPlay /> {{ starting ? "启动中…" : "启动" }}
+          <IconPlay /> {{ starting ? t('serverDetail.starting') : t('serverDetail.start') }}
         </button>
         <button v-else class="btn warn" @click="stop">
-          <IconStop /> 停止
+          <IconStop /> {{ t('serverDetail.stop') }}
         </button>
-        <button class="btn ghost" @click="openFolder()"><IconFolder /> 目录</button>
+        <button class="btn ghost" @click="openFolder()"><IconFolder /> {{ t('serverDetail.folder') }}</button>
       </div>
     </div>
 
     <div class="tabs glass">
       <button
-        v-for="t in tabs"
-        :key="t.key"
-        :class="{ active: tab === t.key }"
-        @click="tab = t.key"
+        v-for="tabItem in tabs"
+        :key="tabItem.key"
+        :class="{ active: tab === tabItem.key }"
+        @click="tab = tabItem.key"
       >
-        {{ t.label }}
+        {{ t(tabItem.label) }}
       </button>
     </div>
 
     <!-- 设置 -->
     <div v-if="tab === 'settings'" class="panel glass">
       <div class="section">
-        <h3 class="section-title">基本</h3>
-        <p class="section-hint">修改任意设置会自动保存</p>
+        <h3 class="section-title">{{ t('serverDetail.settings.basic') }}</h3>
+        <p class="section-hint">{{ t('serverDetail.settings.autoSaveHint') }}</p>
         <div class="field">
-          <label>服务器名称</label>
+          <label>{{ t('serverDetail.settings.serverName') }}</label>
           <n-input v-model:value="form.name" maxlength="40" @update:value="scheduleAutoSave" />
         </div>
         <div class="field-row">
           <div class="field">
-            <label>最大内存 (MB)</label>
+            <label>{{ t('serverDetail.settings.maxMem') }}</label>
             <n-input-number v-model:value="form.maxMem" :min="256" :step="256" @update:value="scheduleAutoSave" />
           </div>
           <div class="field">
-            <label>最小内存 (MB)</label>
+            <label>{{ t('serverDetail.settings.minMem') }}</label>
             <n-input-number v-model:value="form.minMem" :min="128" :step="256" @update:value="scheduleAutoSave" />
           </div>
         </div>
         <div class="field eula">
           <n-checkbox v-model:checked="form.eula" @update:checked="scheduleAutoSave">
-            我已阅读并同意
+            {{ t('serverDetail.settings.eulaAgree') }}
             <a href="https://account.mojang.com/documents/Minecraft_EULA" target="_blank" rel="noopener">Minecraft EULA</a>
           </n-checkbox>
         </div>
       </div>
 
       <div class="section">
-        <h3 class="section-title">Java 运行时</h3>
-        <p class="section-hint">留空则自动选择合适版本</p>
+        <h3 class="section-title">{{ t('serverDetail.settings.javaRuntime') }}</h3>
+        <p class="section-hint">{{ t('serverDetail.settings.javaHint') }}</p>
         <div class="java-row">
-          <n-input v-model:value="form.javaPath" placeholder="自动选择" @update:value="scheduleAutoSave" />
-          <button class="btn sm ghost" @click="pickJava">浏览…</button>
-          <button class="btn sm ghost" @click="loadJavaCandidates">刷新</button>
+          <n-input v-model:value="form.javaPath" :placeholder="t('serverDetail.settings.javaPlaceholder')" @update:value="scheduleAutoSave" />
+          <button class="btn sm ghost" @click="pickJava">{{ t('serverDetail.settings.browse') }}</button>
+          <button class="btn sm ghost" @click="loadJavaCandidates">{{ t('serverDetail.settings.refresh') }}</button>
         </div>
         <div v-if="javaCandidates.length" class="java-list">
           <button
@@ -706,20 +708,20 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="section">
-        <h3 class="section-title">JVM 参数</h3>
-        <p class="section-hint">额外的 JVM 启动参数，如 -XX:+UseG1GC</p>
-        <n-input v-model:value="form.jvmArgs" placeholder="例如：-XX:+UseG1GC -Dfile.encoding=UTF-8" @update:value="scheduleAutoSave" />
+        <h3 class="section-title">{{ t('serverDetail.settings.jvmArgs') }}</h3>
+        <p class="section-hint">{{ t('serverDetail.settings.jvmArgsHint') }}</p>
+        <n-input v-model:value="form.jvmArgs" :placeholder="t('serverDetail.settings.jvmArgsPlaceholder')" @update:value="scheduleAutoSave" />
       </div>
 
       <div class="section">
-        <h3 class="section-title">停止命令</h3>
-        <p class="section-hint">停止服务器时发送的命令，留空默认为 stop</p>
+        <h3 class="section-title">{{ t('serverDetail.settings.stopCommand') }}</h3>
+        <p class="section-hint">{{ t('serverDetail.settings.stopCommandHint') }}</p>
         <n-input v-model:value="form.stopCommand" placeholder="stop" @update:value="scheduleAutoSave" />
       </div>
 
       <div class="panel-foot">
-        <button class="btn danger" @click="confirmDelete = true"><IconTrash /> 删除服务器</button>
-        <span v-if="autoSaving" class="save-hint">保存中…</span>
+        <button class="btn danger" @click="confirmDelete = true"><IconTrash /> {{ t('serverDetail.settings.deleteServer') }}</button>
+        <span v-if="autoSaving" class="save-hint">{{ t('serverDetail.settings.saving') }}</span>
       </div>
     </div>
 
@@ -730,17 +732,17 @@ onBeforeUnmount(() => {
         <div class="section-head">
           <h3 class="section-title">server.properties</h3>
           <div class="props-mode-tabs">
-            <button :class="{ active: propsMode === 'form' }" @click="propsMode = 'form'">表单</button>
-            <button :class="{ active: propsMode === 'source' }" @click="propsMode = 'source'">源文件</button>
+            <button :class="{ active: propsMode === 'form' }" @click="propsMode = 'form'">{{ t('serverDetail.config.formMode') }}</button>
+            <button :class="{ active: propsMode === 'source' }" @click="propsMode = 'source'">{{ t('serverDetail.config.sourceMode') }}</button>
           </div>
         </div>
-        <p class="section-hint">Minecraft 服务器核心配置，表单模式提供结构化编辑与说明</p>
+        <p class="section-hint">{{ t('serverDetail.config.propsHint') }}</p>
 
         <div v-if="propsMode === 'form'" class="props-form">
-          <div v-if="loadingProps" class="empty-inline">正在加载配置…</div>
+          <div v-if="loadingProps" class="empty-inline">{{ t('serverDetail.config.loadingConfig') }}</div>
           <template v-else>
             <div v-for="g in PROPS_GROUPS" :key="g" class="props-group">
-              <h4 class="props-group-title">{{ g }}</h4>
+              <h4 class="props-group-title">{{ t('serverDetail.config.propsGroup.' + g) }}</h4>
               <div class="props-grid">
                 <div
                   v-for="f in PROPS_SCHEMA.filter(s => s.group === g)"
@@ -748,8 +750,8 @@ onBeforeUnmount(() => {
                   class="prop-item"
                 >
                   <div class="prop-label">
-                    <span class="prop-name">{{ f.label }}</span>
-                    <span class="prop-desc">{{ f.desc }}</span>
+                    <span class="prop-name">{{ t(f.label) }}</span>
+                    <span class="prop-desc">{{ t(f.desc) }}</span>
                   </div>
                   <div class="prop-control">
                     <n-switch
@@ -785,13 +787,13 @@ onBeforeUnmount(() => {
           </template>
           <div class="panel-foot">
             <button class="btn primary" :disabled="savingProps || loadingProps" @click="savePropsForm">
-              {{ savingProps ? "保存中…" : "保存配置" }}
+              {{ savingProps ? t('serverDetail.config.saving') : t('serverDetail.config.saveConfig') }}
             </button>
           </div>
         </div>
 
         <div v-else class="props-source">
-          <div v-if="loadingProps" class="empty-inline">正在加载配置…</div>
+          <div v-if="loadingProps" class="empty-inline">{{ t('serverDetail.config.loadingConfig') }}</div>
           <template v-else>
             <textarea
               v-model="propsSource"
@@ -800,7 +802,7 @@ onBeforeUnmount(() => {
             ></textarea>
             <div class="panel-foot">
               <button class="btn primary" :disabled="savingProps" @click="savePropsSource">
-                {{ savingProps ? "保存中…" : "保存配置" }}
+                {{ savingProps ? t('serverDetail.config.saving') : t('serverDetail.config.saveConfig') }}
               </button>
             </div>
           </template>
@@ -810,13 +812,13 @@ onBeforeUnmount(() => {
       <!-- 其他配置文件 -->
       <div class="section">
         <div class="section-head">
-          <h3 class="section-title">其他配置文件</h3>
-          <button class="btn sm ghost" @click="loadConfigFiles"><IconRefresh /> 刷新</button>
+          <h3 class="section-title">{{ t('serverDetail.config.otherConfigs') }}</h3>
+          <button class="btn sm ghost" @click="loadConfigFiles"><IconRefresh /> {{ t('serverDetail.config.refresh') }}</button>
         </div>
-        <p class="section-hint">ops.json、whitelist.json、spigot.yml 等，点击即可编辑</p>
-        <div v-if="loadingConfigs" class="empty-inline">正在扫描配置文件…</div>
+        <p class="section-hint">{{ t('serverDetail.config.otherConfigsHint') }}</p>
+        <div v-if="loadingConfigs" class="empty-inline">{{ t('serverDetail.config.scanningConfigs') }}</div>
         <div v-else-if="!configFiles.length" class="empty-inline">
-          暂未发现其他配置文件
+          {{ t('serverDetail.config.noOtherConfigs') }}
         </div>
         <div v-else class="config-list">
           <button
@@ -838,12 +840,12 @@ onBeforeUnmount(() => {
     <!-- 模组 -->
     <div v-else-if="tab === 'mods'" class="panel glass">
       <div class="panel-head">
-        <h3><IconBox /> 模组</h3>
-        <button class="btn sm ghost" @click="openFolder('mods')">打开 mods 目录</button>
+        <h3><IconBox /> {{ t('serverDetail.mods.title') }}</h3>
+        <button class="btn sm ghost" @click="openFolder('mods')">{{ t('serverDetail.mods.openFolder') }}</button>
       </div>
-      <div v-if="loadingFiles" class="empty-inline">加载中…</div>
+      <div v-if="loadingFiles" class="empty-inline">{{ t('serverDetail.mods.loading') }}</div>
       <div v-else-if="!fileList.length" class="empty-inline">
-        mods 目录为空，将模组 jar 放入 <code>mods/</code> 目录后即可加载
+        {{ t('serverDetail.mods.emptyPrefix') }} <code>mods/</code> {{ t('serverDetail.mods.emptySuffix') }}
       </div>
       <div v-else class="file-list">
         <div v-for="f in fileList" :key="f.name" class="file-row">
@@ -856,12 +858,12 @@ onBeforeUnmount(() => {
     <!-- 插件 -->
     <div v-else-if="tab === 'plugins'" class="panel glass">
       <div class="panel-head">
-        <h3><IconBox /> 插件</h3>
-        <button class="btn sm ghost" @click="openFolder('plugins')">打开 plugins 目录</button>
+        <h3><IconBox /> {{ t('serverDetail.plugins.title') }}</h3>
+        <button class="btn sm ghost" @click="openFolder('plugins')">{{ t('serverDetail.plugins.openFolder') }}</button>
       </div>
-      <div v-if="loadingFiles" class="empty-inline">加载中…</div>
+      <div v-if="loadingFiles" class="empty-inline">{{ t('serverDetail.plugins.loading') }}</div>
       <div v-else-if="!fileList.length" class="empty-inline">
-        plugins 目录为空，将插件 jar 放入 <code>plugins/</code> 目录后即可加载
+        {{ t('serverDetail.plugins.emptyPrefix') }} <code>plugins/</code> {{ t('serverDetail.plugins.emptySuffix') }}
       </div>
       <div v-else class="file-list">
         <div v-for="f in fileList" :key="f.name" class="file-row">
@@ -874,17 +876,17 @@ onBeforeUnmount(() => {
     <!-- 日志 -->
     <div v-else-if="tab === 'logs'" class="panel glass log-panel">
       <div class="panel-head">
-        <h3><IconFile /> 服务器日志</h3>
+        <h3><IconFile /> {{ t('serverDetail.logs.title') }}</h3>
         <div class="log-ops">
           <span class="run-dot" :class="{ on: running }"></span>
-          <span class="run-text">{{ running ? "运行中" : "未运行" }}</span>
-          <button class="btn sm ghost" title="复制全部日志" @click="copyLogs"><IconCopy /> 复制</button>
-          <button class="btn sm ghost" title="导出日志文件" @click="exportLogs"><IconDownload /> 导出</button>
-          <button class="btn sm ghost" @click="clearLogs">清空</button>
+          <span class="run-text">{{ running ? t('serverDetail.logs.running') : t('serverDetail.logs.stopped') }}</span>
+          <button class="btn sm ghost" :title="t('serverDetail.logs.copyAll')" @click="copyLogs"><IconCopy /> {{ t('serverDetail.logs.copy') }}</button>
+          <button class="btn sm ghost" :title="t('serverDetail.logs.exportFile')" @click="exportLogs"><IconDownload /> {{ t('serverDetail.logs.export') }}</button>
+          <button class="btn sm ghost" @click="clearLogs">{{ t('serverDetail.logs.clear') }}</button>
         </div>
       </div>
       <div ref="logBox" class="log-box">
-        <div v-if="!logs.length" class="log-empty">启动服务器后日志会显示在这里</div>
+        <div v-if="!logs.length" class="log-empty">{{ t('serverDetail.logs.empty') }}</div>
         <div
           v-for="(l, i) in logs"
           :key="i"
@@ -897,9 +899,9 @@ onBeforeUnmount(() => {
     <!-- 文件 -->
     <div v-else-if="tab === 'files'" class="panel glass">
       <div class="panel-head">
-        <h3><IconFolder /> 服务器文件</h3>
+        <h3><IconFolder /> {{ t('serverDetail.files.title') }}</h3>
       </div>
-      <p class="section-hint">左边浏览服务器目录，右边用内置编辑器修改文本文件</p>
+      <p class="section-hint">{{ t('serverDetail.files.hint') }}</p>
       <ServerFileManager :server-id="serverId" />
     </div>
 
@@ -913,7 +915,7 @@ onBeforeUnmount(() => {
     >
       <div v-if="editor" class="editor-body">
         <p class="editor-doc">{{ editor.doc }}</p>
-        <div v-if="editor.loading" class="editor-loading">正在读取文件…</div>
+        <div v-if="editor.loading" class="editor-loading">{{ t('serverDetail.editor.reading') }}</div>
         <div v-else-if="editor.error" class="editor-error">{{ editor.error }}</div>
         <textarea
           v-else
@@ -922,13 +924,13 @@ onBeforeUnmount(() => {
           spellcheck="false"
         ></textarea>
         <div class="editor-foot">
-          <button class="btn ghost" @click="editor = null">取消</button>
+          <button class="btn ghost" @click="editor = null">{{ t('serverDetail.editor.cancel') }}</button>
           <button
             class="btn primary"
             :disabled="editor.loading || editor.saving"
             @click="saveEditor"
           >
-            {{ editor.saving ? "保存中…" : "保存" }}
+            {{ editor.saving ? t('serverDetail.editor.saving') : t('serverDetail.editor.save') }}
           </button>
         </div>
       </div>
@@ -937,17 +939,17 @@ onBeforeUnmount(() => {
     <!-- 删除确认 -->
     <div v-if="confirmDelete" class="mask" @click="confirmDelete = false">
       <div class="confirm-card glass" @click.stop>
-        <h3>删除服务器</h3>
-        <p>确定要删除服务器「<b>{{ server.name }}</b>」吗？所有服务器文件将被永久删除。</p>
+        <h3>{{ t('serverDetail.delete.title') }}</h3>
+        <p>{{ t('serverDetail.delete.confirmPrefix') }}<b>{{ server.name }}</b>{{ t('serverDetail.delete.confirmSuffix') }}</p>
         <div class="confirm-foot">
-          <button class="btn ghost" @click="confirmDelete = false">取消</button>
-          <button class="btn danger" @click="doDelete">删除</button>
+          <button class="btn ghost" @click="confirmDelete = false">{{ t('serverDetail.delete.cancel') }}</button>
+          <button class="btn danger" @click="doDelete">{{ t('serverDetail.delete.delete') }}</button>
         </div>
       </div>
     </div>
   </div>
 
-  <div v-else class="loading">加载中…</div>
+  <div v-else class="loading">{{ t('serverDetail.loading') }}</div>
 </template>
 
 <style scoped>

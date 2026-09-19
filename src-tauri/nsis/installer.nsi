@@ -34,7 +34,6 @@ ${StrRep}
 ;  `QookiXInstallerUI.exe`, that frontend is compiled into the installer and
 ;  launched by `.onInit` as the modern installer. If the variable is absent the
 ;  installer gracefully falls back to the classic dark-styled wizard below.
-;  This mirrors how Mystic-Stars/Axolotl ships its installer UI.
 ; ============================================================================
 !tempfile QX_UI_PROBE
 !system 'cmd /c if defined QOOKIX_INSTALLER_UI echo !define QX_HAVE_UI 1 > "${QX_UI_PROBE}"'
@@ -42,7 +41,7 @@ ${StrRep}
 !delfile "${QX_UI_PROBE}"
 
 ; ============================================================================
-;  QookiX modern dark theme (learned from Mystic-Stars/Axolotl approach)
+;  QookiX modern dark theme
 ;  - system-level dark title bar (dwmapi)
 ;  - native dark controls (uxtheme DarkMode_Explorer)
 ;  - Segoe UI font + dark MUI palette

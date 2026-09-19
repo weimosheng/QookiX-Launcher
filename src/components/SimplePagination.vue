@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const props = defineProps<{
   page: number;
@@ -50,7 +53,7 @@ function go(p: number) {
     <button
       class="sp-btn sp-nav"
       :disabled="page <= 1"
-      title="上一页"
+      :title="t('simplePagination.prevPage')"
       @click="go(page - 1)"
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -71,7 +74,7 @@ function go(p: number) {
     <button
       class="sp-btn sp-nav"
       :disabled="page >= pageCount"
-      title="下一页"
+      :title="t('simplePagination.nextPage')"
       @click="go(page + 1)"
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">

@@ -8,11 +8,38 @@ use tauri::State;
 
 #[derive(serde::Serialize, Clone)]
 pub struct SkinEntry {
+    pub id: String,
     pub name: String,
     pub filename: String,
     pub path: String,
     pub size: u64,
     pub modified: u64,
+}
+
+/// 内容指纹：SHA256 前 8 位 hex，用作皮肤隐式 id，使同名不同内容的皮肤互不覆盖。
+fn skin_id_from_bytes(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let hash = hasher.finalize();
+    let mut s = String::with_capacity(8);
+    for b in &hash[..4] {
+        s.push_str(&format!("{:02x}", b));
+    }
+    s
+}
+
+/// 从文件 stem 解析显示名：去掉末尾 `.{8位hex}` id 段，无则原样返回（兼容旧文件）。
+fn display_name_from_stem(stem: &str) -> String {
+    let parts: Vec<&str> = stem.rsplitn(2, '.').collect();
+    if parts.len() == 2
+        && parts[0].len() == 8
+        && parts[0].chars().all(|c| c.is_ascii_hexdigit())
+    {
+        parts[1].to_string()
+    } else {
+        stem.to_string()
+    }
 }
 
 /// List all `.png` skins in the `skins` directory of the data root.
@@ -35,11 +62,13 @@ pub fn list_skins(state: State<AppState>) -> Result<Vec<SkinEntry>, String> {
             Err(_) => continue,
         };
         let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string();
-        let name = path
+        let stem = path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_string();
+        let id = stem.clone();
+        let name = display_name_from_stem(&stem);
         let modified = meta
             .modified()
             .ok()
@@ -47,6 +76,7 @@ pub fn list_skins(state: State<AppState>) -> Result<Vec<SkinEntry>, String> {
             .map(|d| d.as_secs())
             .unwrap_or(0);
         out.push(SkinEntry {
+            id,
             name,
             filename,
             path: path.to_string_lossy().to_string(),
@@ -99,12 +129,14 @@ pub fn save_skin_from_data(state: State<AppState>, name: String, data: String) -
     if safe_name.is_empty() {
         return Err("皮肤名称不能为空".into());
     }
+    let id = skin_id_from_bytes(&bytes);
     let dir = state.root.join("skins");
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建皮肤目录失败: {e}"))?;
-    let path = dir.join(format!("{}.png", safe_name));
+    let path = dir.join(format!("{}.{}.png", safe_name, id));
     std::fs::write(&path, &bytes).map_err(|e| format!("写入皮肤文件失败: {e}"))?;
     let meta = std::fs::metadata(&path).map_err(|e| format!("读取皮肤元信息失败: {e}"))?;
     Ok(SkinEntry {
+        id,
         name: safe_name,
         filename: path.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string(),
         path: path.to_string_lossy().to_string(),
@@ -146,12 +178,14 @@ pub async fn download_skin_from_url(
     if safe_name.is_empty() {
         return Err("皮肤名称不能为空".into());
     }
+    let id = skin_id_from_bytes(&bytes);
     let dir = state.root.join("skins");
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建皮肤目录失败: {e}"))?;
-    let path = dir.join(format!("{}.png", safe_name));
+    let path = dir.join(format!("{}.{}.png", safe_name, id));
     std::fs::write(&path, &bytes).map_err(|e| format!("写入皮肤文件失败: {e}"))?;
     let meta = std::fs::metadata(&path).map_err(|e| format!("读取皮肤元信息失败: {e}"))?;
     Ok(SkinEntry {
+        id,
         name: safe_name,
         filename: path.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string(),
         path: path.to_string_lossy().to_string(),

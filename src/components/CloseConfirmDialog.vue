@@ -13,10 +13,12 @@ import { NButton, NCheckbox, NModal } from "naive-ui";
 import { api } from "../api";
 import { notifyError } from "../composables/notify";
 import { IconMinus, IconPower } from "./icons";
+import { useI18n } from "vue-i18n";
 
 const show = ref(false);
 const remember = ref(false);
 const busy = ref(false);
+const { t } = useI18n();
 let unlisten: (() => void) | null = null;
 
 function open() {
@@ -66,30 +68,30 @@ onBeforeUnmount(() => {
   >
     <template #header>
       <div class="cc-head">
-        <span class="cc-title">关闭 QookiX Launcher</span>
-        <span class="cc-sub">请选择关闭窗口时的行为</span>
+        <span class="cc-title">{{ t("closeConfirm.title") }}</span>
+        <span class="cc-sub">{{ t("closeConfirm.subtitle") }}</span>
       </div>
     </template>
 
     <div class="cc-options">
       <button class="cc-option" :disabled="busy" @click="choose('minimize')">
         <span class="cc-icon"><IconMinus /></span>
-        <span class="cc-option-name">最小化到后台</span>
-        <span class="cc-option-hint">保持托盘运行，游戏与下载任务不中断</span>
+        <span class="cc-option-name">{{ t("closeConfirm.minimize.name") }}</span>
+        <span class="cc-option-hint">{{ t("closeConfirm.minimize.hint") }}</span>
       </button>
       <button class="cc-option is-danger" :disabled="busy" @click="choose('quit')">
         <span class="cc-icon"><IconPower /></span>
-        <span class="cc-option-name">退出程序</span>
-        <span class="cc-option-hint">完全关闭启动器，已启动的游戏不受影响</span>
+        <span class="cc-option-name">{{ t("closeConfirm.quit.name") }}</span>
+        <span class="cc-option-hint">{{ t("closeConfirm.quit.hint") }}</span>
       </button>
     </div>
 
     <template #footer>
       <div class="cc-footer">
         <NCheckbox v-model:checked="remember" :disabled="busy" class="cc-remember">
-          保持我的选择（下次不再询问）
+          {{ t("closeConfirm.remember") }}
         </NCheckbox>
-        <NButton :disabled="busy" @click="show = false">取消</NButton>
+        <NButton :disabled="busy" @click="show = false">{{ t("closeConfirm.cancel") }}</NButton>
       </div>
     </template>
   </NModal>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
+import { useI18n } from "vue-i18n";
 import { NButton, NDrawer, NDrawerContent, NSelect, useMessage, type SelectOption } from "naive-ui";
 import { api } from "../api";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -17,13 +18,14 @@ import {
   IconSearch,
   IconSliders,
 } from "../components/icons";
-import { cnCfName, CN_CATS } from "../utils/categories";
+import { cnCfName, translateCategory } from "../utils/categories";
 import { cacheGet, cacheSet } from "../utils/cache";
 import { instanceLabel } from "../utils/format";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import type { Instance, ProjectDependency, ProjectHit } from "../types";
 
 const message = useMessage();
+const { t } = useI18n();
 const settingsStore = useSettingsStore();
 const route = useRoute();
 const provider = ref<"all" | "modrinth" | "curseforge">("all");
@@ -42,42 +44,42 @@ const gameVersion = ref("");
 const loader = ref("");
 const showFilter = ref(false);
 const versionOptions = ref<{ label: string; value: string }[]>([]);
-const loaderOptions = [
-  { label: "全部加载器", value: "" },
+const loaderOptions = computed(() => [
+  { label: t("browse.loader.all"), value: "" },
   { label: "Fabric", value: "fabric" },
   { label: "Forge", value: "forge" },
   { label: "NeoForge", value: "neoforge" },
   { label: "Quilt", value: "quilt" },
-];
+]);
 // 来源 / 排序 / 每页数量 / 视图
-const providerOptions = [
-  { label: "全部来源", value: "all" },
+const providerOptions = computed(() => [
+  { label: t("browse.provider.all"), value: "all" },
   { label: "Modrinth", value: "modrinth" },
   { label: "CurseForge", value: "curseforge" },
-];
+]);
 const sort = ref("downloads");
 const pageSize = ref(20);
 const view = ref<"grid" | "list" | "compact">("grid");
-const sortOptions = [
-  { label: "下载量", value: "downloads" },
-  { label: "相关度", value: "relevance" },
-  { label: "收藏数", value: "follows" },
-  { label: "最新发布", value: "newest" },
-  { label: "最近更新", value: "updated" },
-];
-const pageSizeOptions = [
-  { label: "20 条 / 页", value: 20 },
-  { label: "40 条 / 页", value: 40 },
-  { label: "60 条 / 页", value: 60 },
-];
+const sortOptions = computed(() => [
+  { label: t("browse.sort.downloads"), value: "downloads" },
+  { label: t("browse.sort.relevance"), value: "relevance" },
+  { label: t("browse.sort.follows"), value: "follows" },
+  { label: t("browse.sort.newest"), value: "newest" },
+  { label: t("browse.sort.updated"), value: "updated" },
+]);
+const pageSizeOptions = computed(() => [
+  { label: t("browse.pageSize.perPage", { count: 20 }), value: 20 },
+  { label: t("browse.pageSize.perPage", { count: 40 }), value: 40 },
+  { label: t("browse.pageSize.perPage", { count: 60 }), value: 60 },
+]);
 
-const types = [
-  { key: "mod", label: "模组" },
-  { key: "modpack", label: "整合包" },
-  { key: "resourcepack", label: "资源包" },
-  { key: "shader", label: "光影" },
-  { key: "datapack", label: "数据包" },
-];
+const types = computed(() => [
+  { key: "mod", label: t("browse.type.mod") },
+  { key: "modpack", label: t("browse.type.modpack") },
+  { key: "resourcepack", label: t("browse.type.resourcepack") },
+  { key: "shader", label: t("browse.type.shader") },
+  { key: "datapack", label: t("browse.type.datapack") },
+]);
 
 const modrinthCategories: Record<string, string[]> = {
   mod: ["", "fabric", "forge", "quilt", "neoforge", "optimization", "library", "utility", "adventure", "magic", "tech", "decoration", "equipment", "food", "misc", "mobs", "storage", "worldgen"],
@@ -95,7 +97,7 @@ const showInstall = ref(false);
 const instances = ref<Instance[]>([]);
 const selectedInstanceId = ref<string | null>(null);
 const instanceOptions = computed(() => [
-  { label: "不关联实例", value: "" },
+  { label: t("browse.instance.none"), value: "" },
   ...instances.value.map((i) => ({
     label: instanceLabel(i),
     value: i.id,
@@ -202,7 +204,7 @@ function catLabel(v: string) {
   return catOptions.value.find((o) => o.value === v)?.label ?? v;
 }
 function loaderLabel(v: string) {
-  return loaderOptions.find((o) => o.value === v)?.label ?? v;
+  return loaderOptions.value.find((o) => o.value === v)?.label ?? v;
 }
 
 async function loadCfCategories() {
@@ -235,24 +237,24 @@ async function loadVersions() {
       .map((v) => v.id)
       .slice(0, 40);
     versionOptions.value = [
-      { label: "全部版本", value: "" },
+      { label: t("browse.version.all"), value: "" },
       ...ids.map((id) => ({ label: id, value: id })),
     ];
     cacheSet(cacheKey, versionOptions.value, 10 * 60 * 1000);
   } catch {
-    versionOptions.value = [{ label: "全部版本", value: "" }];
+    versionOptions.value = [{ label: t("browse.version.all"), value: "" }];
   }
 }
 
 function rebuildOptions() {
   if (provider.value === "all" || provider.value === "modrinth") {
     catOptions.value = (modrinthCategories[type.value] ?? []).map((c) => ({
-      label: c ? CN_CATS[c] ?? c : "全部分类",
+      label: c ? translateCategory(c) : t("browse.category.all"),
       value: c,
     }));
   } else {
     catOptions.value = [
-      { label: "全部分类", value: "" },
+      { label: t("browse.category.all"), value: "" },
       ...cfCategories.value.map((c) => ({ label: cnCfName(c.name), value: String(c.id) })),
     ];
   }
@@ -343,7 +345,7 @@ const translatedDescs = ref<Record<string, string>>({});
 
 function toggleTranslateMode() {
   translateMode.value = !translateMode.value;
-  if (translateMode.value) message.info("翻译模式：点击要翻译的卡片，完成后再点一次按钮退出");
+  if (translateMode.value) message.info(t("browse.translate.modeHint"));
 }
 
 async function translateCard(p: ProjectHit) {
@@ -355,7 +357,7 @@ async function translateCard(p: ProjectHit) {
     try {
       await openUrl(`https://fanyi.baidu.com/mtpe-individual/transText?query=${q}&lang=en2zh`);
     } catch (e) {
-      message.error("打开浏览器失败：" + String(e));
+      message.error(t("browse.translate.openBrowserFailed", { error: String(e) }));
     }
     return;
   }
@@ -374,9 +376,9 @@ async function translateCard(p: ProjectHit) {
     if (text) {
       translatedDescs.value = { ...translatedDescs.value, [p.id]: text };
     } else if (r.rateLimited) {
-      message.warning("翻译服务繁忙，请稍后再试");
+      message.warning(t("browse.translate.busy"));
     } else {
-      message.info("该内容暂时没有翻译");
+      message.info(t("browse.translate.noTranslation"));
     }
   } catch (e) {
     message.error(String(e));
@@ -422,7 +424,7 @@ const typeBox = ref<HTMLElement | null>(null);
 const { indicatorStyle: typeIndicatorStyle, refresh: refreshTypeIndicator } = useSlidingIndicator(
   typeBox,
   () => Array.from(typeBox.value?.querySelectorAll<HTMLElement>(".type-card button") ?? []),
-  () => types.findIndex((t) => t.key === type.value),
+  () => types.value.findIndex((tp) => tp.key === type.value),
   { axis: "horizontal" }
 );
 watch(type, () => nextTick(() => refreshTypeIndicator()));
@@ -462,12 +464,12 @@ onMounted(async () => {
     <div ref="typeBox" class="type-card glass">
       <div class="indicator" :style="typeIndicatorStyle"></div>
       <button
-        v-for="t in types"
-        :key="t.key"
-        :class="{ active: type === t.key }"
-        @click="type = t.key"
+        v-for="tp in types"
+        :key="tp.key"
+        :class="{ active: type === tp.key }"
+        @click="type = tp.key"
       >
-        {{ t.label }}
+        {{ tp.label }}
       </button>
     </div>
 
@@ -475,7 +477,7 @@ onMounted(async () => {
       <div class="toolbar-row">
         <div id="browse-search" class="search-box">
           <IconSearch />
-          <input v-model="query" placeholder="搜索内容…（如 sodium / iris / 某整合包）" />
+          <input v-model="query" :placeholder="t('browse.search.placeholder')" />
         </div>
         <n-select
           v-if="showInstanceSelect"
@@ -486,7 +488,7 @@ onMounted(async () => {
           :style="{ width: instanceSelectWidth + 'px' }"
           filterable
           :filter="filterInstance"
-          placeholder="搜索实例名 / 版本 / 加载器"
+          :placeholder="t('browse.instance.searchPlaceholder')"
         />
       </div>
       <div class="toolbar-row">
@@ -504,12 +506,12 @@ onMounted(async () => {
         />
         <div ref="viewBox" class="view-switch">
           <div class="indicator" :style="viewIndicatorStyle"></div>
-          <button :class="{ active: view === 'grid' }" title="网格" @click="view = 'grid'"><IconGrid /></button>
-          <button :class="{ active: view === 'list' }" title="列表" @click="view = 'list'"><IconList /></button>
-          <button :class="{ active: view === 'compact' }" title="紧凑列表" @click="view = 'compact'"><IconAlignJustify /></button>
+          <button :class="{ active: view === 'grid' }" :title="t('browse.view.grid')" @click="view = 'grid'"><IconGrid /></button>
+          <button :class="{ active: view === 'list' }" :title="t('browse.view.list')" @click="view = 'list'"><IconList /></button>
+          <button :class="{ active: view === 'compact' }" :title="t('browse.view.compact')" @click="view = 'compact'"><IconAlignJustify /></button>
         </div>
         <button class="filter-btn" :class="{ on: hasFilter }" @click="showFilter = true">
-          <IconSliders /> 筛选
+          <IconSliders /> {{ t("browse.filter.button") }}
         </button>
         <n-select
           v-model:value="provider"
@@ -522,39 +524,39 @@ onMounted(async () => {
           :class="{ on: translateMode }"
           @click="toggleTranslateMode"
         >
-          <IconLayers /> {{ translateMode ? "完成翻译" : "翻译" }}
+          <IconLayers /> {{ translateMode ? t("browse.translate.done") : t("browse.translate.toggle") }}
         </button>
       </div>
     </div>
 
     <div v-if="hasFilter" class="filter-tags glass">
       <span v-if="gameVersion" class="ftag">
-        版本 {{ gameVersion }}
-        <button class="ftag-x" title="移除" @click="gameVersion = ''"><IconClose /></button>
+        {{ t("browse.filter.versionTag", { value: gameVersion }) }}
+        <button class="ftag-x" :title="t('browse.filter.remove')" @click="gameVersion = ''"><IconClose /></button>
       </span>
       <span v-if="loader" class="ftag">
-        加载器 {{ loaderLabel(loader) }}
-        <button class="ftag-x" title="移除" @click="loader = ''"><IconClose /></button>
+        {{ t("browse.filter.loaderTag", { value: loaderLabel(loader) }) }}
+        <button class="ftag-x" :title="t('browse.filter.remove')" @click="loader = ''"><IconClose /></button>
       </span>
       <span v-if="category" class="ftag">
-        分类 {{ catLabel(category) }}
-        <button class="ftag-x" title="移除" @click="category = ''"><IconClose /></button>
+        {{ t("browse.filter.categoryTag", { value: catLabel(category) }) }}
+        <button class="ftag-x" :title="t('browse.filter.remove')" @click="category = ''"><IconClose /></button>
       </span>
-      <button class="ftag ftag-clear" @click="resetFilters">清除全部</button>
+      <button class="ftag ftag-clear" @click="resetFilters">{{ t("browse.filter.clearAll") }}</button>
     </div>
 
     <div v-if="provider === 'curseforge' && !cfCategories.length && !loading" class="cf-hint glass">
-      CurseForge 需要 API Key。请前往
+      {{ t("browse.cf.needApiKeyPre") }}
       <a href="https://console.curseforge.com" target="_blank">console.curseforge.com</a>
-      免费申请，并在 <router-link to="/settings">设置</router-link> 中填写。
+      {{ t("browse.cf.needApiKeyMid") }} <router-link to="/settings">{{ t("browse.cf.settings") }}</router-link> {{ t("browse.cf.needApiKeyPost") }}
     </div>
 
     <div v-if="provider === 'all' && cfError && !loading" class="cf-hint glass">
-      CurseForge 来源加载失败：{{ cfError }}。请前往 <router-link to="/settings">设置</router-link> 检查 API Key。
+      {{ t("browse.cf.loadFailedPre", { error: cfError }) }} <router-link to="/settings">{{ t("browse.cf.settings") }}</router-link> {{ t("browse.cf.loadFailedPost") }}
     </div>
 
-    <div v-show="loading" class="center">搜索中…</div>
-    <div v-show="!loading && !results.length" class="center">没有找到相关内容</div>
+    <div v-show="loading" class="center">{{ t("browse.search.searching") }}</div>
+    <div v-show="!loading && !results.length" class="center">{{ t("browse.search.noResult") }}</div>
     <div v-show="!loading && results.length" class="grid" :class="`view-${view}`">
       <ProjectCard
         v-for="p in results"
@@ -570,7 +572,7 @@ onMounted(async () => {
     </div>
 
     <div v-if="total > 20" class="pager">
-      <span class="pager-total">共 {{ total }} 条</span>
+      <span class="pager-total">{{ t("browse.pager.total", { count: total }) }}</span>
       <SimplePagination
         :page="page + 1"
         :page-count="pageCount"
@@ -579,13 +581,13 @@ onMounted(async () => {
     </div>
 
     <n-drawer v-model:show="showFilter" :width="330" placement="right">
-      <n-drawer-content title="筛选" closable>
+      <n-drawer-content :title="t('browse.filter.title')" closable>
         <div class="filter-group">
-          <label>游戏版本</label>
+          <label>{{ t("browse.filter.gameVersion") }}</label>
           <n-select v-model:value="gameVersion" :options="displayVersionOptions" size="small" />
         </div>
         <div v-if="showLoaderFilter" class="filter-group">
-          <label>加载器</label>
+          <label>{{ t("browse.filter.loader") }}</label>
           <div class="filter-chips">
             <button
               v-for="opt in loaderOptions"
@@ -597,7 +599,7 @@ onMounted(async () => {
           </div>
         </div>
         <div class="filter-group">
-          <label>类别</label>
+          <label>{{ t("browse.filter.category") }}</label>
           <div class="filter-chips">
             <button
               v-for="opt in catOptions"
@@ -607,11 +609,11 @@ onMounted(async () => {
               @click="category = opt.value"
             >{{ opt.label }}</button>
           </div>
-          <p v-if="provider === 'all'" class="filter-hint">全部来源下分类按 Modrinth 筛选，CurseForge 结果不受分类影响</p>
+          <p v-if="provider === 'all'" class="filter-hint">{{ t("browse.filter.hint") }}</p>
         </div>
         <div class="filter-actions">
-          <n-button size="small" @click="resetFilters">重置</n-button>
-          <n-button size="small" type="primary" @click="showFilter = false">完成</n-button>
+          <n-button size="small" @click="resetFilters">{{ t("browse.filter.reset") }}</n-button>
+          <n-button size="small" type="primary" @click="showFilter = false">{{ t("browse.filter.done") }}</n-button>
         </div>
       </n-drawer-content>
     </n-drawer>

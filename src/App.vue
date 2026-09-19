@@ -15,6 +15,9 @@ import { useSettingsStore } from "./stores/settings";
 import { initDeepLink } from "./composables/deepLink";
 import { MessageBridge } from "./composables/notify";
 import { useOnboarding } from "./composables/useOnboarding";
+import i18n from "./i18n";
+import { useI18n } from "vue-i18n";
+import type { AppLocale } from "./i18n";
 
 import { useAccountsStore } from "./stores/accounts";
 import { useInstancesStore } from "./stores/instances";
@@ -36,6 +39,15 @@ const instances = useInstancesStore();
 const tasks = useTasksStore();
 const pins = usePinsStore();
 const onboarding = useOnboarding();
+const { t } = useI18n();
+
+function applyLocale(lang: string | undefined | null) {
+  if (lang === "en-US" || lang === "zh-CN") {
+    i18n.global.locale.value = lang as AppLocale;
+  }
+}
+
+watch(() => settings.settings?.language, (lang) => applyLocale(lang));
 
 const isDark = computed(() => settings.settings?.theme !== "light");
 const activeTheme = computed(() => (isDark.value ? darkTheme : lightTheme));
@@ -107,32 +119,33 @@ provide("groupDialogRequest", groupDialogRequest);
 // 在 splash 期间预加载核心数据，让首屏直接有数据可渲染；
 // 各 store 的 load() 已是「已有数据则后台静默刷新」模式，这里首次加载会真正拉取。
 const bootProgress = ref(0);
-const bootStatus = ref("正在启动…");
+const bootStatus = ref(t("boot.starting"));
 const booted = ref(false);
 
 async function boot() {
-  bootStatus.value = "加载设置…";
+  bootStatus.value = t("boot.loadingSettings");
   try {
     await settings.load();
   } catch {
     /* 设置加载失败不阻塞启动 */
   }
+  applyLocale(settings.settings?.language);
   bootProgress.value = 24;
 
-  bootStatus.value = "读取实例与账号…";
+  bootStatus.value = t("boot.readingData");
   await Promise.all([
     instances.load().catch(() => {}),
     accounts.load().catch(() => {}),
   ]);
   bootProgress.value = 72;
 
-  bootStatus.value = "初始化任务系统…";
+  bootStatus.value = t("boot.initTasks");
   tasks.init();
   await pins.init().catch(() => {});
   void initDeepLink();
   bootProgress.value = 92;
 
-  bootStatus.value = "即将就绪…";
+  bootStatus.value = t("boot.almostReady");
   bootProgress.value = 100;
   // 让 100% 短暂展示后再淡出，避免进度条一闪而过
   setTimeout(() => {

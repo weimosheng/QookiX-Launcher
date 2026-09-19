@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
 import { useMessage } from "naive-ui";
+import { useI18n } from "vue-i18n";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IconRefresh } from "../components/icons";
 import { useNewsStore } from "../stores/news";
 import { fmtDateShort as fmtDate } from "../utils/format";
 
+const { t } = useI18n();
 const message = useMessage();
 const newsStore = useNewsStore();
 
@@ -30,14 +32,14 @@ onMounted(async () => {
 <template>
   <div class="news-view">
     <div class="news-header">
-      <h1>Minecraft 新闻</h1>
+      <h1>{{ t("news.title") }}</h1>
       <button class="refresh-btn" :disabled="newsStore.loading" @click="refresh">
         <IconRefresh class="btn-icon" />
-        {{ newsStore.loading ? "刷新中…" : "刷新" }}
+        {{ newsStore.loading ? t("news.refreshing") : t("common.refresh") }}
       </button>
     </div>
-    <div v-if="newsStore.loading && !newsStore.news.length" class="loading glass">加载中…</div>
-    <div v-else-if="!newsStore.news.length" class="empty glass">暂无新闻</div>
+    <div v-if="newsStore.loading && !newsStore.news.length" class="loading glass">{{ t("common.loading") }}</div>
+    <div v-else-if="!newsStore.news.length" class="empty glass">{{ t("news.empty") }}</div>
     <div v-else class="news-list">
       <div
         v-for="n in newsStore.news"

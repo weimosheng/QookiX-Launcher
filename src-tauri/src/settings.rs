@@ -157,6 +157,12 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
             settings.theme_color = v.trim().to_string();
         }
     }
+    if let Some(v) = patch.get("language").and_then(|v| v.as_str()) {
+        let l = v.trim();
+        if matches!(l, "zh-CN" | "en-US") {
+            settings.language = l.to_string();
+        }
+    }
     if let Some(v) = patch.get("close_behavior").and_then(|v| v.as_str()) {
         let b = v.trim();
         if matches!(b, "ask" | "minimize" | "quit") {

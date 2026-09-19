@@ -3,9 +3,6 @@
 
   · 生物群系 / 结构 / 出生点计算：cubiomes（MIT，Copyright © 2020 Cubitect）
     —— 经 src-tauri/src/cubiomes.rs + src-tauri/src/cubiomes_bridge.c 调用。
-  · 瓦片式地图（拖动 / 缩放 / 分块加载）的交互设计参考 Axolotl Launcher
-    （https://github.com/Mystic-Stars/Axolotl，GPL-3.0-only，Copyright © Mystic-Stars）；
-    配色、渲染与任务调度为本启动器自行实现。
   · 上述第三方组件的版权与许可声明见仓库根目录 THIRD_PARTY_NOTICES.md。
 -->
 <script setup lang="ts">
@@ -19,6 +16,7 @@ import {
   NCheckbox,
   useMessage,
 } from "naive-ui";
+import { useI18n } from "vue-i18n";
 import type { SelectOption } from "naive-ui";
 import { api } from "../api";
 import {
@@ -34,6 +32,7 @@ import {
 } from "../components/icons";
 import { useInstancesStore } from "../stores/instances";
 
+const { t } = useI18n();
 const message = useMessage();
 const instances = useInstancesStore();
 
@@ -53,34 +52,33 @@ const MC_CLASSIC: [string, string][] = [
 ];
 // naive-ui 的分组项用 `option.name || option.key` 当虚拟列表的 key，不给就会全部
 // 落到 "key-required" → 重复 key 会让下拉滚动时出现重复条目，所以每组都需唯一 key。
-const mcOptions = [
+const mcOptions = computed(() => [
   {
     key: "mc-26",
     type: "group",
-    label: "26.x（2026 起）",
+    label: t("seedMap.mcGroup26"),
     children: MC_NEW.map((v) => ({ label: v, value: v })),
   },
   {
     key: "mc-121",
     type: "group",
-    label: "1.21.x",
+    label: t("seedMap.mcGroup121"),
     children: MC_121.map((v) => ({ label: v, value: v })),
   },
   {
     key: "mc-120",
     type: "group",
-    label: "1.20 ~ 1.7",
+    label: t("seedMap.mcGroupLegacy"),
     children: MC_LEGACY.map((v) => ({ label: v, value: v })),
   },
   {
     key: "mc-classic",
     type: "group",
-    label: "1.6 及更早",
+    label: t("seedMap.mcGroupClassic"),
     children: MC_CLASSIC.map(([value, label]) => ({ label, value })),
   },
-];
+]);
 // 版本选择旁的解释（悬停可见）：说明新版本号复用同一个世界生成模型
-const MC_MODEL_NOTE = "26.x 与 1.21.4 之后的地表群系/结构沿用同一套生成模型（cubiomes 只建模到 1.21.4）；26.2 新增的地下「硫磺洞穴」群系未收录。";
 /** 选择器里全部可选版本（与 mcOptions 一致），用于把存档版本名映射到选项 */
 const MC_ALL = [...MC_NEW, ...MC_121, ...MC_LEGACY, ...MC_CLASSIC.map(([v]) => v)];
 
@@ -97,17 +95,17 @@ function matchMcVersion(name: string | null): string | null {
 }
 /** java = 普通世界类型；large = 大型生物群系（cubiomes LARGE_BIOMES） */
 const worldType = ref<"java" | "large">("java");
-const worldTypeOptions = [
-  { label: "Java 版", value: "java" },
-  { label: "大型生物群系", value: "large" },
-];
+const worldTypeOptions = computed(() => [
+  { label: t("seedMap.worldTypeJava"), value: "java" },
+  { label: t("seedMap.worldTypeLarge"), value: "large" },
+]);
 const largeBiomes = computed(() => worldType.value === "large");
 const dim = ref(0);
-const dimOptions = [
-  { label: "主世界", value: 0 },
-  { label: "下界", value: -1 },
-  { label: "末地", value: 1 },
-];
+const dimOptions = computed(() => [
+  { label: t("seedMap.dimOverworld"), value: 0 },
+  { label: t("seedMap.dimNether"), value: -1 },
+  { label: t("seedMap.dimEnd"), value: 1 },
+]);
 
 function randomSeedValue(): number {
   // 48 位随机种子（落在 Number 安全整数范围内，可正可负）
@@ -187,52 +185,52 @@ const seedStr = computed<string | null>(() => {
 //   · 水域基准色不必太暗：深海 / 深水层会按 in-water 深度自动压暗（见 isWater / depthOf）。
 const BIOMES: Record<number, [string, string]> = {
   // 海洋 / 河流
-  0: ["海洋", "#4a86c8"], 10: ["冰冻海洋", "#6f96c9"], 24: ["深海", "#33629e"],
-  44: ["暖水海洋", "#3cc0d2"], 45: ["温水海洋", "#41a8cc"], 46: ["冷水海洋", "#4674bd"],
-  47: ["深层暖水海洋", "#2fa8c0"], 48: ["深层温水海洋", "#3395b8"], 49: ["深层冷水海洋", "#3a63a8"],
-  50: ["深层冰冻海洋", "#5c85bd"], 7: ["河流", "#4d95d6"], 11: ["冰冻河流", "#8fbede"],
+  0: ["seedMap.biome.b0", "#4a86c8"], 10: ["seedMap.biome.b10", "#6f96c9"], 24: ["seedMap.biome.b24", "#33629e"],
+  44: ["seedMap.biome.b44", "#3cc0d2"], 45: ["seedMap.biome.b45", "#41a8cc"], 46: ["seedMap.biome.b46", "#4674bd"],
+  47: ["seedMap.biome.b47", "#2fa8c0"], 48: ["seedMap.biome.b48", "#3395b8"], 49: ["seedMap.biome.b49", "#3a63a8"],
+  50: ["seedMap.biome.b50", "#5c85bd"], 7: ["seedMap.biome.b7", "#4d95d6"], 11: ["seedMap.biome.b11", "#8fbede"],
   // 平原 / 丘陵 / 山地
-  1: ["平原", "#8fc45e"], 129: ["向日葵平原", "#a6d374"], 3: ["风袭丘陵", "#8b8d80"],
-  131: ["砂砾山地", "#9a9c8d"], 34: ["风袭森林", "#7e9c6a"], 162: ["风袭砂砾丘陵", "#a3a494"],
-  20: ["山地边缘", "#8f9488"], 180: ["尖峭山峰", "#d7e0e6"], 181: ["冰封山峰", "#c4d2e2"],
-  182: ["裸岩山峰", "#9aa3a8"], 179: ["积雪山坡", "#e2eaf0"], 177: ["草甸", "#79c05a"],
-  178: ["雪林", "#6f9a8a"],
+  1: ["seedMap.biome.b1", "#8fc45e"], 129: ["seedMap.biome.b129", "#a6d374"], 3: ["seedMap.biome.b3", "#8b8d80"],
+  131: ["seedMap.biome.b131", "#9a9c8d"], 34: ["seedMap.biome.b34", "#7e9c6a"], 162: ["seedMap.biome.b162", "#a3a494"],
+  20: ["seedMap.biome.b20", "#8f9488"], 180: ["seedMap.biome.b180", "#d7e0e6"], 181: ["seedMap.biome.b181", "#c4d2e2"],
+  182: ["seedMap.biome.b182", "#9aa3a8"], 179: ["seedMap.biome.b179", "#e2eaf0"], 177: ["seedMap.biome.b177", "#79c05a"],
+  178: ["seedMap.biome.b178", "#6f9a8a"],
   // 森林 / 针叶林
-  4: ["森林", "#6bb04e"], 132: ["繁花森林", "#82c95f"], 18: ["疏林丘陵", "#5d9c42"],
-  27: ["桦木森林", "#95c46b"], 28: ["桦木森林丘陵", "#86b65c"], 155: ["原始桦木森林", "#a3d17b"],
-  156: ["高桦木丘陵", "#93c26a"], 29: ["黑森林", "#418335"], 157: ["黑森林丘陵", "#39752e"],
-  5: ["针叶林", "#6f9f7c"], 133: ["针叶林山地", "#5f8b6c"], 19: ["针叶林丘陵", "#638f70"],
-  30: ["积雪针叶林", "#7fa595"], 31: ["积雪针叶林丘陵", "#739a8b"], 158: ["积雪针叶林山地", "#688f80"],
-  32: ["原始松木针叶林", "#5c8a63"], 160: ["原始云杉针叶林", "#6f9673"], 33: ["巨型针叶林丘陵", "#4f7c58"],
-  161: ["原始云杉针叶林丘陵", "#628a68"],
+  4: ["seedMap.biome.b4", "#6bb04e"], 132: ["seedMap.biome.b132", "#82c95f"], 18: ["seedMap.biome.b18", "#5d9c42"],
+  27: ["seedMap.biome.b27", "#95c46b"], 28: ["seedMap.biome.b28", "#86b65c"], 155: ["seedMap.biome.b155", "#a3d17b"],
+  156: ["seedMap.biome.b156", "#93c26a"], 29: ["seedMap.biome.b29", "#418335"], 157: ["seedMap.biome.b157", "#39752e"],
+  5: ["seedMap.biome.b5", "#6f9f7c"], 133: ["seedMap.biome.b133", "#5f8b6c"], 19: ["seedMap.biome.b19", "#638f70"],
+  30: ["seedMap.biome.b30", "#7fa595"], 31: ["seedMap.biome.b31", "#739a8b"], 158: ["seedMap.biome.b158", "#688f80"],
+  32: ["seedMap.biome.b32", "#5c8a63"], 160: ["seedMap.biome.b160", "#6f9673"], 33: ["seedMap.biome.b33", "#4f7c58"],
+  161: ["seedMap.biome.b161", "#628a68"],
   // 沼泽
-  6: ["沼泽", "#6a7a45"], 134: ["沼泽丘陵", "#74854e"], 184: ["红树林沼泽", "#3f9179"],
+  6: ["seedMap.biome.b6", "#6a7a45"], 134: ["seedMap.biome.b134", "#74854e"], 184: ["seedMap.biome.b184", "#3f9179"],
   // 冰雪 / 沙滩
-  12: ["雪原", "#eef3f8"], 13: ["雪山", "#dfe7ef"], 140: ["冰刺平原", "#d6ecf4"],
-  16: ["沙滩", "#efe0ab"], 25: ["石岸", "#a8a89a"], 26: ["积雪沙滩", "#f2ece0"],
+  12: ["seedMap.biome.b12", "#eef3f8"], 13: ["seedMap.biome.b13", "#dfe7ef"], 140: ["seedMap.biome.b140", "#d6ecf4"],
+  16: ["seedMap.biome.b16", "#efe0ab"], 25: ["seedMap.biome.b25", "#a8a89a"], 26: ["seedMap.biome.b26", "#f2ece0"],
   // 丛林
-  21: ["丛林", "#46a334"], 149: ["丛林变种", "#3f9a2f"], 22: ["丛林丘陵", "#3d9130"],
-  23: ["稀疏丛林", "#5cb03d"], 151: ["丛林边缘变种", "#52a83a"], 168: ["竹林", "#86a52e"],
-  169: ["竹林丘陵", "#7a982a"],
+  21: ["seedMap.biome.b21", "#46a334"], 149: ["seedMap.biome.b149", "#3f9a2f"], 22: ["seedMap.biome.b22", "#3d9130"],
+  23: ["seedMap.biome.b23", "#5cb03d"], 151: ["seedMap.biome.b151", "#52a83a"], 168: ["seedMap.biome.b168", "#86a52e"],
+  169: ["seedMap.biome.b169", "#7a982a"],
   // 热带草原
-  35: ["热带草原", "#c6b657"], 163: ["破碎热带草原", "#d7c963"], 36: ["热带草原高原", "#b4a44b"],
-  164: ["破碎热带草原高原", "#c5b556"],
+  35: ["seedMap.biome.b35", "#c6b657"], 163: ["seedMap.biome.b163", "#d7c963"], 36: ["seedMap.biome.b36", "#b4a44b"],
+  164: ["seedMap.biome.b164", "#c5b556"],
   // 恶地 / 沙漠
-  37: ["恶地", "#b0603c"], 165: ["被风蚀的恶地", "#c46a3a"], 38: ["疏林恶地", "#a8804f"],
-  166: ["疏林恶地变种", "#99734a"], 39: ["恶地高原", "#a4583a"], 167: ["恶地高原变种", "#975033"],
-  2: ["沙漠", "#e6d59a"], 130: ["沙漠湖泊", "#eedfa8"], 17: ["沙漠丘陵", "#dbc98a"],
+  37: ["seedMap.biome.b37", "#b0603c"], 165: ["seedMap.biome.b165", "#c46a3a"], 38: ["seedMap.biome.b38", "#a8804f"],
+  166: ["seedMap.biome.b166", "#99734a"], 39: ["seedMap.biome.b39", "#a4583a"], 167: ["seedMap.biome.b167", "#975033"],
+  2: ["seedMap.biome.b2", "#e6d59a"], 130: ["seedMap.biome.b130", "#eedfa8"], 17: ["seedMap.biome.b17", "#dbc98a"],
   // 洞穴 / 蘑菇岛 / 樱花 / 苍白
-  174: ["滴水石洞穴", "#7d6a55"], 175: ["繁茂洞穴", "#4f7f43"], 183: ["深暗之域", "#1e2733"],
-  14: ["蘑菇岛", "#b98ac2"], 15: ["蘑菇岛岸边", "#a87bae"], 185: ["樱花树林", "#e79cc4"],
-  186: ["苍白之园", "#97a1ad"],
+  174: ["seedMap.biome.b174", "#7d6a55"], 175: ["seedMap.biome.b175", "#4f7f43"], 183: ["seedMap.biome.b183", "#1e2733"],
+  14: ["seedMap.biome.b14", "#b98ac2"], 15: ["seedMap.biome.b15", "#a87bae"], 185: ["seedMap.biome.b185", "#e79cc4"],
+  186: ["seedMap.biome.b186", "#97a1ad"],
   // 下界
-  8: ["下界荒地", "#6d3a33"], 170: ["灵魂沙峡谷", "#54505f"], 171: ["绯红森林", "#8f3038"],
-  172: ["诡异森林", "#2f8b84"], 173: ["玄武岩三角洲", "#56575f"],
+  8: ["seedMap.biome.b8", "#6d3a33"], 170: ["seedMap.biome.b170", "#54505f"], 171: ["seedMap.biome.b171", "#8f3038"],
+  172: ["seedMap.biome.b172", "#2f8b84"], 173: ["seedMap.biome.b173", "#56575f"],
   // 末地
-  9: ["末地", "#a99ce0"], 40: ["末地小型岛屿", "#8a7cc6"], 41: ["末地内陆", "#c0b5ee"],
-  42: ["末地高地", "#d6cdf6"], 43: ["末地荒岛", "#7c6fb6"],
+  9: ["seedMap.biome.b9", "#a99ce0"], 40: ["seedMap.biome.b40", "#8a7cc6"], 41: ["seedMap.biome.b41", "#c0b5ee"],
+  42: ["seedMap.biome.b42", "#d6cdf6"], 43: ["seedMap.biome.b43", "#7c6fb6"],
   // 其它
-  127: ["虚空", "#101018"],
+  127: ["seedMap.biome.b127", "#101018"],
 };
 
 // 用数组按下标（id + 1）做查表，比 Map 快很多：瓦片生成是逐像素调用的热路径
@@ -256,7 +254,8 @@ function biomeRgb(id: number): [number, number, number] {
 }
 
 function biomeName(id: number): string {
-  return BIOMES[id]?.[0] ?? `未知群系(${id})`;
+  const entry = BIOMES[id];
+  return entry ? t(entry[0]) : t("seedMap.unknownBiome", { id });
 }
 
 /** 群系代表色（HEX），用于悬停信息里的色点 */
@@ -301,8 +300,8 @@ const tileScale = computed(
 );
 const scaleLabel = computed(() =>
   scale.value >= 1
-    ? `1px ≈ ${scale.value >= 10 ? Math.round(scale.value) : scale.value.toFixed(1)} 方块`
-    : `${Math.round(1 / scale.value)}px ≈ 1 方块`,
+    ? t("seedMap.scalePerBlock", { n: scale.value >= 10 ? Math.round(scale.value) : scale.value.toFixed(1) })
+    : t("seedMap.scaleBlocks", { n: Math.round(1 / scale.value) }),
 );
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -415,7 +414,7 @@ function ensureSpawn(): Promise<{ x: number; z: number } | null> {
   spawnPromise = api
     .toolboxWorldSpawn(seedStr.value, mc.value, largeBiomes.value)
     .catch((e) => {
-      message.error(`计算出生点失败：${e}`);
+      message.error(t("seedMap.spawnCalcFailed", { err: e }));
       spawnPromise = null;
       return null;
     });
@@ -425,11 +424,11 @@ function ensureSpawn(): Promise<{ x: number; z: number } | null> {
 /** 定位到世界出生点（主世界） */
 async function goSpawn() {
   if (seedStr.value === null) {
-    message.warning("种子必须是 64 位整数");
+    message.warning(t("seedMap.warnSeedInt64"));
     return;
   }
   if (dim.value !== 0) {
-    message.warning("出生点只存在于主世界");
+    message.warning(t("seedMap.spawnOverworldOnly"));
     return;
   }
   spawnLoading.value = true;
@@ -443,7 +442,7 @@ async function goSpawn() {
     pin.value = { x: p.x, z: p.z };
     picked.value = null;
     scheduleRefresh(0);
-    message.success(`出生点 (${p.x}, ${p.z})`);
+    message.success(t("seedMap.spawnAt", { x: p.x, z: p.z }));
   } finally {
     spawnLoading.value = false;
   }
@@ -489,12 +488,12 @@ const biomeSelectOptions = computed(() => {
   for (const [idStr, [name, color]] of Object.entries(BIOMES)) {
     const id = Number(idStr);
     const list = NETHER_IDS.includes(id) ? nether : END_IDS.includes(id) ? end : overworld;
-    list.push({ label: name, value: id, color });
+    list.push({ label: t(name), value: id, color });
   }
   return [
-    { type: "group" as const, key: "hl-ow", label: "主世界", children: overworld },
-    { type: "group" as const, key: "hl-nether", label: "下界", children: nether },
-    { type: "group" as const, key: "hl-end", label: "末地", children: end },
+    { type: "group" as const, key: "hl-ow", label: t("seedMap.dimOverworld"), children: overworld },
+    { type: "group" as const, key: "hl-nether", label: t("seedMap.dimNether"), children: nether },
+    { type: "group" as const, key: "hl-end", label: t("seedMap.dimEnd"), children: end },
   ].filter((g) => g.children.length);
 });
 function clearHighlight() {
@@ -559,20 +558,20 @@ const pickedStyle = computed(() => {
 /** 面板里「常用」按钮恢复的组合 */
 const STRUCT_PRESET = ["village", "monument", "mansion", "ancient_city", "trial_chambers"];
 const structTypes = ref<string[]>([...STRUCT_PRESET]);
-const structOptions = [
-  { label: "出生点", value: "spawn" },
-  { label: "村庄", value: "village" }, { label: "沙漠神庙", value: "desert_pyramid" },
-  { label: "丛林神庙", value: "jungle_temple" }, { label: "沼泽小屋", value: "swamp_hut" },
-  { label: "雪屋", value: "igloo" }, { label: "海底废墟", value: "ocean_ruin" },
-  { label: "沉船", value: "shipwreck" }, { label: "海底神殿", value: "monument" },
-  { label: "林地府邸", value: "mansion" }, { label: "掠夺者前哨站", value: "outpost" },
-  { label: "废弃传送门", value: "ruined_portal" }, { label: "远古城市", value: "ancient_city" },
-  { label: "埋藏宝藏", value: "treasure" }, { label: "矿井", value: "mineshaft" },
-  { label: "紫水晶洞", value: "geode" }, { label: "下界要塞", value: "fortress" },
-  { label: "堡垒遗迹", value: "bastion" }, { label: "末地城", value: "end_city" },
-  { label: "踪迹遗迹", value: "trail_ruins" }, { label: "试炼密室", value: "trial_chambers" },
-];
-const structLabel = (v: string) => structOptions.find((o) => o.value === v)?.label ?? v;
+const structOptions = computed(() => [
+  { label: t("seedMap.structNames.spawn"), value: "spawn" },
+  { label: t("seedMap.structNames.village"), value: "village" }, { label: t("seedMap.structNames.desert_pyramid"), value: "desert_pyramid" },
+  { label: t("seedMap.structNames.jungle_temple"), value: "jungle_temple" }, { label: t("seedMap.structNames.swamp_hut"), value: "swamp_hut" },
+  { label: t("seedMap.structNames.igloo"), value: "igloo" }, { label: t("seedMap.structNames.ocean_ruin"), value: "ocean_ruin" },
+  { label: t("seedMap.structNames.shipwreck"), value: "shipwreck" }, { label: t("seedMap.structNames.monument"), value: "monument" },
+  { label: t("seedMap.structNames.mansion"), value: "mansion" }, { label: t("seedMap.structNames.outpost"), value: "outpost" },
+  { label: t("seedMap.structNames.ruined_portal"), value: "ruined_portal" }, { label: t("seedMap.structNames.ancient_city"), value: "ancient_city" },
+  { label: t("seedMap.structNames.treasure"), value: "treasure" }, { label: t("seedMap.structNames.mineshaft"), value: "mineshaft" },
+  { label: t("seedMap.structNames.geode"), value: "geode" }, { label: t("seedMap.structNames.fortress"), value: "fortress" },
+  { label: t("seedMap.structNames.bastion"), value: "bastion" }, { label: t("seedMap.structNames.end_city"), value: "end_city" },
+  { label: t("seedMap.structNames.trail_ruins"), value: "trail_ruins" }, { label: t("seedMap.structNames.trial_chambers"), value: "trial_chambers" },
+]);
+const structLabel = (v: string) => structOptions.value.find((o) => o.value === v)?.label ?? v;
 const STRUCT_COLORS: Record<string, string> = {
   spawn: "#7ad08a",
   village: "#f0c060", desert_pyramid: "#e0b070", jungle_temple: "#7fc060",
@@ -1271,7 +1270,7 @@ function describePoint(x: number, z: number, id: number | null): Picked {
     kind: "biome",
     x,
     z,
-    name: id === null ? "（瓦片未加载）" : id < 0 ? "（此处无群系）" : biomeName(id),
+    name: id === null ? t("seedMap.tileNotLoaded") : id < 0 ? t("seedMap.noBiomeHere") : biomeName(id),
     color: missing ? "transparent" : biomeHex(id),
     chunkX: Math.floor(x / 16),
     chunkZ: Math.floor(z / 16),
@@ -1298,16 +1297,16 @@ async function copyText(text: string, ok: string) {
     await navigator.clipboard.writeText(text);
     message.success(ok);
   } catch {
-    message.error("复制失败");
+    message.error(t("seedMap.copyFailed"));
   }
 }
 function copyPickedCoords() {
   const p = picked.value;
-  if (p) void copyText(`${p.x} ${p.z}`, "已复制坐标");
+  if (p) void copyText(`${p.x} ${p.z}`, t("seedMap.copiedCoords"));
 }
 function copyPickedChunk() {
   const p = picked.value;
-  if (p) void copyText(`${p.chunkX} ${p.chunkZ}`, "已复制区块坐标");
+  if (p) void copyText(`${p.chunkX} ${p.chunkZ}`, t("seedMap.copiedChunk"));
 }
 /** 生成 /tp 指令：y 用后端估算的地表高度（避免丢 ~ 后落在石头里），取不到才退回 ~ */
 async function tpCommand(x: number, z: number): Promise<string> {
@@ -1323,7 +1322,7 @@ async function tpCommand(x: number, z: number): Promise<string> {
 async function copyPickedTp() {
   const p = picked.value;
   if (!p) return;
-  void copyText(await tpCommand(p.x, p.z), "已复制 TP 指令");
+  void copyText(await tpCommand(p.x, p.z), t("seedMap.copiedTp"));
 }
 /** 把地图移到点选的结构 / 点位上 */
 function goToPicked() {
@@ -1338,7 +1337,7 @@ function goToPicked() {
 async function copyGotoTp() {
   const x = Math.round(Number(gotoX.value) || 0);
   const z = Math.round(Number(gotoZ.value) || 0);
-  void copyText(await tpCommand(x, z), "已复制 TP 指令");
+  void copyText(await tpCommand(x, z), t("seedMap.copiedTp"));
 }
 
 function onMapHover(e: MouseEvent) {
@@ -1413,7 +1412,7 @@ async function toggleFullscreen() {
     if (document.fullscreenElement) await document.exitFullscreen();
     else await mapWrapRef.value?.requestFullscreen();
   } catch (e) {
-    message.error(`切换全屏失败：${e}`);
+    message.error(t("seedMap.fullscreenFailed", { err: e }));
   }
 }
 
@@ -1461,7 +1460,7 @@ function goTo() {
 
 function applySeed() {
   if (seedStr.value === null) {
-    message.warning("种子必须是 64 位整数（-9223372036854775808 ~ 9223372036854775807）");
+    message.warning(t("seedMap.warnSeedInt64Range"));
     return;
   }
   pin.value = null;
@@ -1518,7 +1517,7 @@ watch(importWorld, async (world) => {
   if (!world || !importInstance.value) return;
   try {
     const info = await api.toolboxReadWorldInfo(importInstance.value, world);
-    if (info.seed === null) message.warning("该存档没有固定种子（随机种子世界）");
+    if (info.seed === null) message.warning(t("seedMap.warnNoFixedSeed"));
     importSeed.value = info.seed;
     importVersion.value = info.version;
   } catch (e) {
@@ -1533,7 +1532,7 @@ function applyImportedSeed() {
   const want = matchMcVersion(importVersion.value);
   if (want && want !== mc.value) {
     mc.value = want;
-    message.success(`已按存档切换到 ${want}`);
+    message.success(t("seedMap.switchedToVersion", { version: want }));
   }
   importShow.value = false;
   applySeed();
@@ -1583,45 +1582,45 @@ onUnmounted(() => {
   <div id="seed-root" class="seed-view">
     <div class="glass param-bar">
       <div class="field seed-field">
-        <label>种子</label>
-        <NInput v-model:value="seedText" placeholder="输入世界种子（支持负数）" @keyup.enter="applySeed" />
+        <label>{{ t("seedMap.seed") }}</label>
+        <NInput v-model:value="seedText" :placeholder="t('seedMap.seedPlaceholder')" @keyup.enter="applySeed" />
       </div>
       <div class="seed-actions">
-        <button class="mini-btn" title="随机一个种子" @click="randomSeed">
-          <IconZap />随机
+        <button class="mini-btn" :title="t('seedMap.randomSeedTitle')" @click="randomSeed">
+          <IconZap />{{ t("seedMap.random") }}
         </button>
         <NPopover trigger="click" placement="bottom-start" :width="300">
           <template #trigger>
             <button class="mini-btn" :disabled="!history.length">
-              <IconClock />历史({{ history.length }})
+              <IconClock />{{ t("seedMap.history") }}({{ history.length }})
             </button>
           </template>
           <div class="history-panel">
             <div class="history-head">
-              <span>最近使用</span>
-              <button class="link-btn" @click="clearHistory">清空</button>
+              <span>{{ t("seedMap.recent") }}</span>
+              <button class="link-btn" @click="clearHistory">{{ t("seedMap.clear") }}</button>
             </div>
-            <div v-if="!history.length" class="muted">暂无记录</div>
+            <div v-if="!history.length" class="muted">{{ t("seedMap.noHistory") }}</div>
             <button v-for="(h, i) in history" :key="i" class="history-item" @click="useHistory(h)">
               <span class="hs-seed mono">{{ h.seed }}</span>
-              <span class="hs-meta">{{ h.mc }} · {{ h.worldType === "large" ? "大型" : "Java" }}</span>
+              <span class="hs-meta">{{ h.mc }} · {{ h.worldType === "large" ? t("seedMap.worldTypeLargeShort") : t("seedMap.worldTypeJavaShort") }}</span>
             </button>
           </div>
         </NPopover>
-        <button class="mini-btn" title="从实例存档读取种子" @click="openSaveImport">
-          <IconFolder />导入存档
+        <button class="mini-btn" :title="t('seedMap.importSaveTitle')" @click="openSaveImport">
+          <IconFolder />{{ t("seedMap.importSave") }}
         </button>
       </div>
-      <div class="field" :title="MC_MODEL_NOTE">
-        <label>MC 版本</label>
+      <div class="field" :title="t('seedMap.mcModelNote')">
+        <label>{{ t("seedMap.mcVersion") }}</label>
         <NSelect v-model:value="mc" :options="mcOptions" />
       </div>
       <div class="field">
-        <label>版本类型</label>
+        <label>{{ t("seedMap.worldTypeLabel") }}</label>
         <NSelect v-model:value="worldType" :options="worldTypeOptions" />
       </div>
       <div class="field">
-        <label>维度</label>
+        <label>{{ t("seedMap.dimension") }}</label>
         <NSelect v-model:value="dim" :options="dimOptions" />
       </div>
     </div>
@@ -1629,18 +1628,18 @@ onUnmounted(() => {
     <div class="glass map-toolbar">
       <div class="coord-field"><label>X</label><NInputNumber v-model:value="gotoX" size="small" :show-button="false" /></div>
       <div class="coord-field"><label>Z</label><NInputNumber v-model:value="gotoZ" size="small" :show-button="false" /></div>
-      <button class="mini-btn primary" @click="goTo"><IconMapPin />前往</button>
-      <button class="mini-btn" title="复制 /tp @s X Y Z（Y 为估算地表高度）" @click="copyGotoTp">TP</button>
+      <button class="mini-btn primary" @click="goTo"><IconMapPin />{{ t("seedMap.goTo") }}</button>
+      <button class="mini-btn" :title="t('seedMap.tpTitle')" @click="copyGotoTp">TP</button>
       <div class="tb-sep" />
       <button
         class="mini-btn"
-        :title="dim === 0 ? '定位世界出生点' : '出生点只存在于主世界'"
+        :title="dim === 0 ? t('seedMap.goSpawnTitle') : t('seedMap.spawnOverworldOnly')"
         :disabled="spawnLoading || dim !== 0"
         @click="goSpawn"
       >
-        <IconHome />出生点
+        <IconHome />{{ t("seedMap.spawnPoint") }}
       </button>
-      <button class="mini-btn" title="重新加载当前视野" @click="refreshMap"><IconRefresh />刷新</button>
+      <button class="mini-btn" :title="t('seedMap.refreshViewTitle')" @click="refreshMap"><IconRefresh />{{ t("common.refresh") }}</button>
       <span class="tb-scale muted tiny">{{ scaleLabel }}</span>
     </div>
 
@@ -1662,18 +1661,18 @@ onUnmounted(() => {
 
       <!-- 地图内左侧面板 -->
       <aside ref="sideRef" class="map-side">
-        <h3 class="panel-title"><IconLayers /> 图层</h3>
-        <label class="layer-row"><NCheckbox v-model:checked="showRelief" /> 地貌阴影</label>
-        <label class="layer-row"><NCheckbox v-model:checked="showHoverName" /> 悬停显示信息</label>
+        <h3 class="panel-title"><IconLayers /> {{ t("seedMap.layers") }}</h3>
+        <label class="layer-row"><NCheckbox v-model:checked="showRelief" /> {{ t("seedMap.reliefShade") }}</label>
+        <label class="layer-row"><NCheckbox v-model:checked="showHoverName" /> {{ t("seedMap.hoverInfo") }}</label>
         <label
           class="layer-row"
-          title="叠加区块网格（16×16 方块），并在上边缘显示区块 X、左边缘显示区块 Z"
+          :title="t('seedMap.showChunksTitle')"
         >
-          <NCheckbox v-model:checked="showChunks" /> 显示区块
+          <NCheckbox v-model:checked="showChunks" /> {{ t("seedMap.showChunks") }}
         </label>
 
         <div class="layer-sep" />
-        <label class="layer-row"><NCheckbox v-model:checked="showStructures" /> 结构</label>
+        <label class="layer-row"><NCheckbox v-model:checked="showStructures" /> {{ t("seedMap.structures") }}</label>
         <NSelect
           v-model:value="structTypes"
           multiple
@@ -1682,20 +1681,20 @@ onUnmounted(() => {
           :options="structOptions"
           :disabled="!showStructures"
           :max-tag-count="1"
-          placeholder="搜索或选择结构"
+          :placeholder="t('seedMap.searchStructPlaceholder')"
         />
         <div class="row-links">
-          <button class="link-btn" @click="structTypes = [...STRUCT_PRESET]">常用</button>
-          <button class="link-btn" @click="structTypes = []">清空</button>
+          <button class="link-btn" @click="structTypes = [...STRUCT_PRESET]">{{ t("seedMap.preset") }}</button>
+          <button class="link-btn" @click="structTypes = []">{{ t("seedMap.clear") }}</button>
         </div>
         <div v-if="showStructures" class="muted tiny">
-          {{ structLoading ? "正在查找结构…" : `已标注 ${structures.length} 个结构` }}
+          {{ structLoading ? t("seedMap.searchingStructs") : t("seedMap.structsAnnotated", { n: structures.length }) }}
         </div>
 
         <div class="layer-sep" />
         <div class="panel-sub">
-          <span>高亮地形</span>
-          <button v-if="highlightBiomes.length" class="link-btn" @click="clearHighlight">清除</button>
+          <span>{{ t("seedMap.highlightTerrain") }}</span>
+          <button v-if="highlightBiomes.length" class="link-btn" @click="clearHighlight">{{ t("seedMap.clearHighlight") }}</button>
         </div>
         <NSelect
           v-model:value="highlightBiomes"
@@ -1705,23 +1704,23 @@ onUnmounted(() => {
           :max-tag-count="1"
           :options="biomeSelectOptions"
           :render-label="renderBiomeLabel"
-          placeholder="搜索群系名…"
+          :placeholder="t('seedMap.searchBiomePlaceholder')"
         />
         <div class="muted tiny">
-          <template v-if="highlightBiomes.length && !highlightActive">当前维度没有选中的群系</template>
-          <template v-else>选中群系留亮、其余压暗；点地图也能一键高亮。</template>
+          <template v-if="highlightBiomes.length && !highlightActive">{{ t("seedMap.noBiomeInDim") }}</template>
+          <template v-else>{{ t("seedMap.highlightHint") }}</template>
         </div>
       </aside>
 
       <!-- 地图内右侧控制 -->
       <div class="map-ctrl">
-        <button class="ctrl-btn" title="放大" @click="zoomBy(-0.5)">
+        <button class="ctrl-btn" :title="t('seedMap.zoomIn')" @click="zoomBy(-0.5)">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
         </button>
-        <button class="ctrl-btn" title="缩小" @click="zoomBy(0.5)">
+        <button class="ctrl-btn" :title="t('seedMap.zoomOut')" @click="zoomBy(0.5)">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12" /></svg>
         </button>
-        <button class="ctrl-btn" :title="isFullscreen ? '退出全屏' : '全屏显示地图'" @click="toggleFullscreen">
+        <button class="ctrl-btn" :title="isFullscreen ? t('seedMap.exitFullscreen') : t('seedMap.enterFullscreen')" @click="toggleFullscreen">
           <IconMinimize v-if="isFullscreen" />
           <IconMaximize v-else />
         </button>
@@ -1742,26 +1741,26 @@ onUnmounted(() => {
         <div class="mi-head">
           <i class="biome-dot" :style="{ background: picked.color }" />
           <span class="biome-name">{{ picked.name }}</span>
-          <span v-if="picked.kind === 'struct'" class="mi-kind">结构</span>
-          <button class="mi-close" title="关闭" @click="picked = null">×</button>
+          <span v-if="picked.kind === 'struct'" class="mi-kind">{{ t("seedMap.struct") }}</span>
+          <button class="mi-close" :title="t('common.close')" @click="picked = null">×</button>
         </div>
         <div class="mi-line mono">x {{ picked.x }} · z {{ picked.z }}</div>
-        <div class="mi-line muted">区块 ({{ picked.chunkX }}, {{ picked.chunkZ }})</div>
+        <div class="mi-line muted">{{ t("seedMap.chunk", { x: picked.chunkX, z: picked.chunkZ }) }}</div>
         <div class="mi-actions">
-          <button class="mini-btn" title="复制坐标 x z" @click="copyPickedCoords">复制坐标</button>
-          <button class="mini-btn" title="复制区块坐标" @click="copyPickedChunk">区块</button>
-          <button class="mini-btn primary" title="复制 /tp @s x y z（y 为估算地表高度）" @click="copyPickedTp">TP</button>
-          <button v-if="picked.kind === 'struct'" class="mini-btn" title="把地图移到这个位置" @click="goToPicked">
-            前往
+          <button class="mini-btn" :title="t('seedMap.copyCoordsTitle')" @click="copyPickedCoords">{{ t("seedMap.copyCoords") }}</button>
+          <button class="mini-btn" :title="t('seedMap.copyChunkTitle')" @click="copyPickedChunk">{{ t("seedMap.chunkShort") }}</button>
+          <button class="mini-btn primary" :title="t('seedMap.copyTpTitle')" @click="copyPickedTp">TP</button>
+          <button v-if="picked.kind === 'struct'" class="mini-btn" :title="t('seedMap.goToHereTitle')" @click="goToPicked">
+            {{ t("seedMap.goTo") }}
           </button>
           <button
             v-else
             class="mini-btn"
-            title="高亮该群系（其余地形压暗）"
+            :title="t('seedMap.highlightBiomeTitle')"
             :disabled="picked.biomeId === null || picked.biomeId < 0 || isHighlighted(picked.biomeId)"
             @click="highlightPickedBiome"
           >
-            {{ isHighlighted(picked.biomeId) ? "已高亮" : "高亮" }}
+            {{ isHighlighted(picked.biomeId) ? t("seedMap.highlighted") : t("seedMap.highlight") }}
           </button>
         </div>
       </div>
@@ -1769,7 +1768,7 @@ onUnmounted(() => {
       <!-- 底部：瓦片加载进度 -->
       <div v-if="showProgress" class="map-progress">
         <div class="progress-head">
-          <span>正在加载地图区块</span>
+          <span>{{ t("seedMap.loadingMapChunks") }}</span>
           <span class="mono">{{ loadedTiles }} / {{ totalTiles }}</span>
         </div>
         <div class="progress-track">
@@ -1780,38 +1779,37 @@ onUnmounted(() => {
 
     <!-- 第三方组件署名（cubiomes，MIT）：与联机页对陶瓦联机的标注保持一致 -->
     <p class="seed-credit muted tiny">
-      生物群系 / 结构计算由
+      {{ t("seedMap.creditPrefix") }}
       <a href="https://github.com/Cubitect/cubiomes" target="_blank" rel="noopener">cubiomes</a>
-      （Copyright © 2020 Cubitect，MIT License）提供；结果为本地算法推算，仅供参考。
+      {{ t("seedMap.creditSuffix") }}
     </p>
 
-    <NModal v-model:show="importShow" preset="card" title="从实例存档导入种子" style="max-width: 520px">
+    <NModal v-model:show="importShow" preset="card" :title="t('seedMap.importSeedTitle')" style="max-width: 520px">
       <div class="import-body">
         <div class="field">
-          <label>实例</label>
-          <NSelect v-model:value="importInstance" :options="instanceOptions" filterable placeholder="选择实例" />
+          <label>{{ t("seedMap.instance") }}</label>
+          <NSelect v-model:value="importInstance" :options="instanceOptions" filterable :placeholder="t('seedMap.selectInstance')" />
         </div>
         <div class="field">
-          <label>存档</label>
-          <NSelect v-model:value="importWorld" :options="worldOptions" :loading="worldLoading" placeholder="选择存档" />
+          <label>{{ t("seedMap.save") }}</label>
+          <NSelect v-model:value="importWorld" :options="worldOptions" :loading="worldLoading" :placeholder="t('seedMap.selectSave')" />
         </div>
         <div class="muted small">
           <template v-if="importSeed !== null">
-            已读取种子：<b class="mono">{{ importSeed }}</b>
+            {{ t("seedMap.readSeed") }}<b class="mono">{{ importSeed }}</b>
             <template v-if="importVersion">
-              （存档版本 <b>{{ importVersion }}</b
-              ><template v-if="matchMcVersion(importVersion)">，导入后自动切到该版本</template>）
+              {{ t("seedMap.saveVersion", { version: importVersion }) }}<template v-if="matchMcVersion(importVersion)">{{ t("seedMap.autoSwitchVersion") }}</template>)
             </template>
           </template>
-          <template v-else-if="importWorld">该存档未显式设置种子（随机种子世界）</template>
-          <template v-else>选择一个存档后自动读取种子</template>
+          <template v-else-if="importWorld">{{ t("seedMap.noFixedSeed") }}</template>
+          <template v-else>{{ t("seedMap.selectSaveHint") }}</template>
         </div>
       </div>
       <template #footer>
         <div class="import-footer">
-          <button class="mini-btn" @click="importShow = false">取消</button>
+          <button class="mini-btn" @click="importShow = false">{{ t("common.cancel") }}</button>
           <button class="mini-btn primary" :disabled="importSeed === null" @click="applyImportedSeed">
-            使用该种子
+            {{ t("seedMap.useThisSeed") }}
           </button>
         </div>
       </template>
@@ -1938,7 +1936,9 @@ onUnmounted(() => {
 .mi-close { border: none; background: none; color: var(--text-3); font-size: 15px; line-height: 1; padding: 0 2px; cursor: pointer; }
 .mi-close:hover { color: var(--text-1); }
 .mi-line { font-size: 12px; color: var(--text-2); }
-.mi-actions { display: flex; gap: 6px; margin-top: 3px; }
+/* 卡片宽度固定 232px，英文文案（Copy coords / Highlight…）比中文长很多，
+   不换行会直接顶出卡片，所以这里允许折行、按钮保持各自自然宽度 */
+.mi-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px; }
 .mi-actions .mini-btn { padding: 5px 8px; white-space: nowrap; }
 
 /* 地图内右侧控制 */

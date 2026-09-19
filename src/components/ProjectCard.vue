@@ -4,6 +4,7 @@ import { IconBox, IconCheck, IconClock, IconCopy, IconDownload, IconHeart } from
 import { translateCategory } from "../utils/categories";
 import { fmtRelative as fmtDate, fmtCount as fmt } from "../utils/format";
 import type { ProjectHit } from "../types";
+import { useI18n } from "vue-i18n";
 
 const props = withDefaults(
   defineProps<{
@@ -22,6 +23,8 @@ const emit = defineEmits<{
   install: [p: ProjectHit];
   translate: [p: ProjectHit];
 }>();
+
+const { t } = useI18n();
 
 function onCardClick() {
   if (props.translateMode) emit("translate", props.project);
@@ -79,14 +82,14 @@ async function copyName() {
         <div class="p-actions">
           <button
             class="copy-btn"
-            :title="copied ? '已复制' : '复制名称'"
+            :title="copied ? t('projectCard.copied') : t('projectCard.copyName')"
             @click.stop="copyName"
           >
             <IconCheck v-if="copied" />
             <IconCopy v-else />
           </button>
           <button class="install-btn" @click.stop="emit('install', project)">
-            <IconDownload /> 安装
+            <IconDownload /> {{ t("projectCard.install") }}
           </button>
         </div>
       </div>
@@ -120,14 +123,14 @@ async function copyName() {
         <div class="p-side-actions">
           <button
             class="copy-btn"
-            :title="copied ? '已复制' : '复制名称'"
+            :title="copied ? t('projectCard.copied') : t('projectCard.copyName')"
             @click.stop="copyName"
           >
             <IconCheck v-if="copied" />
             <IconCopy v-else />
           </button>
           <button class="install-btn" @click.stop="emit('install', project)">
-            <IconDownload /> 安装
+            <IconDownload /> {{ t("projectCard.install") }}
           </button>
         </div>
       </div>

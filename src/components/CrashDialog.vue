@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, computed } from "vue";
 import { useRouter } from "vue-router";
 import { listen } from "@tauri-apps/api/event";
 import { NButton, NModal } from "naive-ui";
+import { useI18n } from "vue-i18n";
 import DiagnosticsDialog from "./DiagnosticsDialog.vue";
 
 interface CrashInfo {
@@ -22,6 +23,7 @@ const showDiag = ref(false);
 const info = ref<CrashInfo | null>(null);
 let unlisten: (() => void) | null = null;
 const router = useRouter();
+const { t } = useI18n();
 
 // 「查看日志」应跳到真正的游戏日志页（launch://log 流 + 持久化日志），
 // 而不是崩溃分析页；崩溃分析需要 crash-reports/*.txt 文件，很多错误（如
@@ -41,19 +43,18 @@ function openCrash() {
   }
 }
 
-const SEV_META: Record<string, { label: string; cls: string }> = {
-  jvm: { label: "JVM 崩溃", cls: "sev-jvm" },
-  oom: { label: "内存不足", cls: "sev-oom" },
-  gl: { label: "显卡问题", cls: "sev-gl" },
-  java_ver: { label: "Java 版本", cls: "sev-java" },
-  lwjgl: { label: "依赖缺失", cls: "sev-lwjgl" },
-  mod: { label: "模组冲突", cls: "sev-mod" },
-  unknown: { label: "未知原因", cls: "sev-unknown" },
-};
-
-const sevMeta = computed(
-  () => SEV_META[info.value?.severity ?? "unknown"] ?? SEV_META.unknown
-);
+const sevMeta = computed(() => {
+  const META: Record<string, { label: string; cls: string }> = {
+    jvm: { label: t("crashDialog.severity.jvm"), cls: "sev-jvm" },
+    oom: { label: t("crashDialog.severity.oom"), cls: "sev-oom" },
+    gl: { label: t("crashDialog.severity.gl"), cls: "sev-gl" },
+    java_ver: { label: t("crashDialog.severity.javaVer"), cls: "sev-java" },
+    lwjgl: { label: t("crashDialog.severity.lwjgl"), cls: "sev-lwjgl" },
+    mod: { label: t("crashDialog.severity.mod"), cls: "sev-mod" },
+    unknown: { label: t("crashDialog.severity.unknown"), cls: "sev-unknown" },
+  };
+  return META[info.value?.severity ?? "unknown"] ?? META.unknown;
+});
 
 onMounted(async () => {
   unlisten = await listen<CrashInfo>("launch://crash", (e) => {
@@ -78,24 +79,24 @@ onBeforeUnmount(() => {
     <template #header>
       <div class="crash-header">
         <span class="crash-badge" :class="sevMeta.cls">{{ sevMeta.label }}</span>
-        <span class="crash-title">{{ info?.title ?? "游戏崩溃" }}</span>
+        <span class="crash-title">{{ info?.title ?? t("crashDialog.defaultTitle") }}</span>
       </div>
     </template>
 
     <div v-if="info" class="crash-body">
       <p class="crash-reason">{{ info.reason }}</p>
       <div v-if="info.affected_mods && info.affected_mods.length" class="crash-mods">
-        <span class="mods-label">相关模组</span>
+        <span class="mods-label">{{ t("crashDialog.relatedMods") }}</span>
         <div class="mods-list">
           <span v-for="m in info.affected_mods" :key="m" class="mod-chip">{{ m }}</span>
         </div>
       </div>
       <div v-if="info.exit_code !== null && info.exit_code !== undefined" class="crash-code">
-        进程退出码：<code>{{ info.exit_code }}</code>
+        {{ t("crashDialog.exitCodeLabel") }}<code>{{ info.exit_code }}</code>
       </div>
       <p class="crash-advice">{{ info.advice }}</p>
       <div v-if="info.excerpt" class="crash-excerpt">
-        <div class="excerpt-head">崩溃报告摘录</div>
+        <div class="excerpt-head">{{ t("crashDialog.excerptHead") }}</div>
         <pre>{{ info.excerpt }}</pre>
       </div>
     </div>
@@ -104,10 +105,10 @@ onBeforeUnmount(() => {
       <div class="crash-footer">
         <span v-if="info?.crash_report" class="crash-path">{{ info.crash_report }}</span>
         <div class="footer-btns">
-          <NButton @click="openLogs">查看日志</NButton>
-          <NButton v-if="info?.crash_report" @click="openCrash">崩溃分析</NButton>
-          <NButton @click="showDiag = true">诊断报告</NButton>
-          <NButton type="primary" @click="show = false">知道了</NButton>
+          <NButton @click="openLogs">{{ t("crashDialog.viewLogs") }}</NButton>
+          <NButton v-if="info?.crash_report" @click="openCrash">{{ t("crashDialog.crashAnalysis") }}</NButton>
+          <NButton @click="showDiag = true">{{ t("crashDialog.diagnosticsReport") }}</NButton>
+          <NButton type="primary" @click="show = false">{{ t("crashDialog.gotIt") }}</NButton>
         </div>
       </div>
     </template>

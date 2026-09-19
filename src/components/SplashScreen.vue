@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 const props = withDefaults(
   defineProps<{
@@ -12,6 +13,7 @@ const props = withDefaults(
   { progress: 0, status: "", done: false },
 );
 
+const { t } = useI18n();
 const visible = ref(true);
 const renderedProgress = ref(0);
 
@@ -42,7 +44,7 @@ function onLeave() {
           <div class="splash-logo-glow" />
         </div>
         <h1 class="splash-title">QookiX Launcher</h1>
-        <p class="splash-sub">{{ status || "正在启动…" }}</p>
+        <p class="splash-sub">{{ status || t("splash.starting") }}</p>
         <div class="splash-bar" :aria-valuenow="renderedProgress">
           <div class="splash-bar-fill" :style="{ width: renderedProgress + '%' }" />
         </div>

@@ -1,4 +1,18 @@
 // 中英文分类映射（供内容中心下拉筛选与结果卡片共用）
+//
+// 这两张表存在的意义就是「把英文分类名换成中文」；界面语言是英文时
+// 直接返回原始英文名（必要时把 slug 美化），不要再叠一层中文。
+import i18n from "../i18n";
+
+/** 英文界面：不翻译，直接用原始英文分类名 */
+function useEnglishNames(): boolean {
+  return i18n.global.locale.value !== "zh-CN";
+}
+
+/** "mini-game" → "Mini Game"；本来就是英文名的原样返回 */
+function prettifyCat(c: string): string {
+  return c.replace(/[-_]/g, " ").replace(/\b[a-z]/g, (m) => m.toUpperCase());
+}
 
 // Modrinth slug → 中文
 export const CN_CATS: Record<string, string> = {
@@ -273,13 +287,15 @@ export const CN_CF_CATS: Record<string, string> = {
   lightweight: "轻量",
 };
 
-/** CurseForge 英文分类名 → 中文（未命中回退原名） */
+/** CurseForge 英文分类名 → 中文（未命中回退原名）；英文界面直接用原名 */
 export function cnCfName(name: string): string {
+  if (useEnglishNames()) return name;
   return CN_CF_CATS[name.toLowerCase()] ?? name;
 }
 
 /** 通用分类翻译：Modrinth slug / CurseForge 英文名 → 中文（未命中回退原值） */
 export function translateCategory(c: string): string {
   if (!c) return c;
+  if (useEnglishNames()) return prettifyCat(c);
   return CN_CATS[c] ?? CN_CF_CATS[c.toLowerCase()] ?? c;
 }

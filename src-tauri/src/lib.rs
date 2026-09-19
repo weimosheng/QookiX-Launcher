@@ -154,6 +154,7 @@ pub fn run() {
             commands::test_proxy,
             commands::log_debug,
             commands::change_data_dir,
+            commands::reveal_data_dir,
             commands::auto_detect_memory,
             commands::detect_java,
             commands::download_java,

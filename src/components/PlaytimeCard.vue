@@ -7,6 +7,9 @@ import { computed, onMounted, ref } from "vue";
 import { api } from "../api";
 import { fmtDuration } from "../utils/format";
 import type { PlaytimeStats } from "../types";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const stats = ref<PlaytimeStats | null>(null);
 const loading = ref(false);
@@ -32,7 +35,7 @@ const bars = computed(() => {
     day: d.day,
     seconds: d.seconds,
     h: Math.max(d.seconds > 0 ? 6 : 2, Math.round((d.seconds / max) * 42)),
-    title: d.seconds > 0 ? `${fmtDuration(d.seconds)}` : "无",
+    title: d.seconds > 0 ? `${fmtDuration(d.seconds)}` : t("playtimeCard.none"),
   }));
 });
 
@@ -46,10 +49,10 @@ function dayLabel(day: number): string {
 <template>
   <div class="pt-card glass">
     <div class="pt-total">
-      <div class="pt-label">累计游玩</div>
+      <div class="pt-label">{{ t("playtimeCard.totalLabel") }}</div>
       <div class="pt-value">{{ loading ? "…" : fmtDuration(stats?.totalSeconds ?? 0) }}</div>
     </div>
-    <div v-if="bars.length" class="pt-chart" title="近 30 天游玩时长">
+    <div v-if="bars.length" class="pt-chart" :title="t('playtimeCard.chartTitle')">
       <div class="pt-bars">
         <div
           v-for="b in bars"
@@ -65,7 +68,7 @@ function dayLabel(day: number): string {
       </div>
     </div>
     <div v-if="top3.length" class="pt-top">
-      <div class="pt-label">最常游玩</div>
+      <div class="pt-label">{{ t("playtimeCard.topLabel") }}</div>
       <div class="pt-top-list">
         <div v-for="t in top3" :key="t.id" class="pt-top-row">
           <span class="pt-top-name text-ellipsis">{{ t.name }}</span>

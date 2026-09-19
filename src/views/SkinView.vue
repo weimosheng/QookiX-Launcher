@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { NTabs, NTabPane, NInput, NButton, NSwitch, NModal, useMessage } from "naive-ui";
+import { useI18n } from "vue-i18n";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
 import { fmtSize as formatSize } from "../utils/format";
@@ -20,6 +21,7 @@ import {
   IconClose,
 } from "../components/icons";
 
+const { t } = useI18n();
 const message = useMessage();
 const accounts = useAccountsStore();
 
@@ -27,6 +29,7 @@ const canvasRef = ref<HTMLCanvasElement | null>(null);
 const renderer = useSkinRenderer(canvasRef);
 
 interface SkinEntry {
+  id: string;
   name: string;
   filename: string;
   path: string;
@@ -166,12 +169,12 @@ function writeMsSkinCache(uuid: string, c: MsSkinCache) {
 async function applyMsSkin(c: MsSkinCache, username: string) {
   const variant = c.model === "slim" ? "slim" : "classic";
   await previewSkin(c.data_url, username, "official", variant);
-  const capeList: CapeEntry[] = [{ id: "none", name: "无披风", dataUrl: null }];
+  const capeList: CapeEntry[] = [{ id: "none", name: t("skin.capeNone"), dataUrl: null }];
   for (const cc of c.capes) {
     capeList.push({ id: cc.id, name: cc.name, dataUrl: cc.data_url });
   }
   if (!c.capes.length && c.cape_data_url) {
-    capeList.push({ id: "current", name: "当前披风", dataUrl: c.cape_data_url });
+        capeList.push({ id: "current", name: t("skin.capeCurrent"), dataUrl: c.cape_data_url });
   }
   capes.value = capeList;
   const activeCape = capeList.find((x) => x.id !== "none" && x.dataUrl === c.cape_data_url);
@@ -251,10 +254,11 @@ async function loadCurrentAccountSkin(force = false) {
         const variant = await detectSkinModel(tex.skin);
         await previewSkin(tex.skin, acc.username, "official", variant);
         lastAppliedSrc.value = tex.skin;
+        void ensureSkinSavedLocally(tex.skin, acc.username);
         if (tex.cape) {
           capes.value = [
-            { id: "none", name: "无披风", dataUrl: null },
-            { id: "station", name: "皮肤站披风", dataUrl: tex.cape },
+            { id: "none", name: t("skin.capeNone"), dataUrl: null },
+            { id: "station", name: t("skin.capeStation"), dataUrl: tex.cape },
           ];
           selectedCapeId.value = "station";
           renderer.loadCape(tex.cape);
@@ -311,7 +315,7 @@ interface CapeEntry {
   name: string;
   dataUrl: string | null;
 }
-const capes = ref<CapeEntry[]>([{ id: "none", name: "无披风", dataUrl: null }]);
+const capes = ref<CapeEntry[]>([{ id: "none", name: t("skin.capeNone"), dataUrl: null }]);
 const selectedCapeId = ref<string>("none");
 
 async function selectCape(c: CapeEntry) {
@@ -324,22 +328,22 @@ async function selectCape(c: CapeEntry) {
 }
 
 function resetCapeList() {
-  capes.value = [{ id: "none", name: "无披风", dataUrl: null }];
+  capes.value = [{ id: "none", name: t("skin.capeNone"), dataUrl: null }];
   selectedCapeId.value = "none";
   renderer.loadCape(null);
 }
 
 async function applySkin() {
   if (!currentSrc.value) {
-    message.warning("请先选择皮肤");
+    message.warning(t("skin.warnSelectSkin"));
     return;
   }
   if (!currentSrc.value.startsWith("data:")) {
-    message.error("当前皮肤无法直接应用，请先「保存到本地」后再应用");
+    message.error(t("skin.errCannotApply"));
     return;
   }
   if (currentAccount.value!.type === "yggdrasil") {
-    message.info("皮肤站账号的皮肤由皮肤站管理，请到皮肤站网站上传更换");
+    message.info(t("skin.infoStationManaged"));
     return;
   }
   if (!isCurrentMs.value) {
@@ -355,7 +359,7 @@ async function applySkin() {
       });
       accounts.bumpAvatar();
       offlineHintShow.value = true;
-      message.success("皮肤已保存，启动游戏时自动应用");
+      message.success(t("skin.savedAutoApply"));
     } catch (e) {
       message.error(String(e));
     } finally {
@@ -371,12 +375,12 @@ async function applySkin() {
     try {
       await api.applyCapeToAccount(uuid, capeId);
     } catch (e) {
-      message.warning(`皮肤已应用，但披风应用失败: ${String(e)}`);
+      message.warning(t("skin.capeApplyFailed", { err: String(e) }));
     }
     lastAppliedSrc.value = currentSrc.value;
     localStorage.setItem(`qookix:offline_variant:${uuid}`, skinVariant.value);
     accounts.bumpAvatar();
-    message.success(`皮肤已应用到 ${currentAccount.value!.username}`);
+    message.success(t("skin.appliedTo", { name: currentAccount.value!.username }));
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -389,16 +393,16 @@ async function loadSkins() {
   try {
     skins.value = await api.listSkins();
     for (const s of skins.value) {
-      if (!skinDataUrls.value[s.filename]) {
+      if (!skinDataUrls.value[s.id]) {
         try {
-          skinDataUrls.value[s.filename] = await api.readSkinDataUrl(s.filename);
+          skinDataUrls.value[s.id] = await api.readSkinDataUrl(s.filename);
         } catch {
           /* ignore */
         }
       }
-      const url = skinDataUrls.value[s.filename];
-      if (url && !skinModels.value[s.filename]) {
-        skinModels.value[s.filename] = await detectSkinModel(url);
+      const url = skinDataUrls.value[s.id];
+      if (url && !skinModels.value[s.id]) {
+        skinModels.value[s.id] = await detectSkinModel(url);
       }
     }
   } catch (e) {
@@ -417,8 +421,8 @@ async function ensureSkinSavedLocally(dataUrl: string, name: string) {
   if (exists) return;
   try {
     const entry = await api.saveSkinFromData(name, dataUrl);
-    skinDataUrls.value[entry.filename] = dataUrl;
-    skinModels.value[entry.filename] = await detectSkinModel(dataUrl);
+    skinDataUrls.value[entry.id] = dataUrl;
+    skinModels.value[entry.id] = await detectSkinModel(dataUrl);
     await loadSkins();
   } catch {
     /* 保存失败不阻塞预览 */
@@ -438,11 +442,11 @@ async function previewSkin(src: string, name: string, kind: "local" | "official"
 }
 
 async function selectLocal(s: SkinEntry) {
-  const url = skinDataUrls.value[s.filename];
+  const url = skinDataUrls.value[s.id];
   if (!url) return;
   // 主动换了皮肤：清除手动选择，按这张皮肤自身的模型显示
   clearVariantOverride();
-  const variant = skinModels.value[s.filename] ?? (await detectSkinModel(url));
+  const variant = skinModels.value[s.id] ?? (await detectSkinModel(url));
   await previewSkin(url, s.name, "local", variant);
 }
 
@@ -454,19 +458,19 @@ async function selectOfficial(s: (typeof BUILTIN_SKINS)[number]) {
 async function fetchPlayerAndSave() {
   const name = playerInput.value.trim();
   if (!name) {
-    message.warning("请输入玩家名");
+    message.warning(t("skin.warnEnterPlayerName"));
     return;
   }
   fetchingPlayer.value = true;
   try {
     const res = await api.fetchPlayerSkin(name);
     const entry = await api.saveSkinFromData(name, res.data_url);
-    skinDataUrls.value[entry.filename] = res.data_url;
+    skinDataUrls.value[entry.id] = res.data_url;
     await loadSkins();
     await selectLocal(entry);
     playerModalShow.value = false;
     playerInput.value = "";
-    message.success(`已保存 ${name} 的皮肤到本地`);
+    message.success(t("skin.savedPlayerSkin", { name }));
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -477,7 +481,7 @@ async function fetchPlayerAndSave() {
 async function uploadSkin() {
   const file = await open({
     multiple: false,
-    filters: [{ name: "皮肤 PNG", extensions: ["png"] }],
+    filters: [{ name: t("skin.skinPngFilter"), extensions: ["png"] }],
   });
   if (!file) return;
   uploading.value = true;
@@ -497,16 +501,16 @@ async function uploadSkin() {
 async function confirmRename() {
   const name = renameInput.value.trim();
   if (!name) {
-    message.warning("请输入皮肤名称");
+    message.warning(t("skin.warnEnterSkinName"));
     return;
   }
   try {
     const entry = await api.saveSkinFromData(name, pendingSkinDataUrl);
-    skinDataUrls.value[entry.filename] = pendingSkinDataUrl;
+    skinDataUrls.value[entry.id] = pendingSkinDataUrl;
     await loadSkins();
     await selectLocal(entry);
     renameModalShow.value = false;
-    message.success("皮肤已上传");
+    message.success(t("skin.uploaded"));
   } catch (e) {
     message.error(String(e));
   }
@@ -520,18 +524,18 @@ async function saveCurrentToLocal() {
     if (!dataUrl.startsWith("data:")) {
       const name = currentName.value || "skin";
       const entry = await api.downloadSkinFromUrl(name, dataUrl);
-      skinDataUrls.value[entry.filename] = await api.readSkinDataUrl(entry.filename);
+      skinDataUrls.value[entry.id] = await api.readSkinDataUrl(entry.filename);
       await loadSkins();
       await selectLocal(entry);
-      message.success("已保存到本地");
+      message.success(t("skin.savedToLocal"));
       return;
     }
     const name = currentName.value || "skin";
     const entry = await api.saveSkinFromData(name, dataUrl);
-    skinDataUrls.value[entry.filename] = dataUrl;
+    skinDataUrls.value[entry.id] = dataUrl;
     await loadSkins();
     await selectLocal(entry);
-    message.success("已保存到本地");
+    message.success(t("skin.savedToLocal"));
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -543,16 +547,16 @@ async function deleteSkin(s: SkinEntry) {
   try {
     await api.deleteSkin(s.filename);
     // 先取内容再删映射：用皮肤内容判断是否为当前预览的皮肤（名字比对不可靠）
-    const wasCurrent = isCurrentSkin(skinDataUrls.value[s.filename]);
-    delete skinDataUrls.value[s.filename];
-    skins.value = skins.value.filter((x) => x.filename !== s.filename);
+    const wasCurrent = isCurrentSkin(skinDataUrls.value[s.id]);
+    delete skinDataUrls.value[s.id];
+    skins.value = skins.value.filter((x) => x.id !== s.id);
     if (wasCurrent) {
       currentSrc.value = null;
       currentName.value = "";
       currentKind.value = "none";
       renderer.loadSkinFromSrc(null);
     }
-    message.success("已删除");
+    message.success(t("skin.deleted"));
   } catch (e) {
     message.error(String(e));
   }
@@ -569,7 +573,7 @@ async function refreshAccountSkin() {
   refreshingAccount.value = true;
   try {
     await loadCurrentAccountSkin(true);
-    message.success("已刷新皮肤");
+    message.success(t("skin.refreshed"));
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -596,19 +600,19 @@ onMounted(async () => {
         <div class="preview-stage">
           <canvas ref="canvasRef" class="skin-canvas"></canvas>
           <div class="preview-label" :class="{ applied: appliedToCurrent }">
-            {{ appliedToCurrent ? "已应用" : "预览" }}
+            {{ appliedToCurrent ? t("skin.applied") : t("skin.preview") }}
           </div>
-          <div class="drag-hint">拖动旋转</div>
+          <div class="drag-hint">{{ t("skin.dragToRotate") }}</div>
         </div>
         <div class="preview-info">
           <div class="info-row">
-            <span class="info-label">当前皮肤</span>
-            <span class="info-value">{{ currentName || "未选择" }}</span>
+            <span class="info-label">{{ t("skin.currentSkin") }}</span>
+            <span class="info-value">{{ currentName || t("skin.notSelected") }}</span>
             <button
               v-if="isCurrentMs && currentAccount"
               class="info-refresh"
               :class="{ spinning: refreshingAccount }"
-              title="刷新皮肤（绕过缓存）"
+              :title="t('skin.refreshSkinBypassCache')"
               @click="refreshAccountSkin"
             >
               <IconRefresh />
@@ -616,59 +620,59 @@ onMounted(async () => {
           </div>
         </div>
         <div class="anim-row">
-          <span class="anim-label">动作</span>
+          <span class="anim-label">{{ t("skin.action") }}</span>
           <div class="seg">
-            <button :class="{ active: renderer.animation.value === 'idle' }" @click="setAnim('idle')">站立</button>
-            <button :class="{ active: renderer.animation.value === 'walk' }" @click="setAnim('walk')">行走</button>
-            <button :class="{ active: renderer.animation.value === 'run' }" @click="setAnim('run')">奔跑</button>
-            <button :class="{ active: renderer.animation.value === 'none' }" @click="setAnim('none')">静止</button>
+            <button :class="{ active: renderer.animation.value === 'idle' }" @click="setAnim('idle')">{{ t("skin.animIdle") }}</button>
+            <button :class="{ active: renderer.animation.value === 'walk' }" @click="setAnim('walk')">{{ t("skin.animWalk") }}</button>
+            <button :class="{ active: renderer.animation.value === 'run' }" @click="setAnim('run')">{{ t("skin.animRun") }}</button>
+            <button :class="{ active: renderer.animation.value === 'none' }" @click="setAnim('none')">{{ t("skin.animNone") }}</button>
           </div>
         </div>
         <div class="rotate-row">
-          <span class="anim-label">自动旋转</span>
+          <span class="anim-label">{{ t("skin.autoRotate") }}</span>
           <n-switch :value="renderer.autoRotate.value" @update:value="(v: boolean) => renderer.setAutoRotate(v)" />
         </div>
         <div class="preview-actions">
           <button class="mini-btn" @click="resetView">
-            <IconRefresh /> 重置视角
+            <IconRefresh /> {{ t("skin.resetView") }}
           </button>
           <button class="mini-btn" @click="capeModalShow = true">
-            <IconShield /> 披风
+            <IconShield /> {{ t("skin.cape") }}
           </button>
           <button
             class="mini-btn primary"
             :disabled="!canSaveCurrent || savingCurrent"
             @click="saveCurrentToLocal"
           >
-            <IconDownload /> {{ savingCurrent ? "保存中…" : "保存到本地" }}
+            <IconDownload /> {{ savingCurrent ? t("skin.saving") : t("skin.saveToLocal") }}
           </button>
         </div>
         <div class="apply-row">
           <div class="seg">
-            <button :class="{ active: skinVariant === 'classic' }" @click="setSkinModel('classic')">经典</button>
-            <button :class="{ active: skinVariant === 'slim' }" @click="setSkinModel('slim')">纤细</button>
+            <button :class="{ active: skinVariant === 'classic' }" @click="setSkinModel('classic')">{{ t("skin.modelClassic") }}</button>
+            <button :class="{ active: skinVariant === 'slim' }" @click="setSkinModel('slim')">{{ t("skin.modelSlim") }}</button>
           </div>
           <button
             class="mini-btn primary apply-btn"
             :disabled="!currentSrc || applying || !currentAccount"
             @click="applySkin"
           >
-            <IconCheck /> {{ applying ? "应用中…" : "应用" }}
+            <IconCheck /> {{ applying ? t("skin.applying") : t("skin.apply") }}
           </button>
         </div>
       </section>
 
       <section class="tabs-pane glass">
         <n-tabs v-model:value="tab" type="line" animated class="sk-tabs">
-          <n-tab-pane name="saved" tab="已保存皮肤">
+          <n-tab-pane name="saved" :tab="t('skin.tabSaved')">
             <div class="tab-toolbar">
-              <span class="tab-count">共 {{ skins.length }} 个</span>
+              <span class="tab-count">{{ t("skin.skinCount", { n: skins.length }) }}</span>
               <div class="toolbar-right">
                 <button class="mini-btn" @click="playerModalShow = true">
-                  <IconSearch /> 按玩家名获取
+                  <IconSearch /> {{ t("skin.fetchByPlayer") }}
                 </button>
                 <button class="mini-btn" :disabled="loadingSkins" @click="loadSkins">
-                  <IconRefresh /> {{ loadingSkins ? "加载中…" : "刷新" }}
+                  <IconRefresh /> {{ loadingSkins ? t("common.loading") : t("common.refresh") }}
                 </button>
               </div>
             </div>
@@ -679,37 +683,37 @@ onMounted(async () => {
                   <IconPlus />
                 </div>
                 <div class="skin-meta">
-                  <div class="skin-name">上传皮肤</div>
-                  <div class="skin-size">选择本地 PNG</div>
+                  <div class="skin-name">{{ t("skin.uploadSkin") }}</div>
+                  <div class="skin-size">{{ t("skin.selectLocalPng") }}</div>
                 </div>
               </button>
               <div
                 v-for="s in skins"
-                :key="s.filename"
+                :key="s.id"
                 class="skin-card"
-                :class="{ active: isCurrentSkin(skinDataUrls[s.filename]) }"
+                :class="{ active: isCurrentSkin(skinDataUrls[s.id]) }"
                 @click="selectLocal(s)"
               >
                 <div class="thumb-wrap">
                   <SkinThumb
-                    :src="skinDataUrls[s.filename] ?? null"
-                    :slim="skinModels[s.filename] === 'slim'"
+                    :src="skinDataUrls[s.id] ?? null"
+                    :slim="skinModels[s.id] === 'slim'"
                   />
                 </div>
                 <div class="skin-meta">
                   <div class="skin-name text-ellipsis">{{ s.name }}</div>
                   <div class="skin-size">{{ formatSize(s.size) }}</div>
                 </div>
-                <button class="del-btn" title="删除" @click.stop="deleteSkin(s)">
+                <button class="del-btn" :title="t('common.delete')" @click.stop="deleteSkin(s)">
                   <IconTrash />
                 </button>
               </div>
             </div>
           </n-tab-pane>
 
-          <n-tab-pane name="official" tab="官方皮肤">
+          <n-tab-pane name="official" :tab="t('skin.tabOfficial')">
             <div class="tab-toolbar">
-              <span class="tab-count">Minecraft 默认皮肤</span>
+              <span class="tab-count">{{ t("skin.minecraftDefault") }}</span>
             </div>
             <div class="skin-grid">
               <div
@@ -731,7 +735,7 @@ onMounted(async () => {
                 </div>
                 <div class="skin-meta">
                   <div class="skin-name text-ellipsis">{{ s.name }}</div>
-                  <div class="skin-size">{{ s.model === "slim" ? "纤细" : "经典" }}</div>
+                  <div class="skin-size">{{ s.model === "slim" ? t("skin.modelSlim") : t("skin.modelClassic") }}</div>
                 </div>
               </div>
             </div>
@@ -740,28 +744,28 @@ onMounted(async () => {
       </section>
     </div>
 
-    <n-modal v-model:show="playerModalShow" preset="card" title="按正版玩家名获取皮肤" style="max-width: 420px;">
+    <n-modal v-model:show="playerModalShow" preset="card" :title="t('skin.fetchByPlayerTitle')" style="max-width: 420px;">
       <div class="modal-body">
         <n-input
           v-model:value="playerInput"
-          placeholder="输入 Minecraft 正版玩家名"
+          :placeholder="t('skin.playerNamePlaceholder')"
           @keyup.enter="fetchPlayerAndSave"
         />
         <div class="modal-actions">
-          <n-button @click="playerModalShow = false">取消</n-button>
+          <n-button @click="playerModalShow = false">{{ t("common.cancel") }}</n-button>
           <n-button type="primary" :loading="fetchingPlayer" @click="fetchPlayerAndSave">
             <template #icon><IconSearch /></template>
-            获取并保存
+            {{ t("skin.fetchAndSave") }}
           </n-button>
         </div>
       </div>
     </n-modal>
 
-    <n-modal v-model:show="offlineHintShow" preset="card" title="离线账号皮肤应用" style="max-width: 420px;">
+    <n-modal v-model:show="offlineHintShow" preset="card" :title="t('skin.offlineApplyTitle')" style="max-width: 420px;">
       <div class="modal-body">
-        <p class="offline-hint-text">离线皮肤通过本地资源包应用。Minecraft 1.6–1.19.2 的兼容性最佳；较新版本为尽力兼容。</p>
+        <p class="offline-hint-text">{{ t("skin.offlineHint") }}</p>
         <div class="modal-actions">
-          <n-button type="primary" @click="offlineHintShow = false">知道了</n-button>
+          <n-button type="primary" @click="offlineHintShow = false">{{ t("skin.gotIt") }}</n-button>
         </div>
       </div>
     </n-modal>
@@ -771,13 +775,13 @@ onMounted(async () => {
       <div v-if="capeModalShow" class="cape-overlay" @click.self="capeModalShow = false">
         <div class="cape-dialog glass">
           <div class="cape-dialog-head">
-            <span>披风设置</span>
+            <span>{{ t("skin.capeSettings") }}</span>
             <button class="cape-close-btn" @click="capeModalShow = false">
               <IconClose />
             </button>
           </div>
           <div class="cape-dialog-body">
-            <p class="cape-modal-hint">{{ isCurrentMs ? '选择披风预览，应用时一并装备到账号' : '离线账号不使用披风' }}</p>
+            <p class="cape-modal-hint">{{ isCurrentMs ? t('skin.capeHintMs') : t('skin.capeHintOffline') }}</p>
             <div class="skin-grid">
               <div
                 v-for="c in capes"
@@ -788,11 +792,11 @@ onMounted(async () => {
               >
                 <div class="thumb-wrap cape-thumb">
                   <img v-if="c.dataUrl" :src="c.dataUrl" class="cape-img" />
-                  <span v-else class="no-cape-icon">无</span>
+                  <span v-else class="no-cape-icon">{{ t("skin.capeNoneShort") }}</span>
                 </div>
                 <div class="skin-meta">
                   <div class="skin-name text-ellipsis">{{ c.name }}</div>
-                  <div class="skin-size">{{ c.dataUrl ? '披风' : '不使用' }}</div>
+                  <div class="skin-size">{{ c.dataUrl ? t('skin.cape') : t('skin.capeNotUsed') }}</div>
                 </div>
               </div>
             </div>
@@ -802,16 +806,16 @@ onMounted(async () => {
       </Transition>
     </Teleport>
 
-    <n-modal v-model:show="renameModalShow" preset="card" title="命名皮肤" style="max-width: 420px;">
+    <n-modal v-model:show="renameModalShow" preset="card" :title="t('skin.renameTitle')" style="max-width: 420px;">
       <div class="modal-body">
         <n-input
           v-model:value="renameInput"
-          placeholder="输入皮肤名称"
+          :placeholder="t('skin.skinNamePlaceholder')"
           @keyup.enter="confirmRename"
         />
         <div class="modal-actions">
-          <n-button @click="renameModalShow = false">取消</n-button>
-          <n-button type="primary" @click="confirmRename">保存</n-button>
+          <n-button @click="renameModalShow = false">{{ t("common.cancel") }}</n-button>
+          <n-button type="primary" @click="confirmRename">{{ t("common.save") }}</n-button>
         </div>
       </div>
     </n-modal>

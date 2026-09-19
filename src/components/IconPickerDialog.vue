@@ -7,26 +7,28 @@ import { api } from "../api";
 import AppIcon from "./AppIcon.vue";
 import { parseIcon } from "../instance-icons";
 import { IconCheck, IconClose } from "./icons";
+import { useI18n } from "vue-i18n";
 
 const props = defineProps<{ show: boolean; value: string; instanceId?: string }>();
 const emit = defineEmits<{ "update:show": [v: boolean]; save: [value: string] }>();
 
 const message = useMessage();
+const { t } = useI18n();
 const draft = ref(props.value);
 const importing = ref(false);
 const loading = ref(false);
 const gameIcons = ref<{ name: string; label: string; path: string }[]>([]);
 
-const BG_OPTIONS = [
-  { name: "无", value: "" },
-  { name: "琥珀", value: "amber" },
-  { name: "蓝", value: "blue" },
-  { name: "绿", value: "green" },
-  { name: "紫", value: "purple" },
-  { name: "红", value: "red" },
-  { name: "灰蓝", value: "slate" },
-  { name: "深色", value: "dark" },
-];
+const BG_OPTIONS = computed(() => [
+  { name: t("iconPicker.bg.none"), value: "" },
+  { name: t("iconPicker.bg.amber"), value: "amber" },
+  { name: t("iconPicker.bg.blue"), value: "blue" },
+  { name: t("iconPicker.bg.green"), value: "green" },
+  { name: t("iconPicker.bg.purple"), value: "purple" },
+  { name: t("iconPicker.bg.red"), value: "red" },
+  { name: t("iconPicker.bg.slate"), value: "slate" },
+  { name: t("iconPicker.bg.dark"), value: "dark" },
+]);
 
 const preview = computed(() => draft.value);
 const currentImg = computed(() => parseIcon(draft.value).img ?? "");
@@ -46,7 +48,7 @@ function setIcon(path: string) {
 async function importImage() {
   const file = await open({
     multiple: false,
-    filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp"] }],
+    filters: [{ name: t("iconPicker.imageFilterName"), extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp"] }],
   });
   if (!file) return;
   importing.value = true;
@@ -92,7 +94,7 @@ function save() {
   <n-modal
     :show="props.show"
     preset="card"
-    title="选择实例图标"
+    :title="t('iconPicker.title')"
     style="width: 560px; max-width: 94vw"
     @update:show="(v: boolean) => emit('update:show', v)"
   >
@@ -101,11 +103,11 @@ function save() {
         <div class="ip-preview-box">
           <AppIcon :name="preview" />
         </div>
-        <div class="ip-preview-label">预览</div>
+        <div class="ip-preview-label">{{ t("iconPicker.preview") }}</div>
       </div>
 
       <div class="ip-section">
-        <div class="ip-label">背景</div>
+        <div class="ip-label">{{ t("iconPicker.background") }}</div>
         <div class="ip-bgs">
           <button
             v-for="b in BG_OPTIONS"
@@ -121,9 +123,9 @@ function save() {
       </div>
 
       <div class="ip-section">
-        <div class="ip-label">游戏素材图标</div>
-        <div v-if="loading" class="ip-loading">正在从游戏文件提取图标…</div>
-        <div v-else-if="gameIcons.length === 0" class="ip-empty">未找到游戏图标，请先安装游戏</div>
+        <div class="ip-label">{{ t("iconPicker.gameIcons") }}</div>
+        <div v-if="loading" class="ip-loading">{{ t("iconPicker.loadingIcons") }}</div>
+        <div v-else-if="gameIcons.length === 0" class="ip-empty">{{ t("iconPicker.noIcons") }}</div>
         <div v-else class="ip-icons">
           <button
             v-for="icon in gameIcons"
@@ -139,21 +141,21 @@ function save() {
       </div>
 
       <div class="ip-section">
-        <div class="ip-label">自定义图片</div>
+        <div class="ip-label">{{ t("iconPicker.customImage") }}</div>
         <button class="ip-import" :disabled="importing" @click="importImage">
-          {{ importing ? "导入中…" : "导入图片文件" }}
+          {{ importing ? t("iconPicker.importing") : t("iconPicker.importFile") }}
         </button>
-        <span v-if="draft.includes('img:') && !gameIcons.some((g) => g.path === currentImg)" class="ip-img-ok">已使用自定义图片</span>
+        <span v-if="draft.includes('img:') && !gameIcons.some((g) => g.path === currentImg)" class="ip-img-ok">{{ t("iconPicker.customImageInUse") }}</span>
       </div>
     </div>
 
     <template #footer>
       <div class="ip-footer">
         <button class="ip-btn" @click="emit('update:show', false)">
-          <IconClose /> 取消
+          <IconClose /> {{ t("iconPicker.cancel") }}
         </button>
         <button class="ip-btn primary" @click="save">
-          <IconCheck /> 保存
+          <IconCheck /> {{ t("iconPicker.save") }}
         </button>
       </div>
     </template>

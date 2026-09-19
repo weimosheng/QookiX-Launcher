@@ -8,7 +8,21 @@
  *   `import { fmtBytes, fmtTimeMs as fmtTime } from "../utils/format";`
  */
 
+import i18n from "../i18n";
+
 const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/**
+ * 工具函数里的文案：走全局 composer。
+ * 读的是全局 locale ref，所以在 render / computed 里调用同样具备响应性
+ * （切换语言会重新求值），不需要调用方额外传 t 进来。
+ */
+function tt(key: string, named?: Record<string, unknown>): string {
+  return (i18n.global.t as unknown as (k: string, n?: Record<string, unknown>) => string)(
+    key,
+    named
+  );
+}
 
 // ---------------------------------------------------------------- 尺寸 ----
 
@@ -87,25 +101,25 @@ export function fmtRelative(s: string): string {
   if (isNaN(d.getTime())) return "";
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
-  if (diffMs < 0) return "刚刚";
+  if (diffMs < 0) return tt("format.justNow");
   const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return "刚刚";
-  if (diffMin < 60) return `${diffMin} 分钟前`;
+  if (diffMin < 1) return tt("format.justNow");
+  if (diffMin < 60) return tt("format.minutesAgo", { n: diffMin });
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const dayDiff = Math.floor((today.getTime() - target.getTime()) / 86400000);
   const diffHour = Math.floor(diffMs / 3600000);
-  if (dayDiff === 0) return `${diffHour} 小时前`;
-  if (dayDiff === 1) return "昨天";
-  if (dayDiff === 2) return "前天";
-  if (dayDiff < 7) return `${dayDiff} 天前`;
+  if (dayDiff === 0) return tt("format.hoursAgo", { n: diffHour });
+  if (dayDiff === 1) return tt("format.yesterday");
+  if (dayDiff === 2) return tt("format.dayBeforeYesterday");
+  if (dayDiff < 7) return tt("format.daysAgo", { n: dayDiff });
   const monthDiff = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
-  if (monthDiff <= 0) return `${dayDiff} 天前`;
-  if (monthDiff === 1) return "上个月";
-  if (monthDiff < 12) return `${monthDiff} 个月前`;
+  if (monthDiff <= 0) return tt("format.daysAgo", { n: dayDiff });
+  if (monthDiff === 1) return tt("format.lastMonth");
+  if (monthDiff < 12) return tt("format.monthsAgo", { n: monthDiff });
   const yearDiff = now.getFullYear() - d.getFullYear();
-  if (yearDiff === 1) return "去年";
-  return `${yearDiff} 年前`;
+  if (yearDiff === 1) return tt("format.lastYear");
+  return tt("format.yearsAgo", { n: yearDiff });
 }
 
 // ---------------------------------------------------------------- 网络 ----
@@ -133,9 +147,9 @@ export function fmtCount(n: number): string {
 
 /** 秒数 → "12.5 小时" / "45 分钟" / "30 秒"（游玩时长口径） */
 export function fmtDuration(sec: number): string {
-  if (sec >= 3600) return (sec / 3600).toFixed(1) + " 小时";
-  if (sec >= 60) return Math.round(sec / 60) + " 分钟";
-  return `${Math.round(sec)} 秒`;
+  if (sec >= 3600) return tt("format.durationHours", { n: (sec / 3600).toFixed(1) });
+  if (sec >= 60) return tt("format.durationMinutes", { n: Math.round(sec / 60) });
+  return tt("format.durationSeconds", { n: Math.round(sec) });
 }
 
 // ---------------------------------------------------------------- 实例 ----
@@ -153,6 +167,6 @@ export function instanceLabel(i: { name: string; mc_version: string; loader: str
 /** 加载器徽标文字：vanilla → 原版，其余首字母大写（Forge/Fabric/…） */
 export function loaderBadge(loader: string): string {
   return loader === "vanilla"
-    ? "原版"
+    ? tt("format.vanilla")
     : loader.charAt(0).toUpperCase() + loader.slice(1);
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useInstancesStore } from "../stores/instances";
 import { useAccountsStore } from "../stores/accounts";
@@ -17,6 +18,7 @@ import { IconClose, IconCompass, IconFolder, IconGlobe, IconPlay, IconRepeat, Ic
 import { useOnboarding } from "../composables/useOnboarding";
 
 const router = useRouter();
+const { t } = useI18n();
 const instances = useInstancesStore();
 const accounts = useAccountsStore();
 const message = useMessage();
@@ -71,18 +73,18 @@ const pickerSections = computed(() => {
     .filter((s) => s.items.length);
   const rest = instances.instances.filter((i) => !i.group);
   if (rest.length) {
-    list.push({ key: "__ungrouped__", name: "未分组", color: null, items: rest });
+    list.push({ key: "__ungrouped__", name: t("home.picker.ungrouped"), color: null, items: rest });
   }
   return list;
 });
 
 const greeting = computed(() => {
   const h = new Date().getHours();
-  if (h >= 5 && h < 11) return "早上好";
-  if (h >= 11 && h < 13) return "中午好";
-  if (h >= 13 && h < 18) return "下午好";
-  if (h >= 18 && h < 22) return "晚上好";
-  return "夜深了";
+  if (h >= 5 && h < 11) return t("home.greeting.morning");
+  if (h >= 11 && h < 13) return t("home.greeting.noon");
+  if (h >= 13 && h < 18) return t("home.greeting.afternoon");
+  if (h >= 18 && h < 22) return t("home.greeting.evening");
+  return t("home.greeting.night");
 });
 
 const hasAccount = computed(() => accounts.accounts.length > 0);
@@ -90,12 +92,12 @@ const hasAccount = computed(() => accounts.accounts.length > 0);
 async function launchSelected() {
   const target = selected.value;
   if (!target) {
-    message.info("还没有实例，先创建一个吧");
+    message.info(t("home.message.noInstance"));
     router.push("/instances");
     return;
   }
   if (!hasAccount.value) {
-    message.warning("请先在左下角账号栏添加账号（正版或离线）");
+    message.warning(t("home.message.addAccount"));
     accounts.showManager = true;
     return;
   }
@@ -104,7 +106,7 @@ async function launchSelected() {
     await instances.launch(target.id);
     // 新手引导第 3 步：首次启动成功即完成
     localStorage.setItem("qookix:onboarding:launched", "1");
-    message.success(`已启动 ${target.name}`);
+    message.success(t("home.message.launched", { name: target.name }));
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -119,7 +121,7 @@ function pick(inst: { id: string }) {
 
 function openPicker() {
   if (!instances.instances.length) {
-    message.info("还没有实例，先创建一个吧");
+    message.info(t("home.message.noInstance"));
     router.push("/instances");
     return;
   }
@@ -161,20 +163,20 @@ async function pingPin(p: PinItem) {
 
 async function launchPin(p: PinItem) {
   if (!hasAccount.value) {
-    message.warning("请先在左下角账号栏添加账号（正版或离线）");
+    message.warning(t("home.message.addAccount"));
     accounts.showManager = true;
     return;
   }
   pinLaunching.value = p.id;
   if (p.type === "world" && !supportsQuickPlay(p.mcVersion)) {
-    message.info(`此实例是 ${p.mcVersion}，不支持命令行直达存档，将启动游戏后手动进入存档`);
+    message.info(t("home.message.quickPlayUnsupported", { version: p.mcVersion }));
   }
   try {
     await instances.launch(p.instanceId, p.world, p.address);
     const msg =
-      p.type === "server" ? `正在加入服务器「${p.name}」`
-      : p.type === "world" ? `正在进入世界「${p.name}」`
-      : `正在启动实例「${p.name}」`;
+      p.type === "server" ? t("home.message.joiningServer", { name: p.name })
+      : p.type === "world" ? t("home.message.enteringWorld", { name: p.name })
+      : t("home.message.launchingInstance", { name: p.name });
     message.success(msg);
   } catch (e) {
     message.error(String(e));
@@ -195,8 +197,8 @@ function openInstance(p: PinItem) {
   }
 }
 
-function pinTypeLabel(t: PinItem["type"]): string {
-  return t === "server" ? "服务器" : t === "world" ? "存档" : "实例";
+function pinTypeLabel(kind: PinItem["type"]): string {
+  return kind === "server" ? t("home.pin.typeServer") : kind === "world" ? t("home.pin.typeWorld") : t("home.pin.typeInstance");
 }
 
 onMounted(() => {
@@ -214,14 +216,14 @@ onMounted(() => {
       <div class="hero-glow"></div>
       <div class="hero-text">
         <div class="greeting">{{ greeting }}</div>
-        <h1>开始你的 <span class="accent">方块之旅</span></h1>
-        <p>选择一个实例，一键启动你的 Minecraft 世界。</p>
+        <h1>{{ t("home.hero.titlePre") }} <span class="accent">{{ t("home.hero.titleHighlight") }}</span></h1>
+        <p>{{ t("home.hero.subtitle") }}</p>
         <div class="hero-actions">
           <button class="btn ghost big" @click="router.push('/browse')">
-            <IconCompass /> 浏览内容
+            <IconCompass /> {{ t("home.hero.browseContent") }}
           </button>
           <button class="btn ghost big" @click="accounts.showManager = true">
-            <IconUser /> 切换账号
+            <IconUser /> {{ t("home.hero.switchAccount") }}
           </button>
         </div>
       </div>
@@ -259,20 +261,20 @@ onMounted(() => {
                   <i v-for="n in 5" :key="n" :class="{ on: n <= latencyInfo(pinStatus[p.id].latency_ms).count }"></i>
                 </span>
                 <span v-if="pinStatus[p.id].latency_ms != null">{{ pinStatus[p.id].latency_ms }} ms</span>
-                <span v-else-if="!pinStatus[p.id].online">离线</span>
+                <span v-else-if="!pinStatus[p.id].online">{{ t("home.pin.offline") }}</span>
                 <span v-else>…</span>
               </span>
               <span v-if="pinStatus[p.id]?.players_online != null" class="players">
-                {{ pinStatus[p.id].players_online }} 人在线
+                {{ t("home.pin.playersOnline", { count: pinStatus[p.id].players_online }) }}
               </span>
             </div>
           </div>
           <div class="pin-actions">
-            <button class="pin-unpin" title="取消固定" @click.stop="unpin(p)">
+            <button class="pin-unpin" :title="t('home.pin.unpinTitle')" @click.stop="unpin(p)">
               <IconClose />
             </button>
             <button class="btn primary" :disabled="pinLaunching === p.id" @click.stop="launchPin(p)">
-              <IconPlay /> {{ pinLaunching === p.id ? "启动中…" : "启动" }}
+              <IconPlay /> {{ pinLaunching === p.id ? t("home.pin.launching") : t("home.pin.launch") }}
             </button>
           </div>
         </div>
@@ -281,11 +283,11 @@ onMounted(() => {
 
     <section class="section">
       <div v-if="!instances.instances.length" class="empty glass">
-        <p>还没有游戏实例</p>
+        <p>{{ t("home.empty.noInstance") }}</p>
         <div class="home-empty-actions">
-          <button class="btn primary" @click="router.push('/instances')">创建第一个实例</button>
+          <button class="btn primary" @click="router.push('/instances')">{{ t("home.empty.createFirst") }}</button>
           <button class="btn ghost" @click="onboarding.open">
-            <IconBookOpen /> 新手引导
+            <IconBookOpen /> {{ t("home.empty.onboarding") }}
           </button>
         </div>
       </div>
@@ -299,17 +301,17 @@ onMounted(() => {
             <span class="ver-text">{{ selected.mc_version }}</span>
             <span v-if="selected.loader_version" class="ver-text">· {{ selected.loader_version }}</span>
             <span v-if="selected.last_played" class="ver-text">
-              · 最近 {{ new Date(selected.last_played * 1000).toLocaleDateString() }}
+              · {{ t("home.resident.lastPlayed") }} {{ new Date(selected.last_played * 1000).toLocaleDateString() }}
             </span>
           </div>
         </div>
         <div class="resident-actions">
           <button class="btn ghost" @click="openPicker">
-            <IconRepeat /> 切换实例
+            <IconRepeat /> {{ t("home.resident.switchInstance") }}
           </button>
           <button class="btn primary big" :disabled="launching" @click="launchSelected">
             <IconPlay />
-            <span>{{ launching ? "启动中…" : "启动游戏" }}</span>
+            <span>{{ launching ? t("home.resident.launching") : t("home.resident.launchGame") }}</span>
           </button>
         </div>
       </div>
@@ -320,7 +322,7 @@ onMounted(() => {
       @update:show="(v: boolean) => (showPicker = v)"
       @mask-click="() => (showPicker = false)"
       preset="card"
-      title="切换实例"
+      :title="t('home.picker.title')"
       style="width: 720px; max-width: 92vw"
     >
       <div class="pick-scroll">
@@ -346,7 +348,7 @@ onMounted(() => {
                   <span class="ver-text">{{ inst.mc_version }}</span>
                 </div>
               </div>
-              <div v-if="selected?.id === inst.id" class="pick-current">当前</div>
+              <div v-if="selected?.id === inst.id" class="pick-current">{{ t("home.picker.current") }}</div>
             </div>
           </div>
         </section>

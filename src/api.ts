@@ -84,6 +84,8 @@ export const api = {
       newDir,
       mode,
     }),
+  /** 在系统文件管理器中打开数据目录（前端拿不到 file:// 的 opener 权限） */
+  revealDataDir: () => invoke<void>("reveal_data_dir"),
   autoDetectMemory: () =>
     invoke<{ total_mb: number; used_mb: number; available_mb: number; max_mb: number; min_mb: number }>("auto_detect_memory"),
   detectJava: (refresh?: boolean) =>
@@ -437,15 +439,15 @@ export const api = {
 
   // skins
   listSkins: () =>
-    invoke<{ name: string; filename: string; path: string; size: number; modified: number }[]>("list_skins"),
+    invoke<{ id: string; name: string; filename: string; path: string; size: number; modified: number }[]>("list_skins"),
   readSkinDataUrl: (filename: string) => invoke<string>("read_skin_data_url", { filename }),
   saveSkinFromData: (name: string, data: string) =>
-    invoke<{ name: string; filename: string; path: string; size: number; modified: number }>("save_skin_from_data", {
+    invoke<{ id: string; name: string; filename: string; path: string; size: number; modified: number }>("save_skin_from_data", {
       name,
       data,
     }),
   downloadSkinFromUrl: (name: string, url: string) =>
-    invoke<{ name: string; filename: string; path: string; size: number; modified: number }>(
+    invoke<{ id: string; name: string; filename: string; path: string; size: number; modified: number }>(
       "download_skin_from_url",
       { name, url },
       { net: true }

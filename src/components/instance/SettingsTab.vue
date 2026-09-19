@@ -6,7 +6,8 @@
  * 分辨率、实例图标，以及 edit 草稿的防抖自动保存。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { NSelect, useMessage } from "naive-ui";
+import { useI18n } from "vue-i18n";
+import { NSelect, NSlider, useMessage } from "naive-ui";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../../api";
 import { useInstancesStore } from "../../stores/instances";
@@ -20,6 +21,7 @@ import { IconDownload } from "../icons";
 
 const props = defineProps<{ instanceId: string }>();
 
+const { t } = useI18n();
 const instances = useInstancesStore();
 const accounts = useAccountsStore();
 const settingsStore = useSettingsStore();
@@ -140,11 +142,11 @@ async function autoSelectJava() {
     requiredJava.value = rec.required;
     if (rec.java && rec.java.major >= rec.required) {
       edit.value.java_path = rec.java.path;
-      message.success(`已选择 Java ${rec.java.version}`);
+      message.success(t("instanceSettings.javaSelected", { version: rec.java.version }));
     } else if (rec.needDownload) {
       await downloadJava(rec.required);
     } else {
-      message.info("未找到合适的 Java");
+      message.info(t("instanceSettings.javaNotFound"));
     }
   } catch (e) {
     message.error(String(e));
@@ -157,7 +159,7 @@ async function downloadJava(major: number) {
   downloadingJava.value = true;
   try {
     const info = await api.downloadJava(major);
-    message.success(`Java ${major} 已下载（${info.version}）`);
+    message.success(t("instanceSettings.javaDownloaded", { major, version: info.version }));
     javaCandidates.value = await useSettingsStore().loadJava(true);
     edit.value.java_path = info.path;
     await detectJava();
@@ -171,7 +173,7 @@ async function downloadJava(major: number) {
 async function pickJava() {
   const file = await open({
     multiple: false,
-    filters: [{ name: "Java 可执行文件", extensions: ["exe"] }],
+    filters: [{ name: t("instanceSettings.javaExecutable"), extensions: ["exe"] }],
     directory: false,
   });
   if (file) edit.value.java_path = file as string;
@@ -209,7 +211,7 @@ async function saveAlias() {
   savingAlias.value = true;
   try {
     await instances.patch({ id: props.instanceId, alias: aliasDraft.value });
-    message.success("别名已保存");
+    message.success(t("instanceSettings.aliasSaved"));
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -245,12 +247,12 @@ onBeforeUnmount(() => {
 <template>
   <div class="settings-grid">
     <div class="set-card glass">
-      <h4>Java 运行时</h4>
+      <h4>{{ t("instanceSettings.javaRuntime") }}</h4>
       <div class="java-req">
-        <span class="req-label">该游戏需要</span>
+        <span class="req-label">{{ t("instanceSettings.gameRequires") }}</span>
         <span class="req-val">Java {{ requiredJava ?? "?" }}+</span>
         <button class="mini-btn" :disabled="autoSelecting" @click="autoSelectJava">
-          自动选择
+          {{ t("instanceSettings.autoSelect") }}
         </button>
         <button
           v-if="needDownload && requiredJava"
@@ -259,13 +261,13 @@ onBeforeUnmount(() => {
           @click="downloadJava(requiredJava)"
         >
           <IconDownload />
-          {{ downloadingJava ? "下载中…" : `下载 Java ${requiredJava}` }}
+          {{ downloadingJava ? t("instanceSettings.downloading") : t("instanceSettings.downloadJava", { version: requiredJava }) }}
         </button>
       </div>
       <div class="java-row">
-        <input v-model="edit.java_path" class="text-input mono" placeholder="留空则自动选择合适版本" />
-        <button class="mini-btn" @click="pickJava">浏览…</button>
-        <button class="mini-btn" @click="detectJava">刷新列表</button>
+        <input v-model="edit.java_path" class="text-input mono" :placeholder="t('instanceSettings.javaPathPlaceholder')" />
+        <button class="mini-btn" @click="pickJava">{{ t("instanceSettings.browse") }}</button>
+        <button class="mini-btn" @click="detectJava">{{ t("instanceSettings.refreshList") }}</button>
       </div>
       <div v-if="javaCandidates.length" class="java-list">
         <button
@@ -279,43 +281,45 @@ onBeforeUnmount(() => {
           <span class="java-path">{{ j.path }}</span>
         </button>
       </div>
-      <p class="hint">留空时启动器会自动挑选合适版本；没有合适版本会先自动下载。</p>
+      <p class="hint">{{ t("instanceSettings.javaHint") }}</p>
     </div>
 
     <div class="set-card glass">
-      <h4>内存分配</h4>
+      <h4>{{ t("instanceSettings.memoryAllocation") }}</h4>
       <div class="mem-modes">
-        <label
+        <button
+          type="button"
           class="mem-mode"
           :class="{ active: edit.memory_mode === 'global' }"
+          @click="edit.memory_mode = 'global'"
         >
-          <input v-model="edit.memory_mode" type="radio" value="global" />
-          根据全局配置
-        </label>
-        <label
+          {{ t("instanceSettings.memoryModeGlobal") }}
+        </button>
+        <button
+          type="button"
           class="mem-mode"
           :class="{ active: edit.memory_mode === 'auto' }"
+          @click="edit.memory_mode = 'auto'"
         >
-          <input v-model="edit.memory_mode" type="radio" value="auto" />
-          自动配置
-        </label>
-        <label
+          {{ t("instanceSettings.memoryModeAuto") }}
+        </button>
+        <button
+          type="button"
           class="mem-mode"
           :class="{ active: edit.memory_mode === 'custom' }"
+          @click="edit.memory_mode = 'custom'"
         >
-          <input v-model="edit.memory_mode" type="radio" value="custom" />
-          自定义
-        </label>
+          {{ t("instanceSettings.memoryModeCustom") }}
+        </button>
       </div>
 
       <template v-if="edit.memory_mode === 'custom'">
-        <input
-          v-model.number="edit.max_memory_mb"
-          type="range"
-          min="1024"
+        <NSlider
+          v-model:value="edit.max_memory_mb"
+          :min="1024"
           :max="sliderMax"
-          step="256"
-          class="range"
+          :step="256"
+          :tooltip="false"
         />
         <div class="range-labels"><span>1 GB</span><span>{{ fmtMem(sliderMax) }}</span></div>
         <div class="mem-current">{{ edit.max_memory_mb }} MB</div>
@@ -323,9 +327,9 @@ onBeforeUnmount(() => {
 
       <div v-else class="mem-current">
         {{ effectiveMemory }} MB
-        <span v-if="edit.memory_mode === 'global' && globalMemoryMode === 'auto'" class="mem-mode-note">（全局自动配置）</span>
-        <span v-else-if="edit.memory_mode === 'global'" class="mem-mode-note">（全局手动配置）</span>
-        <span v-else-if="edit.memory_mode === 'auto'" class="mem-mode-note">（自动配置）</span>
+        <span v-if="edit.memory_mode === 'global' && globalMemoryMode === 'auto'" class="mem-mode-note">{{ t("instanceSettings.globalAutoNote") }}</span>
+        <span v-else-if="edit.memory_mode === 'global'" class="mem-mode-note">{{ t("instanceSettings.globalManualNote") }}</span>
+        <span v-else-if="edit.memory_mode === 'auto'" class="mem-mode-note">{{ t("instanceSettings.autoNote") }}</span>
       </div>
 
       <div class="mem-gauge">
@@ -337,20 +341,20 @@ onBeforeUnmount(() => {
           ></div>
         </div>
         <div class="mem-gauge-labels">
-          <span><i class="dot used"></i>已使用 {{ fmtMem(memUsed) }}（{{ usedPercent }}%）</span>
-          <span><i class="dot alloc"></i>游戏分配 {{ fmtMem(effectiveMemory) }}（{{ allocPercent }}%）</span>
-          <span><i class="dot total"></i>总内存 {{ fmtMem(memTotal) }} / 可用 {{ fmtMem(memAvailable) }}</span>
+          <span><i class="dot used"></i>{{ t("instanceSettings.usedMemory", { used: fmtMem(memUsed), percent: usedPercent }) }}</span>
+          <span><i class="dot alloc"></i>{{ t("instanceSettings.allocMemory", { alloc: fmtMem(effectiveMemory), percent: allocPercent }) }}</span>
+          <span><i class="dot total"></i>{{ t("instanceSettings.totalMemory", { total: fmtMem(memTotal), available: fmtMem(memAvailable) }) }}</span>
         </div>
       </div>
     </div>
 
     <div class="set-card glass">
-      <h4>实例别名（协议启动）</h4>
+      <h4>{{ t("instanceSettings.aliasTitle") }}</h4>
       <div class="alias-row">
         <input
           v-model="aliasDraft"
           class="text-input mono"
-          placeholder="例如 my-sky（仅小写字母、数字、- 和 _）"
+          :placeholder="t('instanceSettings.aliasPlaceholder')"
           @keydown.enter="saveAlias"
         />
         <button
@@ -358,32 +362,32 @@ onBeforeUnmount(() => {
           :disabled="savingAlias || aliasDraft === (instance?.alias ?? '')"
           @click="saveAlias"
         >
-          {{ savingAlias ? "保存中…" : "保存" }}
+          {{ savingAlias ? t("instanceSettings.savingAlias") : t("instanceSettings.save") }}
         </button>
       </div>
       <p class="hint">
-        设置后可用 <code>qookix://launch/{{ aliasDraft || "别名" }}</code> 从浏览器或命令行直接启动本实例。
+        {{ t("instanceSettings.aliasHintPrefix") }}<code>qookix://launch/{{ aliasDraft || t("instanceSettings.aliasDefault") }}</code>{{ t("instanceSettings.aliasHintSuffix") }}
       </p>
     </div>
 
     <div class="set-card glass">
-      <h4>JVM 参数（额外）</h4>
-      <textarea v-model="edit.jvm_args" class="text-input mono" rows="3" placeholder="例如：-XX:+UseG1GC -Dfile.encoding=UTF-8" />
+      <h4>{{ t("instanceSettings.jvmArgsTitle") }}</h4>
+      <textarea v-model="edit.jvm_args" class="text-input mono" rows="3" :placeholder="t('instanceSettings.jvmArgsPlaceholder')" />
     </div>
 
     <div class="set-card glass">
-      <h4>游戏参数（额外）</h4>
-      <input v-model="edit.game_args" class="text-input mono" placeholder="例如：--fullscreen" />
+      <h4>{{ t("instanceSettings.gameArgsTitle") }}</h4>
+      <input v-model="edit.game_args" class="text-input mono" :placeholder="t('instanceSettings.gameArgsPlaceholder')" />
     </div>
 
     <div class="set-card glass">
-      <h4>账号</h4>
+      <h4>{{ t("instanceSettings.account") }}</h4>
       <n-select
         v-model:value="edit.account_id"
         :options="[
-          { label: `跟随全局当前账号（${accounts.current?.username ?? '未选择'}）`, value: '' },
+          { label: t('instanceSettings.followGlobalAccount', { name: accounts.current?.username ?? t('instanceSettings.notSelected') }), value: '' },
           ...accounts.accounts.map((a) => ({
-            label: `${a.username}（${a.type === 'microsoft' ? '正版' : '离线'}）`,
+            label: a.type === 'microsoft' ? t('instanceSettings.microsoftAccount', { name: a.username }) : t('instanceSettings.offlineAccount', { name: a.username }),
             value: a.uuid,
           })),
         ]"
@@ -391,21 +395,21 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="set-card glass">
-      <h4>游戏窗口分辨率（可选）</h4>
+      <h4>{{ t("instanceSettings.resolutionTitle") }}</h4>
       <div class="res-row">
-        <input v-model="edit.resolution_w" class="text-input" placeholder="宽，如 1920" />
+        <input v-model="edit.resolution_w" class="text-input" :placeholder="t('instanceSettings.resolutionWidthPlaceholder')" />
         <span>×</span>
-        <input v-model="edit.resolution_h" class="text-input" placeholder="高，如 1080" />
+        <input v-model="edit.resolution_h" class="text-input" :placeholder="t('instanceSettings.resolutionHeightPlaceholder')" />
       </div>
     </div>
 
     <div class="set-card glass">
-      <h4>实例图标</h4>
+      <h4>{{ t("instanceSettings.iconTitle") }}</h4>
       <div class="icon-pick">
         <div class="icon-preview">
           <AppIcon :name="edit.icon" />
         </div>
-        <button class="btn" @click="showIconPicker = true">选择图标</button>
+        <button class="btn" @click="showIconPicker = true">{{ t("instanceSettings.selectIcon") }}</button>
       </div>
     </div>
 
@@ -520,10 +524,6 @@ textarea.text-input {
   background: var(--accent-soft);
   color: var(--accent);
 }
-.range {
-  width: 100%;
-  accent-color: var(--accent);
-}
 .range-labels {
   display: flex;
   justify-content: space-between;
@@ -544,7 +544,9 @@ textarea.text-input {
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--w-04);
+  font-family: inherit;
   font-size: 13px;
+  line-height: inherit;
   cursor: pointer;
   color: var(--text-2);
   transition: all 0.12s;
@@ -556,9 +558,6 @@ textarea.text-input {
   border-color: var(--accent);
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-.mem-mode input {
-  accent-color: var(--accent);
 }
 .mem-current {
   font-size: 14px;

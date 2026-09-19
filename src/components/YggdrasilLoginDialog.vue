@@ -3,10 +3,12 @@ import { computed, ref } from "vue";
 import { NButton, NInput, NModal, NSelect, useMessage } from "naive-ui";
 import { api } from "../api";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { useI18n } from "vue-i18n";
 import type { Account } from "../types";
 
 const emit = defineEmits<{ added: [a: Account] }>();
 const message = useMessage();
+const { t } = useI18n();
 
 // LittleSkin 预置：官方主页与注册页（没有账号的用户可直接去注册）
 const LITTLE_ROOT = "https://littleskin.cn/api/yggdrasil";
@@ -31,16 +33,16 @@ interface LoginResult {
 const result = ref<LoginResult | null>(null);
 const chosenProfile = ref("");
 
-const serverOptions = [
+const serverOptions = computed(() => [
   { label: "LittleSkin", value: "little" },
-  { label: "自定义皮肤站", value: "custom" },
-];
+  { label: t('yggLogin.customServer'), value: "custom" },
+]);
 const apiRoot = computed(() =>
   serverChoice.value === "custom" ? customRoot.value.trim() : LITTLE_ROOT
 );
 const serverLabel = computed(() =>
   serverChoice.value === "custom"
-    ? result.value?.serverName || customRoot.value.trim() || "自定义皮肤站"
+    ? result.value?.serverName || customRoot.value.trim() || t('yggLogin.customServer')
     : "LittleSkin"
 );
 const homepageUrl = computed(() =>
@@ -51,7 +53,7 @@ const registerUrl = computed(() =>
 );
 
 function openLink(url: string) {
-  if (url) openUrl(url).catch((e: unknown) => message.error("打开失败：" + String(e)));
+  if (url) openUrl(url).catch((e: unknown) => message.error(t('yggLogin.openFailed', { error: String(e) })));
 }
 
 function open() {
@@ -67,7 +69,7 @@ defineExpose({ open });
 
 async function login() {
   if (!apiRoot.value) {
-    message.warning("请填写皮肤站地址");
+    message.warning(t('yggLogin.fillServerUrl'));
     return;
   }
   loggingIn.value = true;
@@ -89,7 +91,7 @@ async function add() {
   if (!r) return;
   const profile = r.profiles.find((p) => p.id === chosenProfile.value);
   if (!profile) {
-    message.warning("请选择一个角色");
+    message.warning(t('yggLogin.selectProfile'));
     return;
   }
   adding.value = true;
@@ -117,7 +119,7 @@ async function add() {
   <n-modal
     v-model:show="show"
     preset="card"
-    title="添加皮肤站账号（authlib-injector）"
+    :title="t('yggLogin.title')"
     style="width: 440px; max-width: 92vw"
   >
     <div class="ygg-box">
@@ -126,27 +128,27 @@ async function add() {
           v-model:value="serverChoice"
           :options="serverOptions"
           size="small"
-          placeholder="选择皮肤站"
+          :placeholder="t('yggLogin.selectServer')"
         />
         <n-input
           v-if="serverChoice === 'custom'"
           v-model:value="customRoot"
           class="ygg-input"
-          placeholder="Yggdrasil API 地址，如 https://skin.example.com/api/yggdrasil"
+          :placeholder="t('yggLogin.apiPlaceholder')"
         />
         <!-- 认证服务器信息行：站名 + 主页 / 注册（参考 HMCL 外置登录） -->
         <div class="ygg-server">
-          <span class="ygg-server-label">认证服务器：</span>
+          <span class="ygg-server-label">{{ t('yggLogin.authServer') }}</span>
           <span class="ygg-server-name">{{ serverLabel }}</span>
           <span class="ygg-server-links">
-            <a v-if="homepageUrl" class="ygg-link" @click.prevent="openLink(homepageUrl)">主页</a>
-            <a v-if="registerUrl" class="ygg-link" @click.prevent="openLink(registerUrl)">注册</a>
+            <a v-if="homepageUrl" class="ygg-link" @click.prevent="openLink(homepageUrl)">{{ t('yggLogin.homepage') }}</a>
+            <a v-if="registerUrl" class="ygg-link" @click.prevent="openLink(registerUrl)">{{ t('yggLogin.register') }}</a>
           </span>
         </div>
         <n-input
           v-model:value="username"
           class="ygg-input"
-          placeholder="用户名 / 邮箱"
+          :placeholder="t('yggLogin.usernamePlaceholder')"
           @keyup.enter="login"
         />
         <n-input
@@ -154,19 +156,18 @@ async function add() {
           class="ygg-input"
           type="password"
           show-password-on="click"
-          placeholder="密码"
+          :placeholder="t('yggLogin.passwordPlaceholder')"
           @keyup.enter="login"
         />
         <p class="ygg-hint">
-          支持 Blessing Skin 系皮肤站（authlib-injector）。没有账号？点上面的「注册」去皮肤站创建。
-          密码仅在登录瞬间使用，本地只保存令牌。
+          {{ t('yggLogin.hint') }}
         </p>
         <n-button type="primary" block :loading="loggingIn" @click="login">
-          {{ loggingIn ? "登录中…" : "登录" }}
+          {{ loggingIn ? t('yggLogin.loggingIn') : t('yggLogin.login') }}
         </n-button>
       </template>
       <template v-else>
-        <p class="ygg-hint">登录成功（{{ result.serverName }}）。请选择要添加的角色：</p>
+        <p class="ygg-hint">{{ t('yggLogin.loginSuccess', { server: result.serverName }) }}</p>
         <div class="ygg-profiles">
           <button
             v-for="p in result.profiles"
@@ -179,7 +180,7 @@ async function add() {
             <span class="ygg-pid">{{ p.id }}</span>
           </button>
         </div>
-        <n-button type="primary" block :loading="adding" @click="add">添加该角色</n-button>
+        <n-button type="primary" block :loading="adding" @click="add">{{ t('yggLogin.addProfile') }}</n-button>
       </template>
     </div>
   </n-modal>

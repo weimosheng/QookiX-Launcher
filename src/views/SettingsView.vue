@@ -2,7 +2,7 @@
 import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { fmtMem, fmtSize, fmtTime } from "../utils/format";
 import { useRouter } from "vue-router";
-import { NButton, NModal, NSelect, NTooltip, useMessage, useDialog } from "naive-ui";
+import { NButton, NModal, NSelect, NSlider, NTooltip, useMessage, useDialog } from "naive-ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -27,6 +27,7 @@ import {
   IconUsers,
   IconRefresh,
   IconSearch,
+  IconShield,
   IconSliders,
   IconTrash,
   IconBookOpen,
@@ -38,8 +39,11 @@ import devZhayiUrl from "../assets/dev-zhayi.jpg";
 import AboutShowcase from "../components/AboutShowcase.vue";
 import DiagnosticsDialog from "../components/DiagnosticsDialog.vue";
 import CloudSyncDialog from "../components/CloudSyncDialog.vue";
+import ColorPicker from "../components/ColorPicker.vue";
 import { IconCloud } from "../components/icons";
 import { error as devError } from "../utils/logger";
+import { useI18n } from "vue-i18n";
+import { SUPPORTED_LOCALES } from "../i18n";
 
 const settings = useSettingsStore();
 const instances = useInstancesStore();
@@ -47,6 +51,7 @@ const message = useMessage();
 const dialog = useDialog();
 const router = useRouter();
 const onboarding = useOnboarding();
+const { t } = useI18n();
 
 const checking = ref(false);
 const showDiag = ref(false);
@@ -60,23 +65,23 @@ async function checkUpdate() {
   try {
     const update = await peekUpdate(true);
     if (!update) {
-      message.success("已是最新版本");
+      message.success(t("settings.update.upToDate"));
       return;
     }
     updateVersion.value = update.version;
     // 该版本已经下载好、只等重启：不必再弹一次下载确认框
     if (updateReady.value && updateReadyVersion.value === update.version) {
-      message.info(`v${update.version} 已下载，点击标题栏的「重启以更新」即可生效`);
+      message.info(t("settings.update.downloadedRestart", { version: update.version }));
       return;
     }
     let dlg: { destroy: () => void } | null = null;
     const close = () => { dlg?.destroy(); dlg = null; };
     dlg = dialog.warning({
-      title: "发现新版本",
-      content: `QookiX Launcher 有新版本 v${update.version}，是否下载并安装？`,
+      title: t("settings.update.newVersionFound"),
+      content: t("settings.update.newVersionContent", { version: update.version }),
       action: () =>
         h("div", { style: "display:flex; gap:8px; justify-content:flex-end;" }, [
-          h(NButton, { size: "small", ghost: true, onClick: close }, () => "以后再说"),
+          h(NButton, { size: "small", ghost: true, onClick: close }, () => t("settings.update.later")),
           h(
             NButton,
             {
@@ -85,7 +90,7 @@ async function checkUpdate() {
               disabled: updateReady.value,
               onClick: () => { close(); void doInstall(); },
             },
-            { default: () => (updateReady.value ? "已下载，待重启" : "下载并更新") },
+            { default: () => (updateReady.value ? t("settings.update.downloadedPending") : t("settings.update.downloadAndInstall")) },
           ),
         ]),
     });
@@ -94,8 +99,8 @@ async function checkUpdate() {
     const isBucket = settings.settings?.update_source !== "github";
     message.error(
       isBucket
-        ? "国内镜像暂时不可用，请检查网络，或切换到 GitHub 官方源后重试"
-        : "检查更新失败，请稍后重试"
+        ? t("settings.update.mirrorError")
+        : t("settings.update.checkFailed")
     );
   } finally {
     checking.value = false;
@@ -106,9 +111,9 @@ async function checkUpdate() {
 async function restoreDismissed() {
   try {
     await settings.patch({ dismissed_update_version: null });
-    message.success("已恢复更新提醒");
+    message.success(t("settings.update.restored"));
   } catch {
-    message.error("操作失败，请稍后重试");
+    message.error(t("settings.update.restoreFailed"));
   }
 }
 
@@ -119,10 +124,10 @@ async function doInstall() {
     const downloaded = await downloadUpdate();
     if (!downloaded) return;
     // 只下载不安装：安装与重启由标题栏「重启以更新」按钮触发。
-    message.success("更新已下载，点击标题栏的「重启以更新」安装");
+    message.success(t("settings.update.installed"));
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    message.error(detail || "更新失败，请稍后重试或手动下载");
+    message.error(detail || t("settings.update.installFailed"));
     devError("[updater] install error:", err);
   }
 }
@@ -149,10 +154,14 @@ const themeColorPresets = [
   "#4ec9a0",
   "#f5c518",
 ];
-function onThemeColorInput(e: Event) {
-  const val = (e.target as HTMLInputElement).value;
-  if (val) settings.patch({ theme_color: val });
+const colorPickerShow = ref(false);
+function onCustomColorPick(hex: string) {
+  settings.patch({ theme_color: hex });
 }
+const isCustomThemeColor = computed(() => {
+  const cur = (settings.settings?.theme_color ?? "").toLowerCase();
+  return cur !== "" && !themeColorPresets.some((c) => c.toLowerCase() === cur);
+});
 
 // 关闭行为 seg 滑动高亮（每次询问 / 最小化到后台 / 退出程序）
 const closeSegRef = ref<HTMLElement | null>(null);
@@ -178,18 +187,48 @@ watch(() => settings.settings?.update_source, () => nextTick(() => refreshUpdate
 
 // 下载代理 seg 滑动高亮（系统代理 / 直连 / 自定义）
 const proxyModeSegRef = ref<HTMLElement | null>(null);
-const proxyModes = [
-  { id: "system", label: "系统代理" },
-  { id: "direct", label: "直连" },
-  { id: "custom", label: "自定义" },
-];
+// 文案跟着语言切换，所以用 computed（普通数组只在 setup 时算一次，切语言不会更新）
+const proxyModes = computed(() => [
+  { id: "system", label: t("settings.proxyMode.system") },
+  { id: "direct", label: t("settings.proxyMode.direct") },
+  { id: "custom", label: t("settings.proxyMode.custom") },
+]);
 const { indicatorStyle: proxyModeSegStyle, refresh: refreshProxyModeSeg } = useSlidingIndicator(
   proxyModeSegRef,
   () => Array.from(proxyModeSegRef.value?.querySelectorAll<HTMLElement>(".seg button") ?? []),
-  () => Math.max(0, proxyModes.findIndex((m) => m.id === settings.settings?.proxy_mode)),
+  () => Math.max(0, proxyModes.value.findIndex((m) => m.id === settings.settings?.proxy_mode)),
   { axis: "horizontal" }
 );
 watch(() => settings.settings?.proxy_mode, () => nextTick(() => refreshProxyModeSeg()));
+
+// 内存模式 seg 滑动高亮（自动配置 / 手动配置）
+const memModeSegRef = ref<HTMLElement | null>(null);
+const { indicatorStyle: memModeSegStyle, refresh: refreshMemModeSeg } = useSlidingIndicator(
+  memModeSegRef,
+  () => Array.from(memModeSegRef.value?.querySelectorAll<HTMLElement>(".seg button") ?? []),
+  () => (settings.settings?.memory_mode === "auto" ? 0 : 1),
+  { axis: "horizontal" }
+);
+watch(() => settings.settings?.memory_mode, () => nextTick(() => refreshMemModeSeg()));
+
+async function selectMemoryMode(mode: string) {
+  if (settings.settings?.memory_mode === mode) return;
+  try {
+    await settings.patch({ memory_mode: mode });
+  } catch (e) {
+    message.error(String(e));
+  }
+}
+
+// 语言 seg 滑动高亮（简体中文 / English）
+const langSegRef = ref<HTMLElement | null>(null);
+const { indicatorStyle: langSegStyle, refresh: refreshLangSeg } = useSlidingIndicator(
+  langSegRef,
+  () => Array.from(langSegRef.value?.querySelectorAll<HTMLElement>(".seg button") ?? []),
+  () => Math.max(0, SUPPORTED_LOCALES.findIndex((l) => l.value === settings.settings?.language)),
+  { axis: "horizontal" }
+);
+watch(() => settings.settings?.language, () => nextTick(() => refreshLangSeg()));
 
 async function selectProxyMode(id: string) {
   if (settings.settings?.proxy_mode === id) return;
@@ -215,16 +254,16 @@ async function testProxy() {
     const { proxy_mode, proxy } = settings.settings;
     // 自定义模式必须填地址，否则后端会退化为直连而误报成功
     if (proxy_mode === "custom" && !(proxy ?? "").trim()) {
-      message.warning("请先填写代理地址");
+      message.warning(t("settings.proxyTest.fillAddress"));
       return;
     }
     const res = await api.testProxy(
       proxy_mode,
       proxy_mode === "custom" ? proxy : null
     );
-    message.success(`连接成功 ${res.ms} ms`);
+    message.success(t("settings.proxyTest.success", { ms: res.ms }));
   } catch (e) {
-    message.error(`连接失败: ${e}`);
+    message.error(t("settings.proxyTest.failed", { error: e }));
   } finally {
     testingProxy.value = false;
   }
@@ -284,7 +323,11 @@ const tab = ref("general");
  */
 function refreshCurrentPaneIndicators() {
   const val = tab.value;
-  if (val === "appearance") refreshThemeSeg();
+  if (val === "appearance") {
+    refreshThemeSeg();
+    refreshLangSeg();
+  }
+  if (val === "java") refreshMemModeSeg();
   if (val === "about") refreshUpdateSourceSeg();
   // 「下载代理」seg 位于「内容服务」页，不是「下载」页
   if (val === "content") refreshProxyModeSeg();
@@ -293,15 +336,139 @@ watch(tab, () => {
   nextTick(refreshCurrentPaneIndicators);
 });
 
-const tabs = [
-  { key: "general", label: "常规", icon: IconSliders },
-  { key: "appearance", label: "外观", icon: IconImage },
-  { key: "java", label: "Java", icon: IconCpu },
-  { key: "download", label: "下载", icon: IconDownload },
-  { key: "content", label: "内容服务", icon: IconGlobe },
-  { key: "storage", label: "存储", icon: IconHardDrive },
-  { key: "about", label: "关于", icon: IconFile },
+const tabs = computed(() => [
+  { key: "general", label: t("settings.tab.general"), icon: IconSliders },
+  { key: "appearance", label: t("settings.tab.appearance"), icon: IconImage },
+  { key: "java", label: t("settings.tab.java"), icon: IconCpu },
+  { key: "download", label: t("settings.tab.download"), icon: IconDownload },
+  { key: "content", label: t("settings.tab.content"), icon: IconGlobe },
+  { key: "storage", label: t("settings.tab.storage"), icon: IconHardDrive },
+  { key: "about", label: t("settings.tab.about"), icon: IconFile },
+]);
+
+const searchQuery = ref("");
+
+type SettingItem = { id: string; cardId: string; tab: string; label: string; cardTitle: string };
+const settingItemsDef: { id: string; cardId: string; tab: string; labelKey: string; cardTitleKey: string }[] = [
+  { id: "g-beh-close", cardId: "general-behavior", tab: "general", labelKey: "settings.general.closeWindow", cardTitleKey: "settings.general.behavior" },
+  { id: "g-beh-update", cardId: "general-behavior", tab: "general", labelKey: "settings.general.autoUpdate", cardTitleKey: "settings.general.behavior" },
+  { id: "g-datadir", cardId: "general-datadir", tab: "general", labelKey: "settings.general.dataDir", cardTitleKey: "settings.general.dataDir" },
+  { id: "a-theme", cardId: "appearance-theme", tab: "appearance", labelKey: "settings.theme.label", cardTitleKey: "settings.theme.label" },
+  { id: "a-theme-color", cardId: "appearance-theme", tab: "appearance", labelKey: "settings.appearance.themeColor", cardTitleKey: "settings.theme.label" },
+  { id: "a-lang", cardId: "appearance-language", tab: "appearance", labelKey: "settings.language.label", cardTitleKey: "settings.language.label" },
+  { id: "a-iface-hero", cardId: "appearance-interface", tab: "appearance", labelKey: "settings.appearance.homeHero", cardTitleKey: "settings.appearance.interface" },
+  { id: "a-iface-collapse", cardId: "appearance-interface", tab: "appearance", labelKey: "settings.appearance.sidebarCollapse", cardTitleKey: "settings.appearance.interface" },
+  { id: "a-iface-news", cardId: "appearance-interface", tab: "appearance", labelKey: "settings.appearance.sidebarNews", cardTitleKey: "settings.appearance.interface" },
+  { id: "a-bg", cardId: "appearance-background", tab: "appearance", labelKey: "settings.appearance.background", cardTitleKey: "settings.appearance.background" },
+  { id: "a-bg-blur", cardId: "appearance-background", tab: "appearance", labelKey: "settings.appearance.backgroundBlur", cardTitleKey: "settings.appearance.background" },
+  { id: "a-bg-dim", cardId: "appearance-background", tab: "appearance", labelKey: "settings.appearance.backgroundDim", cardTitleKey: "settings.appearance.background" },
+  { id: "a-glass", cardId: "appearance-glass", tab: "appearance", labelKey: "settings.appearance.glassStrength", cardTitleKey: "settings.appearance.glassCard" },
+  { id: "j-runtime", cardId: "java-runtime", tab: "java", labelKey: "settings.java.runtime", cardTitleKey: "settings.java.runtime" },
+  { id: "j-memory", cardId: "java-memory", tab: "java", labelKey: "settings.java.memory", cardTitleKey: "settings.java.memory" },
+  { id: "j-jvmargs", cardId: "java-jvmargs", tab: "java", labelKey: "settings.java.jvmArgs", cardTitleKey: "settings.java.jvmArgs" },
+  { id: "j-gameargs", cardId: "java-gameargs", tab: "java", labelKey: "settings.java.gameArgs", cardTitleKey: "settings.java.gameArgs" },
+  { id: "d-threads", cardId: "download-parallel", tab: "download", labelKey: "settings.download.threadsLabel", cardTitleKey: "settings.download.parallel" },
+  { id: "d-chunk", cardId: "download-parallel", tab: "download", labelKey: "settings.download.chunkThreadsLabel", cardTitleKey: "settings.download.parallel" },
+  { id: "d-mirror", cardId: "download-mirror", tab: "download", labelKey: "settings.download.mirror", cardTitleKey: "settings.download.mirror" },
+  { id: "d-center", cardId: "download-center", tab: "download", labelKey: "settings.download.center", cardTitleKey: "settings.download.center" },
+  { id: "c-curseforge", cardId: "content-curseforge", tab: "content", labelKey: "settings.content.curseforgeKey", cardTitleKey: "settings.content.curseforgeKey" },
+  { id: "c-proxy", cardId: "content-proxy", tab: "content", labelKey: "settings.content.proxy", cardTitleKey: "settings.content.proxy" },
+  { id: "c-translate", cardId: "content-translate", tab: "content", labelKey: "settings.content.translate", cardTitleKey: "settings.content.translate" },
+  { id: "c-autobody", cardId: "content-translate", tab: "content", labelKey: "settings.content.autoBody", cardTitleKey: "settings.content.translate" },
+  { id: "s-cloud", cardId: "storage-cloud", tab: "storage", labelKey: "settings.storage.cloudSave", cardTitleKey: "settings.storage.cloudSave" },
+  { id: "s-stats", cardId: "storage-stats", tab: "storage", labelKey: "settings.storage.stats", cardTitleKey: "settings.storage.stats" },
+  { id: "ab-overview", cardId: "about-showcase", tab: "about", labelKey: "settings.about.overview", cardTitleKey: "settings.about.overview" },
+  { id: "ab-devs", cardId: "about-devs", tab: "about", labelKey: "settings.about.developers", cardTitleKey: "settings.about.developers" },
+  { id: "ab-diag", cardId: "about-update", tab: "about", labelKey: "settings.about.diagReport", cardTitleKey: "settings.about.updateCard" },
+  { id: "ab-update", cardId: "about-update", tab: "about", labelKey: "settings.about.checkUpdate", cardTitleKey: "settings.about.updateCard" },
+  { id: "ab-upsrc", cardId: "about-update", tab: "about", labelKey: "settings.about.updateSource", cardTitleKey: "settings.about.updateCard" },
+  { id: "ab-license", cardId: "about-license", tab: "about", labelKey: "settings.about.license", cardTitleKey: "settings.about.license" },
+  { id: "ab-onboarding", cardId: "about-onboarding", tab: "about", labelKey: "settings.about.onboarding", cardTitleKey: "settings.about.onboarding" },
+  { id: "ab-deps", cardId: "about-deps", tab: "about", labelKey: "settings.about.depsTitle", cardTitleKey: "settings.about.depsTitle" },
 ];
+
+const allSettingItems = computed<SettingItem[]>(() =>
+  settingItemsDef.map((d) => ({
+    id: d.id,
+    cardId: d.cardId,
+    tab: d.tab,
+    label: t(d.labelKey),
+    cardTitle: t(d.cardTitleKey),
+  })),
+);
+
+const settingGroups = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  return tabs.value.map((tb) => {
+    const all = allSettingItems.value.filter((it) => it.tab === tb.key);
+    const items = q
+      ? all.filter(
+          (it) =>
+            it.label.toLowerCase().includes(q) ||
+            it.cardTitle.toLowerCase().includes(q),
+        )
+      : all;
+    return { key: tb.key, label: tb.label, icon: tb.icon, items };
+  });
+});
+
+function highlightSegments(text: string, q: string): { text: string; hit: boolean }[] {
+  if (!q) return [{ text, hit: false }];
+  const idx = text.toLowerCase().indexOf(q.toLowerCase());
+  if (idx < 0) return [{ text, hit: false }];
+  return [
+    { text: text.slice(0, idx), hit: false },
+    { text: text.slice(idx, idx + q.length), hit: true },
+    { text: text.slice(idx + q.length), hit: false },
+  ].filter((s) => s.text.length > 0);
+}
+
+const hasResults = computed(() => settingGroups.value.some((g) => g.items.length));
+
+const activeItemId = ref("");
+const pendingScrollId = ref("");
+const skipPaneTransition = ref(false);
+
+function scrollToSetting(id: string) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const scroller = document.getElementById("app-content");
+  if (scroller) {
+    const sr = scroller.getBoundingClientRect();
+    const tr = el.getBoundingClientRect();
+    const offset =
+      tr.top - sr.top + scroller.scrollTop - (scroller.clientHeight - tr.height) / 2;
+    scroller.scrollTo({ top: Math.max(0, offset), behavior: "smooth" });
+  } else {
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  el.classList.add("setting-flash");
+  setTimeout(() => el.classList.remove("setting-flash"), 1200);
+}
+function selectSetting(item: SettingItem) {
+  activeItemId.value = item.id;
+  if (tab.value !== item.tab) {
+    skipPaneTransition.value = true;
+    tab.value = item.tab;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        skipPaneTransition.value = false;
+        refreshCurrentPaneIndicators();
+        scrollToSetting(item.cardId);
+      });
+    });
+  } else {
+    scrollToSetting(item.cardId);
+  }
+}
+function onPaneAfterEnter() {
+  refreshCurrentPaneIndicators();
+  if (pendingScrollId.value) {
+    const id = pendingScrollId.value;
+    pendingScrollId.value = "";
+    nextTick(() => scrollToSetting(id));
+  }
+}
 
 const aboutDeps: Record<
   "frontend" | "rust" | "thirdparty",
@@ -334,23 +501,23 @@ const aboutDeps: Record<
 };
 
 // ---- 内容翻译 ----
-const translateOptions = [
-  { label: "内置服务", value: "default" },
-  { label: "自定义 API（OpenAI 兼容）", value: "custom" },
-  { label: "百度翻译网页（跳转浏览器）", value: "baidu_web" },
-];
+const translateOptions = computed(() => [
+  { label: t("settings.content.translateDefault"), value: "default" },
+  { label: t("settings.content.translateCustom"), value: "custom" },
+  { label: t("settings.content.translateBaidu"), value: "baidu_web" },
+]);
 const testingTranslate = ref(false);
 async function testTranslate() {
   const s = settings.settings;
   if (!s) return;
   if (!s.translate_api_base || !s.translate_api_key || !s.translate_api_model) {
-    message.warning("请先填写 API 地址、API Key 和模型名");
+    message.warning(t("settings.content.translateMissingFields"));
     return;
   }
   testingTranslate.value = true;
   try {
     await api.testTranslateApi(s.translate_api_base, s.translate_api_key, s.translate_api_model);
-    message.success("连接成功，翻译服务可用");
+    message.success(t("settings.content.translateOk"));
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -363,11 +530,11 @@ const clearingCacheService = ref<"default" | "custom" | null>(null);
 async function clearTranslations(service: "default" | "custom") {
   if (clearingCacheService.value) return;
   clearingCacheService.value = service;
-  const label = service === "custom" ? "自定义 API" : "内置服务";
+  const label = service === "custom" ? t("settings.content.customApiLabel") : t("settings.content.builtinLabel");
   try {
     const freed = await api.clearTranslationCache(service);
     message.success(
-      freed > 0 ? `已清除${label}的翻译缓存，释放 ${fmtSize(freed)}` : `已清除${label}的翻译缓存`
+      freed > 0 ? t("settings.content.cacheClearedFreed", { label, size: fmtSize(freed) }) : t("settings.content.cacheCleared", { label })
     );
   } catch (e) {
     message.error(String(e));
@@ -434,11 +601,11 @@ watch(
   { deep: true }
 );
 
-async function openPath(path: string) {
+async function openPath() {
   try {
-    await openUrl("file://" + path.replace(/\\/g, "/"));
-  } catch {
-    /* ignore */
+    await api.revealDataDir();
+  } catch (e) {
+    message.error(t("settings.general.openFailed") + String(e));
   }
 }
 
@@ -446,7 +613,7 @@ async function pickBackground() {
   try {
     const picked = await open({
       multiple: false,
-      filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp"] }],
+      filters: [{ name: t("settings.imageFilter"), extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp"] }],
     });
     if (!picked || typeof picked !== "string") return;
     const path = await api.importBackgroundImage(picked);
@@ -470,7 +637,7 @@ const migrateMode = ref<"move" | "copy" | "pointer">("move");
 
 async function pickDataDir() {
   try {
-    const dir = await open({ directory: true, title: "选择新的数据目录" });
+    const dir = await open({ directory: true, title: t("settings.migrate.pickTitle") });
     if (!dir || typeof dir !== "string") return;
     pendingNewDir.value = dir;
     migrateMode.value = "move";
@@ -500,7 +667,7 @@ async function relaunchNow() {
   try {
     await relaunch();
   } catch (e) {
-    message.error("重启失败：" + String(e));
+    message.error(t("settings.migrate.relaunchFailed", { error: String(e) }));
   }
 }
 
@@ -551,7 +718,7 @@ async function loadStats() {
   try {
     stats.value = await api.getStorageStats();
   } catch (e) {
-    message.error("加载存储统计失败：" + String(e));
+    message.error(t("settings.storage.loadFailed", { error: String(e) }));
   } finally {
     loadingStats.value = false;
   }
@@ -561,9 +728,9 @@ async function refreshStats() {
   loadingStats.value = true;
   try {
     stats.value = await api.refreshStorageStats();
-    message.success("已更新存储统计");
+    message.success(t("settings.storage.refreshed"));
   } catch (e) {
-    message.error("更新存储统计失败：" + String(e));
+    message.error(t("settings.storage.refreshFailed", { error: String(e) }));
   } finally {
     loadingStats.value = false;
   }
@@ -571,19 +738,18 @@ async function refreshStats() {
 
 function confirmClear() {
   dialog.warning({
-    title: "清除缓存",
-    content:
-      "将清理 Java 下载临时文件、Java 检测缓存等可安全删除的缓存，不会影响任何实例、库、资源或版本文件。确定继续吗？",
-    positiveText: "清除",
-    negativeText: "取消",
+    title: t("settings.storage.clearTitle"),
+    content: t("settings.storage.clearContent"),
+    positiveText: t("settings.storage.clearCache"),
+    negativeText: t("common.cancel"),
     onPositiveClick: async () => {
       clearing.value = true;
       try {
         const res = await api.clearCache();
-        message.success(`已清除缓存，释放 ${fmtSize(res.freed)}`);
+        message.success(t("settings.storage.clearSuccess", { size: fmtSize(res.freed) }));
         await refreshStats();
       } catch (e) {
-        message.error("清除缓存失败：" + String(e));
+        message.error(t("settings.storage.clearFailed", { error: String(e) }));
       } finally {
         clearing.value = false;
       }
@@ -607,56 +773,100 @@ onUnmounted(() => {
 
 <template>
   <div v-if="settings.settings" class="settings-view">
-    <aside id="settings-nav" class="settings-nav">
-      <nav class="nav-list">
-        <button
-          v-for="t in tabs"
-          :key="t.key"
-          class="nav-item"
-          :class="{ active: tab === t.key }"
-          @click="tab = t.key"
-        >
-          <component :is="t.icon" class="nav-icon" />
-          <span>{{ t.label }}</span>
-        </button>
-      </nav>
-    </aside>
+    <div class="settings-side">
+      <div class="nav-search-card glass">
+        <IconSearch class="nav-search-icon" />
+        <input
+          v-model="searchQuery"
+          type="text"
+          class="nav-search-input"
+          :placeholder="t('settings.search.placeholder')"
+        />
+      </div>
+      <aside id="settings-nav" class="settings-nav">
+        <nav class="nav-list">
+          <template v-if="searchQuery.trim()">
+            <div v-if="!hasResults" class="nav-empty">{{ t('settings.search.noResult') }}</div>
+            <template v-for="g in settingGroups" :key="g.key">
+              <div v-if="g.items.length" class="nav-group">
+                <div class="nav-group-head">
+                  <component :is="g.icon" class="nav-group-icon" />
+                  <span>{{ g.label }}</span>
+                </div>
+                <button
+                  v-for="item in g.items"
+                  :key="item.id"
+                  class="nav-result"
+                  :class="{ active: activeItemId === item.id }"
+                  @click="selectSetting(item)"
+                >
+                  <span class="nav-result-title">
+                    <template v-for="(seg, i) in highlightSegments(item.label, searchQuery.trim())" :key="i">
+                      <mark v-if="seg.hit" class="hl">{{ seg.text }}</mark>
+                      <template v-else>{{ seg.text }}</template>
+                    </template>
+                  </span>
+                  <span class="nav-result-sub">
+                    <template v-for="(seg, i) in highlightSegments(item.cardTitle, searchQuery.trim())" :key="i">
+                      <mark v-if="seg.hit" class="hl">{{ seg.text }}</mark>
+                      <template v-else>{{ seg.text }}</template>
+                    </template>
+                  </span>
+                </button>
+              </div>
+            </template>
+          </template>
+          <template v-else>
+            <button
+              v-for="t in tabs"
+              :key="t.key"
+              class="nav-item"
+              :class="{ active: tab === t.key }"
+              @click="tab = t.key"
+            >
+              <component :is="t.icon" class="nav-icon" />
+              <span>{{ t.label }}</span>
+            </button>
+          </template>
+        </nav>
+      </aside>
+    </div>
 
-    <Transition name="settings-pane" mode="out-in" @after-enter="refreshCurrentPaneIndicators">
+    <Transition :name="skipPaneTransition ? '' : 'settings-pane'" mode="out-in" @after-enter="onPaneAfterEnter">
     <div :key="tab" class="settings-body">
       <!-- 常规 -->
       <div v-show="tab === 'general'" class="settings-pane">
         <div class="grid">
-          <div class="card glass">
-            <h3>行为</h3>
+          <div class="card glass" id="general-behavior">
+            <h3>{{ t("settings.general.behavior") }}</h3>
             <div class="choice-row">
-              <span>关闭窗口时</span>
+              <span>{{ t("settings.general.closeWindow") }}</span>
               <div ref="closeSegRef" class="seg">
                 <div class="indicator" :style="closeSegStyle"></div>
                 <button
                   :class="{ active: settings.settings.close_behavior === 'ask' }"
                   @click="settings.patch({ close_behavior: 'ask' })"
                 >
-                  每次询问
+                  {{ t("settings.general.closeAsk") }}
                 </button>
                 <button
                   :class="{ active: settings.settings.close_behavior === 'minimize' }"
                   @click="settings.patch({ close_behavior: 'minimize' })"
                 >
-                  最小化到后台
+                  {{ t("settings.general.closeMinimize") }}
                 </button>
                 <button
                   :class="{ active: settings.settings.close_behavior === 'quit' }"
                   @click="settings.patch({ close_behavior: 'quit' })"
                 >
-                  退出程序
+                  {{ t("settings.general.closeQuit") }}
                 </button>
               </div>
             </div>
             <div class="choice-row">
               <div class="choice-info">
-                <span class="choice-label">自动更新</span>
-                <p class="choice-hint">启动时检测到新版本自动后台下载，但不会自动重启——下载完成后在标题栏点击「重启以更新」生效。</p>
+                <span class="choice-label">{{ t("settings.general.autoUpdate") }}</span>
+                <p class="choice-hint">{{ t("settings.general.autoUpdateHint") }}</p>
               </div>
               <button
                 class="toggle"
@@ -670,43 +880,43 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div class="card glass">
-            <h3>数据目录</h3>
+          <div class="card glass" id="general-datadir">
+            <h3>{{ t("settings.general.dataDir") }}</h3>
             <div class="dir-row">
               <code class="mono dir">{{ settings.settings.data_dir }}</code>
-              <button class="mini-btn" @click="openPath(settings.settings.data_dir)">打开</button>
-              <button class="mini-btn" @click="pickDataDir">更改</button>
+              <button class="mini-btn" @click="openPath()">{{ t("settings.general.open") }}</button>
+              <button class="mini-btn" @click="pickDataDir">{{ t("settings.general.change") }}</button>
             </div>
-            <p class="hint">实例、游戏文件与下载缓存均存储在此目录。点击「更改」可迁移到其他位置。</p>
+            <p class="hint">{{ t("settings.general.dataDirHint") }}</p>
           </div>
         </div>
       </div>
 
       <!-- 外观 -->
       <div v-show="tab === 'appearance'" class="settings-pane">
-        <div class="card glass">
-          <h3>主题</h3>
+        <div class="card glass" id="appearance-theme">
+          <h3>{{ t("settings.theme.label") }}</h3>
           <div class="choice-row">
-            <span>主题</span>
+            <span>{{ t("settings.theme.label") }}</span>
             <div ref="themeSegRef" class="seg">
               <div class="indicator" :style="themeSegStyle"></div>
               <button
                 :class="{ active: settings.settings.theme === 'dark' }"
                 @click="settings.patch({ theme: 'dark' })"
               >
-                深色
+                {{ t("settings.theme.dark") }}
               </button>
               <button
                 :class="{ active: settings.settings.theme === 'light' }"
                 @click="settings.patch({ theme: 'light' })"
               >
-                浅色
+                {{ t("settings.theme.light") }}
               </button>
             </div>
           </div>
           <div class="appearance-divider"></div>
           <div class="choice-row">
-            <span>主题色</span>
+            <span>{{ t("settings.appearance.themeColor") }}</span>
             <div class="theme-color-row">
               <button
                 v-for="c in themeColorPresets"
@@ -718,19 +928,51 @@ onUnmounted(() => {
                 :title="c"
                 @click="settings.patch({ theme_color: c })"
               ></button>
-              <label class="color-custom" title="自定义颜色">
+              <button
+                type="button"
+                class="color-custom"
+                :class="{ active: isCustomThemeColor }"
+                :title="t('settings.appearance.customColor')"
+                @click="colorPickerShow = true"
+              >
                 <span class="color-custom-ring" :style="{ background: settings.settings.theme_color }"></span>
-                <input type="color" :value="settings.settings.theme_color" @input="onThemeColorInput" />
-              </label>
+              </button>
+              <ColorPicker
+                :show="colorPickerShow"
+                :color="settings.settings.theme_color"
+                :presets="themeColorPresets"
+                @update:show="colorPickerShow = $event"
+                @update:color="onCustomColorPick"
+              />
             </div>
           </div>
         </div>
-        <div class="card glass">
-          <h3>界面</h3>
+        <div class="card glass" id="appearance-language">
+          <h3>{{ t("settings.language.label") }}</h3>
           <div class="choice-row">
             <div class="choice-info">
-              <span class="choice-label">首页主标题卡片</span>
-              <p class="choice-hint">控制首页顶部的主标题卡片是否显示，关闭后首页更加简洁。</p>
+              <span class="choice-label">{{ t("settings.language.label") }}</span>
+              <p class="choice-hint">{{ t("settings.language.desc") }}</p>
+            </div>
+            <div ref="langSegRef" class="seg lang-seg">
+              <div class="indicator" :style="langSegStyle"></div>
+              <button
+                v-for="l in SUPPORTED_LOCALES"
+                :key="l.value"
+                :class="{ active: settings.settings.language === l.value }"
+                @click="settings.patch({ language: l.value })"
+              >
+                {{ l.label }}
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="card glass" id="appearance-interface">
+          <h3>{{ t("settings.appearance.interface") }}</h3>
+          <div class="choice-row">
+            <div class="choice-info">
+              <span class="choice-label">{{ t("settings.appearance.homeHero") }}</span>
+              <p class="choice-hint">{{ t("settings.appearance.homeHeroHint") }}</p>
             </div>
             <button
               class="toggle"
@@ -744,8 +986,8 @@ onUnmounted(() => {
           </div>
           <div class="choice-row">
             <div class="choice-info">
-              <span class="choice-label">侧边栏折叠按钮</span>
-              <p class="choice-hint">控制侧边栏底部的展开/收缩按钮是否显示，关闭后可保持侧边栏固定。</p>
+              <span class="choice-label">{{ t("settings.appearance.sidebarCollapse") }}</span>
+              <p class="choice-hint">{{ t("settings.appearance.sidebarCollapseHint") }}</p>
             </div>
             <button
               class="toggle"
@@ -759,8 +1001,8 @@ onUnmounted(() => {
           </div>
           <div class="choice-row">
             <div class="choice-info">
-              <span class="choice-label">侧边栏新闻入口</span>
-              <p class="choice-hint">关闭后隐藏侧边栏的「新闻」入口与新闻页面。</p>
+              <span class="choice-label">{{ t("settings.appearance.sidebarNews") }}</span>
+              <p class="choice-hint">{{ t("settings.appearance.sidebarNewsHint") }}</p>
             </div>
             <button
               class="toggle"
@@ -773,79 +1015,79 @@ onUnmounted(() => {
             </button>
           </div>
         </div>
-        <div class="card glass">
-          <h3>背景图片</h3>
+        <div class="card glass" id="appearance-background">
+          <h3>{{ t("settings.appearance.background") }}</h3>
           <div v-if="settings.settings.background_image" class="bg-preview">
-            <img :src="bgPreviewUrl" alt="背景预览" />
+            <img :src="bgPreviewUrl" :alt="t('settings.appearance.backgroundPreview')" />
           </div>
           <div class="choice-row">
-            <span>背景图片</span>
+            <span>{{ t("settings.appearance.background") }}</span>
             <div class="bg-actions">
-              <button class="mini-btn" @click="pickBackground">选择图片</button>
+              <button class="mini-btn" @click="pickBackground">{{ t("settings.appearance.selectImage") }}</button>
               <button
                 v-if="settings.settings.background_image"
                 class="mini-btn"
                 @click="settings.patch({ background_image: null })"
               >
-                清除
+                {{ t("settings.appearance.clear") }}
               </button>
             </div>
           </div>
           <div v-if="settings.settings.background_image" class="tune-block">
             <div class="tune-row">
-              <label>背景模糊</label>
-              <input
-                v-model.number="settings.settings.background_blur"
-                type="range"
-                min="0"
-                max="50"
-                step="1"
-                class="range"
+              <label>{{ t("settings.appearance.backgroundBlur") }}</label>
+              <NSlider
+                v-model:value="settings.settings.background_blur"
+                class="tune-slider"
+                :min="0"
+                :max="50"
+                :step="1"
+                :tooltip="false"
               />
               <span class="tune-val">{{ settings.settings.background_blur }} px</span>
             </div>
             <div class="tune-row">
-              <label>背景遮罩</label>
-              <input
-                v-model.number="settings.settings.background_dim"
-                type="range"
-                min="0"
-                max="100"
-                step="5"
-                class="range"
+              <label>{{ t("settings.appearance.backgroundDim") }}</label>
+              <NSlider
+                v-model:value="settings.settings.background_dim"
+                class="tune-slider"
+                :min="0"
+                :max="100"
+                :step="5"
+                :tooltip="false"
               />
               <span class="tune-val">{{ settings.settings.background_dim }}%</span>
             </div>
           </div>
         </div>
-        <div class="card glass">
-          <h3>磨砂卡片</h3>
+        <div class="card glass" id="appearance-glass">
+          <h3>{{ t("settings.appearance.glassCard") }}</h3>
           <div class="tune-row">
-            <label>磨砂强度</label>
-            <input
-              v-model.number="settings.settings.glass_blur"
-              type="range"
-              min="0"
-              max="30"
-              step="1"
-              class="range"
+            <label>{{ t("settings.appearance.glassStrength") }}</label>
+            <NSlider
+              v-model:value="settings.settings.glass_blur"
+              class="tune-slider"
+              :min="0"
+              :max="30"
+              :step="1"
+              :tooltip="false"
             />
             <span class="tune-val">{{ settings.settings.glass_blur }} px</span>
           </div>
-          <p class="hint">调节卡片毛玻璃模糊半径，数值越大磨砂越强。</p>
+          <p class="hint">{{ t("settings.appearance.glassHint") }}</p>
         </div>
       </div>
 
       <!-- Java -->
       <div v-show="tab === 'java'" class="settings-pane">
         <div class="grid">
-          <div class="card glass">
-            <h3><IconCpu /> Java 运行时</h3>
+          <div class="card glass" id="java-runtime">
+            <h3><IconCpu /> {{ t("settings.java.runtime") }}</h3>
             <div class="java-toolbar">
               <button class="mini-btn" :disabled="detecting" @click="detect">
-                <IconSearch /> {{ detecting ? "查找中…" : "查找 Java" }}
+                <IconSearch /> {{ detecting ? t("settings.java.detecting") : t("settings.java.detect") }}
               </button>
-              <span class="hint-inline">自动扫描注册表、系统路径与常见安装目录</span>
+              <span class="hint-inline">{{ t("settings.java.detectHint") }}</span>
             </div>
             <div v-if="javaCandidates.length" class="java-list">
               <div v-for="j in javaCandidates" :key="j.path" class="java-item">
@@ -853,32 +1095,38 @@ onUnmounted(() => {
                 <span class="java-path">{{ j.path }}</span>
               </div>
             </div>
-            <p v-else-if="!detecting" class="hint">未检测到 Java。可在实例设置中触发自动下载。</p>
-            <p class="hint">Java 选择按实例独立设置：进入「游戏实例 → 实例 → 设置」，可为每个实例指定 Java 或自动下载适配版本。</p>
+            <p v-else-if="!detecting" class="hint">{{ t("settings.java.notFound") }}</p>
+            <p class="hint">{{ t("settings.java.perInstance") }}</p>
           </div>
 
-          <div class="card glass">
-            <h3>内存分配（默认值）</h3>
+          <div class="card glass" id="java-memory">
+            <h3>{{ t("settings.java.memory") }}</h3>
             <div class="mem-mode-row">
-              <label class="radio-label" :class="{ active: settings.settings.memory_mode === 'auto' }">
-                <input v-model="settings.settings.memory_mode" type="radio" value="auto" />
-                自动配置
-              </label>
-              <label class="radio-label" :class="{ active: settings.settings.memory_mode !== 'auto' }">
-                <input v-model="settings.settings.memory_mode" type="radio" value="custom" />
-                手动配置
-              </label>
+              <div ref="memModeSegRef" class="seg">
+                <div class="indicator" :style="memModeSegStyle"></div>
+                <button
+                  :class="{ active: settings.settings.memory_mode === 'auto' }"
+                  @click="selectMemoryMode('auto')"
+                >
+                  {{ t("settings.java.memAuto") }}
+                </button>
+                <button
+                  :class="{ active: settings.settings.memory_mode !== 'auto' }"
+                  @click="selectMemoryMode('custom')"
+                >
+                  {{ t("settings.java.memManual") }}
+                </button>
+              </div>
             </div>
             <div v-if="settings.settings.memory_mode !== 'auto'" class="mem-row">
               <div>
-                <label>最大内存</label>
-                <input
-                  v-model.number="settings.settings.max_memory_mb"
-                  type="range"
-                  min="1024"
-                  max="16384"
-                  step="256"
-                  class="range"
+                <label>{{ t("settings.java.maxMemory") }}</label>
+                <NSlider
+                  v-model:value="settings.settings.max_memory_mb"
+                  :min="1024"
+                  :max="16384"
+                  :step="256"
+                  :tooltip="false"
                 />
                 <div class="mem-val">{{ settings.settings.max_memory_mb }} MB</div>
               </div>
@@ -892,29 +1140,29 @@ onUnmounted(() => {
                 ></div>
               </div>
               <div class="mem-gauge-labels">
-                <span><i class="dot used"></i>已使用 {{ fmtMem(memUsed) }}（{{ usedPercent }}%）</span>
-                <span><i class="dot alloc"></i>游戏分配 {{ fmtMem(effectiveMemory) }}（{{ allocPercent }}%）</span>
-                <span><i class="dot total"></i>总内存 {{ fmtMem(memTotal) }} / 可用 {{ fmtMem(memAvailable) }}</span>
+                <span><i class="dot used"></i>{{ t("settings.java.memUsed", { used: fmtMem(memUsed), percent: usedPercent }) }}</span>
+                <span><i class="dot alloc"></i>{{ t("settings.java.memAlloc", { alloc: fmtMem(effectiveMemory), percent: allocPercent }) }}</span>
+                <span><i class="dot total"></i>{{ t("settings.java.memTotal", { total: fmtMem(memTotal), available: fmtMem(memAvailable) }) }}</span>
               </div>
             </div>
           </div>
 
-          <div class="card glass">
-            <h3>JVM 参数（额外，默认值）</h3>
+          <div class="card glass" id="java-jvmargs">
+            <h3>{{ t("settings.java.jvmArgs") }}</h3>
             <textarea
               v-model="settings.settings.jvm_args"
               class="text-input mono"
               rows="3"
-              placeholder="例如：-XX:+UseG1GC -XX:MaxGCPauseMillis=50"
+              :placeholder="t('settings.java.jvmArgsPlaceholder')"
             />
           </div>
 
-          <div class="card glass">
-            <h3>游戏参数（额外，默认值）</h3>
+          <div class="card glass" id="java-gameargs">
+            <h3>{{ t("settings.java.gameArgs") }}</h3>
             <input
               v-model="settings.settings.game_args"
               class="text-input mono"
-              placeholder="例如：--fullscreen"
+              :placeholder="t('settings.java.gameArgsPlaceholder')"
             />
           </div>
         </div>
@@ -923,35 +1171,33 @@ onUnmounted(() => {
       <!-- 下载 -->
       <div v-show="tab === 'download'" class="settings-pane">
         <div class="grid">
-          <div class="card glass">
-            <h3>并行下载</h3>
-            <label class="row-label">
-              同时下载文件数：{{ settings.settings.download_threads }}
-              <input
-                v-model.number="settings.settings.download_threads"
-                type="range"
-                min="1"
-                max="32"
-                step="1"
-                class="range"
+          <div class="card glass" id="download-parallel">
+            <h3>{{ t("settings.download.parallel") }}</h3>
+            <div class="row-label">
+              <span class="row-label-text">{{ t("settings.download.threads", { count: settings.settings.download_threads }) }}</span>
+              <NSlider
+                v-model:value="settings.settings.download_threads"
+                :min="1"
+                :max="32"
+                :step="1"
+                :tooltip="false"
               />
-            </label>
-            <p class="hint">同时从服务器下载的文件数量。值越大并发越高，但对服务器压力也越大。</p>
-            <label class="row-label" style="margin-top: 16px;">
-              单文件分片线程数：{{ settings.settings.download_chunk_threads }}
-              <input
-                v-model.number="settings.settings.download_chunk_threads"
-                type="range"
-                min="1"
-                max="16"
-                step="1"
-                class="range"
+            </div>
+            <p class="hint">{{ t("settings.download.threadsHint") }}</p>
+            <div class="row-label" style="margin-top: 16px;">
+              <span class="row-label-text">{{ t("settings.download.chunkThreads", { count: settings.settings.download_chunk_threads }) }}</span>
+              <NSlider
+                v-model:value="settings.settings.download_chunk_threads"
+                :min="1"
+                :max="16"
+                :step="1"
+                :tooltip="false"
               />
-            </label>
-            <p class="hint">对单个大文件使用 HTTP Range 分片并行下载的线程数。仅对支持断点续传的服务器生效，小文件始终单线程。</p>
+            </div>
+            <p class="hint">{{ t("settings.download.chunkThreadsHint") }}</p>
           </div>
-          <div class="card glass">
-            <h3><IconGlobe /> 下载镜像源</h3>
+          <div class="card glass" id="download-mirror">
+            <h3><IconGlobe /> {{ t("settings.download.mirror") }}</h3>
             <div class="mirror-list">
               <button
                 v-for="m in mirrors"
@@ -963,7 +1209,7 @@ onUnmounted(() => {
               >
                 <span class="mirror-main">
                   <span class="mirror-name">{{ m.label }}</span>
-                  <span class="mirror-base">{{ m.base || "直接使用各官方地址" }}</span>
+                  <span class="mirror-base">{{ m.base || t("settings.download.mirrorDirect") }}</span>
                 </span>
                 <span class="mirror-side">
                   <span
@@ -971,30 +1217,27 @@ onUnmounted(() => {
                     class="mirror-ms"
                     :class="{ bad: mirrorLatency[m.id] === null }"
                   >
-                    {{ mirrorLatency[m.id] === null ? "不可用" : `${mirrorLatency[m.id]} ms` }}
+                    {{ mirrorLatency[m.id] === null ? t("settings.download.mirrorUnavailable") : `${mirrorLatency[m.id]} ms` }}
                   </span>
                   <span
                     class="mirror-btn"
                     :class="{ disabled: testingMirror === m.id }"
                     @click.stop="testMirror(m.id, m.base)"
                   >
-                    {{ testingMirror === m.id ? "测试中…" : "测速" }}
+                    {{ testingMirror === m.id ? t("settings.download.testing") : t("settings.download.test") }}
                   </span>
                 </span>
               </button>
               <div
                 class="mirror-custom"
                 :class="{ active: settings.settings.mirror === 'custom' }"
+                role="button"
+                tabindex="0"
+                @click="selectMirror('custom')"
+                @keydown.enter.prevent="selectMirror('custom')"
+                @keydown.space.prevent="selectMirror('custom')"
               >
-                <label class="mirror-custom-head">
-                  <input
-                    type="radio"
-                    value="custom"
-                    :checked="settings.settings.mirror === 'custom'"
-                    @change="selectMirror('custom')"
-                  />
-                  <span>自定义镜像</span>
-                </label>
+                <span class="mirror-custom-head">{{ t("settings.download.customMirror") }}</span>
                 <input
                   v-model="settings.settings.mirror_custom"
                   class="text-input mono"
@@ -1006,19 +1249,18 @@ onUnmounted(() => {
                   :class="{ disabled: testingMirror === 'custom' || !settings.settings.mirror_custom }"
                   @click="testMirror('custom', settings.settings.mirror_custom)"
                 >
-                  {{ testingMirror === 'custom' ? "测试中…" : "测速" }}
+                  {{ testingMirror === 'custom' ? t("settings.download.testing") : t("settings.download.test") }}
                 </span>
               </div>
             </div>
             <p class="hint">
-              加速游戏本体、资源文件与依赖库（Forge / Fabric / NeoForge）的下载，
-              <b>切换后立即生效，无需重启</b>；镜像缺失文件时会自动回退官方地址。
-              自定义镜像需兼容 BMCLAPI 接口，直接填写根地址即可。
+              {{ t("settings.download.mirrorHintLead") }}
+              <b>{{ t("settings.download.mirrorHintBold") }}</b>{{ t("settings.download.mirrorHintTail") }}
             </p>
           </div>
-          <div class="card glass">
-            <h3>下载中心</h3>
-            <p class="hint">所有安装与下载任务可在左侧「下载中心」实时查看进度、速度与剩余文件。</p>
+          <div class="card glass" id="download-center">
+            <h3>{{ t("settings.download.center") }}</h3>
+            <p class="hint">{{ t("settings.download.centerHint") }}</p>
           </div>
         </div>
       </div>
@@ -1026,17 +1268,17 @@ onUnmounted(() => {
       <!-- 内容服务 -->
       <div v-show="tab === 'content'" class="settings-pane">
         <div class="grid">
-          <div class="card glass">
-            <h3>CurseForge API Key</h3>
+          <div class="card glass" id="content-curseforge">
+            <h3>{{ t("settings.content.curseforgeKey") }}</h3>
             <input
               v-model="settings.settings.curseforge_api_key"
               class="text-input mono"
-              placeholder="在 console.curseforge.com 免费申请"
+              :placeholder="t('settings.content.curseforgePlaceholder')"
             />
-            <p class="hint">可选。不填使用默认key 可能会导致 CurseForge 内容中心不可用，Modrinth 不受影响。</p>
+            <p class="hint">{{ t("settings.content.curseforgeHint") }}</p>
           </div>
-          <div class="card glass">
-            <h3>下载代理</h3>
+          <div class="card glass" id="content-proxy">
+            <h3>{{ t("settings.content.proxy") }}</h3>
             <div class="proxy-row">
               <div ref="proxyModeSegRef" class="seg">
                 <div class="indicator" :style="proxyModeSegStyle"></div>
@@ -1054,28 +1296,28 @@ onUnmounted(() => {
                 :class="{ disabled: testingProxy }"
                 @click="testProxy"
               >
-                {{ testingProxy ? "测试中…" : "测试连接" }}
+                {{ testingProxy ? t("settings.download.testing") : t("settings.content.proxyTest") }}
               </button>
             </div>
             <input
               v-if="settings.settings.proxy_mode === 'custom'"
               v-model="settings.settings.proxy"
               class="text-input mono"
-              placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080"
+              :placeholder="t('settings.content.proxyPlaceholder')"
               @input="onCustomProxyInput"
             />
             <p class="hint">
               {{
                 settings.settings.proxy_mode === "system"
-                  ? "使用系统网络代理设置（默认）。"
+                  ? t("settings.content.proxySystem")
                   : settings.settings.proxy_mode === "direct"
-                    ? "直连，不经过任何代理。"
-                    : "自定义代理。用于绕过 CDN 下载失败（404/连接失败）。修改后需重启启动器生效。"
+                    ? t("settings.content.proxyDirect")
+                    : t("settings.content.proxyCustom")
               }}
             </p>
           </div>
-          <div class="card glass">
-            <h3>描述翻译</h3>
+          <div class="card glass" id="content-translate">
+            <h3>{{ t("settings.content.translate") }}</h3>
             <n-select
               v-model:value="settings.settings.translate_provider"
               :options="translateOptions"
@@ -1088,7 +1330,7 @@ onUnmounted(() => {
                 v-model="settings.settings.translate_api_base"
                 class="text-input mono"
                 style="margin-top: 10px"
-                placeholder="OpenAI 兼容 API 地址，如 https://api.deepseek.com/v1"
+                :placeholder="t('settings.content.translateApiPlaceholder')"
                 @change="settings.save()"
               />
               <input
@@ -1096,14 +1338,14 @@ onUnmounted(() => {
                 class="text-input mono"
                 type="password"
                 style="margin-top: 10px"
-                placeholder="API Key（sk-…）"
+                :placeholder="t('settings.content.translateKeyPlaceholder')"
                 @change="settings.save()"
               />
               <div class="proxy-row" style="margin-top: 10px">
                 <input
                   v-model="settings.settings.translate_api_model"
                   class="text-input mono"
-                  placeholder="模型名，如 deepseek-chat"
+                  :placeholder="t('settings.content.translateModelPlaceholder')"
                   @change="settings.save()"
                 />
                 <button
@@ -1111,45 +1353,46 @@ onUnmounted(() => {
                   :class="{ disabled: testingTranslate }"
                   @click="testTranslate"
                 >
-                  {{ testingTranslate ? "测试中…" : "测试连接" }}
+                  {{ testingTranslate ? t("settings.download.testing") : t("settings.content.proxyTest") }}
                 </button>
               </div>
-              <p class="hint">使用 OpenAI 兼容的 /chat/completions 接口，由你自己的 AI 完成翻译，不消耗内置服务配额。两套服务的翻译缓存相互独立；「翻译有问题」反馈仅内置服务支持。</p>
+              <p class="hint">{{ t("settings.content.translateCustomHint") }}</p>
             </template>
             <p v-else-if="settings.settings.translate_provider === 'baidu_web'" class="hint">
-              点选内容卡片时会用系统浏览器打开百度翻译网页（自动带上该内容的英文描述），翻译结果由你在网页上自行查看。此方式不在本地产生翻译记录，也不消耗任何服务配额。
+              {{ t("settings.content.translateBaiduHint") }}
             </p>
-            <p v-else class="hint">使用内置翻译服务（支持 Modrinth 与 CurseForge 内容）。配额有限，如果你有自己的 AI API（OpenAI 兼容），可在上方切换为自定义服务。</p>
+            <p v-else class="hint">{{ t("settings.content.translateDefaultHint") }}</p>
             <div class="proxy-row" style="margin-top: 12px">
               <button
                 class="mirror-btn proxy-test-btn"
                 :class="{ disabled: clearingCacheService !== null }"
                 @click="clearTranslations('default')"
               >
-                {{ clearingCacheService === "default" ? "清理中…" : "清空内置服务缓存" }}
+                {{ clearingCacheService === "default" ? t("settings.content.clearing") : t("settings.content.clearDefaultCache") }}
               </button>
               <button
                 class="mirror-btn proxy-test-btn"
                 :class="{ disabled: clearingCacheService !== null }"
                 @click="clearTranslations('custom')"
               >
-                {{ clearingCacheService === "custom" ? "清理中…" : "清空自定义 API 缓存" }}
+                {{ clearingCacheService === "custom" ? t("settings.content.clearing") : t("settings.content.clearCustomCache") }}
               </button>
             </div>
-            <p class="hint">翻译结果按服务分开缓存在本地（保留 7 天），清空后再次翻译将重新请求对应服务；设置页的「清空缓存」仍会一次清掉两套。</p>
-            <div class="proxy-row" style="margin-top: 12px; align-items: center">
-              <label class="switch-row" style="display: flex; align-items: center; gap: 8px; cursor: pointer">
-                <input
-                  type="checkbox"
-                  v-model="settings.settings.body_translate_auto"
-                  @change="settings.save()"
-                />
-                <span>自动翻译详情正文</span>
-              </label>
+            <p class="hint">{{ t("settings.content.cacheHint") }}</p>
+            <div class="switch-row">
+              <span>{{ t("settings.content.autoBody") }}</span>
+              <button
+                class="toggle"
+                :class="{ on: settings.settings.body_translate_auto }"
+                role="switch"
+                :aria-checked="settings.settings.body_translate_auto"
+                @click="settings.patch({ body_translate_auto: !settings.settings.body_translate_auto })"
+              >
+                <span class="knob"></span>
+              </button>
             </div>
             <p class="hint">
-              开启后点开内容详情时会自动加载正文译文，默认仅展示原文（可点正文标题旁的「翻译」按钮手动翻译）。
-              正文翻译仅内置服务 + Modrinth 支持；自定义 API 暂不支持正文翻译——AI 输出直接渲染可能存在 Markdown 格式异常。
+              {{ t("settings.content.autoBodyHint") }}
             </p>
           </div>
         </div>
@@ -1158,30 +1401,30 @@ onUnmounted(() => {
       <!-- 存储 -->
       <div v-show="tab === 'storage'" class="settings-pane">
         <div class="grid storage-grid">
-          <div class="card glass storage-card">
+          <div class="card glass storage-card" id="storage-cloud">
             <div class="storage-header">
-              <h3><IconCloud /> 云存档</h3>
+              <h3><IconCloud /> {{ t("settings.storage.cloudSave") }}</h3>
               <div class="storage-actions">
-                <span class="hint-inline">存放在你的 GitHub 私有仓库，可跨设备恢复</span>
+                <span class="hint-inline">{{ t("settings.storage.cloudHint") }}</span>
                 <button class="mini-btn" @click="cloudOpen = true">
                   <IconCloud class="btn-icon" />
-                  浏览云端存档
+                  {{ t("settings.storage.browseCloud") }}
                 </button>
               </div>
             </div>
           </div>
 
-          <div class="card glass storage-card">
+          <div class="card glass storage-card" id="storage-stats">
             <div class="storage-header">
-              <h3>存储统计</h3>
+              <h3>{{ t("settings.storage.stats") }}</h3>
               <div class="storage-actions">
                 <span class="hint-inline">
-                  <template v-if="stats">{{ stats.cached ? "上次更新" : "已更新" }}：{{ fmtTime(stats.updated_at) }}</template>
-                  <template v-else>尚未扫描</template>
+                  <template v-if="stats">{{ t("settings.storage.updatedAt", { label: stats.cached ? t("settings.storage.lastUpdate") : t("settings.storage.updated"), time: fmtTime(stats.updated_at) }) }}</template>
+                  <template v-else>{{ t("settings.storage.notScanned") }}</template>
                 </span>
                 <button class="mini-btn" :disabled="loadingStats" @click="refreshStats">
                   <IconRefresh class="btn-icon" />
-                  {{ loadingStats ? "扫描中…" : "更新" }}
+                  {{ loadingStats ? t("settings.storage.scanning") : t("settings.storage.refresh") }}
                 </button>
               </div>
             </div>
@@ -1205,7 +1448,7 @@ onUnmounted(() => {
                 </svg>
                 <div class="donut-center">
                   <span class="donut-total">{{ fmtSize(stats.total) }}</span>
-                  <span class="donut-label">总占用</span>
+                  <span class="donut-label">{{ t("settings.storage.totalUsed") }}</span>
                 </div>
               </div>
 
@@ -1221,8 +1464,8 @@ onUnmounted(() => {
 
             <div v-if="stats && stats.instances.length" class="instance-storage">
               <h4 class="instance-storage-title">
-                每个实例
-                <span class="hint-inline">{{ stats.instances.length }} 个</span>
+                {{ t("settings.storage.perInstance") }}
+                <span class="hint-inline">{{ t("settings.storage.count", { count: stats.instances.length }) }}</span>
               </h4>
               <ul class="instance-storage-list">
                 <li v-for="inst in stats.instances" :key="inst.id">
@@ -1235,8 +1478,8 @@ onUnmounted(() => {
 
             <div v-if="stats && stats.servers.length" class="instance-storage">
               <h4 class="instance-storage-title">
-                每个服务器
-                <span class="hint-inline">{{ stats.servers.length }} 个</span>
+                {{ t("settings.storage.perServer") }}
+                <span class="hint-inline">{{ t("settings.storage.count", { count: stats.servers.length }) }}</span>
               </h4>
               <ul class="instance-storage-list">
                 <li v-for="srv in stats.servers" :key="srv.id">
@@ -1246,14 +1489,14 @@ onUnmounted(() => {
                 </li>
               </ul>
             </div>
-            <p v-else-if="!stats?.instances.length" class="hint">{{ stats ? "暂无可统计的数据" : "正在加载存储统计…" }}</p>
+            <p v-else-if="!stats?.instances.length" class="hint">{{ stats ? t("settings.storage.noData") : t("settings.storage.loading") }}</p>
 
             <div class="storage-footer">
               <button class="mini-btn danger" :disabled="clearing" @click="confirmClear">
                 <IconTrash class="btn-icon" />
-                {{ clearing ? "清理中…" : "清除缓存" }}
+                {{ clearing ? t("settings.storage.clearing") : t("settings.storage.clearCache") }}
               </button>
-              <span class="hint">清理 Java 下载临时文件、Java 检测缓存等可安全删除的缓存，不会影响实例、库、资源或版本文件。</span>
+              <span class="hint">{{ t("settings.storage.clearHint") }}</span>
             </div>
           </div>
         </div>
@@ -1261,17 +1504,17 @@ onUnmounted(() => {
 
       <!-- 关于 -->
       <div v-show="tab === 'about'" class="settings-pane">
-        <div class="card glass about-showcase">
+        <div class="card glass about-showcase" id="about-showcase">
           <AboutShowcase />
           <div class="about-hero-title">
             <span class="about-name about-hero-name">QookiX Launcher</span>
-            <span class="about-ver">v0.6.8</span>
+            <span class="about-ver">v0.8.0</span>
           </div>
-          <p class="about-hero-slogan">现代化、简洁、无广告的 Minecraft 启动器</p>
+          <p class="about-hero-slogan">{{ t("settings.about.slogan") }}</p>
         </div>
         <div class="grid about-grid">
-          <div class="card glass about-card">
-            <div class="about-devs-title">开发者</div>
+          <div class="card glass about-card" id="about-devs">
+            <div class="about-devs-title">{{ t("settings.about.developers") }}</div>
             <div class="dev-list">
               <div class="dev-line">
                 <img class="dev-avatar" :src="devWeimoshengUrl" alt="维墨笙" />
@@ -1284,10 +1527,10 @@ onUnmounted(() => {
                           <IconGithub />
                         </button>
                       </template>
-                      GitHub 主页
+                      {{ t("settings.about.githubHome") }}
                     </n-tooltip>
                   </div>
-                  <span class="dev-role">QookiX Launcher 的开发者</span>
+                  <span class="dev-role">{{ t("settings.about.devRole") }}</span>
                 </div>
               </div>
               <div class="dev-line">
@@ -1301,35 +1544,35 @@ onUnmounted(() => {
                           <IconGithub />
                         </button>
                       </template>
-                      GitHub 主页
+                      {{ t("settings.about.githubHome") }}
                     </n-tooltip>
                   </div>
-                  <span class="dev-role">QookiX Launcher 的协力开发者</span>
+                  <span class="dev-role">{{ t("settings.about.collaborator") }}</span>
                 </div>
               </div>
             </div>
           </div>
-          <div class="card glass about-update-card">
+          <div class="card glass about-update-card" id="about-update">
             <div class="about-update">
-              <button class="mini-btn" @click="showDiag = true">诊断报告</button>
+              <button class="mini-btn" @click="showDiag = true">{{ t("settings.about.diagReport") }}</button>
               <button class="mini-btn primary" :disabled="checking" @click="checkUpdate">
-                {{ checking ? "检查中…" : "检查更新" }}
+                {{ checking ? t("settings.about.checking") : t("settings.about.checkUpdate") }}
               </button>
               <span v-if="updateVersion" class="hint-inline">
-                发现新版本 v{{ updateVersion }}
+                {{ t("settings.about.newVersionFound", { version: updateVersion }) }}
               </span>
               <button
                 v-if="settings.settings?.dismissed_update_version"
                 class="mini-btn"
                 @click="restoreDismissed"
               >
-                恢复 v{{ settings.settings.dismissed_update_version }} 更新提醒
+                {{ t("settings.about.restoreUpdate", { version: settings.settings.dismissed_update_version }) }}
               </button>
             </div>
             <div class="update-source">
               <div class="choice-info">
-                <span class="choice-label">更新源</span>
-                <p class="choice-hint">选择从哪个渠道下载启动器更新。默认使用国内镜像（更快），也可切换到 GitHub 官方源（最新），切换后点「检查更新」立即生效。</p>
+                <span class="choice-label">{{ t("settings.about.updateSource") }}</span>
+                <p class="choice-hint">{{ t("settings.about.updateSourceHint") }}</p>
               </div>
               <div ref="updateSourceSegRef" class="seg">
                 <div class="indicator" :style="updateSourceSegStyle"></div>
@@ -1337,78 +1580,83 @@ onUnmounted(() => {
                   :class="{ active: settings.settings.update_source !== 'github' }"
                   @click="settings.patch({ update_source: 'bucket' })"
                 >
-                  国内镜像
+                  {{ t("settings.about.mirrorCN") }}
                 </button>
                 <button
                   :class="{ active: settings.settings.update_source === 'github' }"
                   @click="settings.patch({ update_source: 'github' })"
                 >
-                  GitHub 官方
+                  {{ t("settings.about.githubOfficial") }}
                 </button>
               </div>
             </div>
           </div>
           <div class="about-links-row">
             <button class="about-link" @click="openUrl('https://qookix.swkj1.cn/')">
-              <span class="link-left"><IconGlobe /> 官方网站</span>
+              <span class="link-left"><IconGlobe /> {{ t("settings.about.website") }}</span>
               <span class="link-arrow">→</span>
             </button>
             <button class="about-link" @click="openUrl('https://github.com/weimosheng/QookiX-Launcher')">
-              <span class="link-left"><IconGithub /> GitHub 仓库</span>
+              <span class="link-left"><IconGithub /> {{ t("settings.about.githubRepo") }}</span>
               <span class="link-arrow">→</span>
             </button>
             <button class="about-link" @click="openUrl('https://github.com/weimosheng/QookiX-Launcher/issues')">
-              <span class="link-left"><IconExternal /> 问题反馈</span>
+              <span class="link-left"><IconExternal /> {{ t("settings.about.feedback") }}</span>
               <span class="link-arrow">→</span>
             </button>
             <button class="about-link" @click="openUrl('https://github.com/weimosheng/QookiX-Launcher/releases')">
-              <span class="link-left"><IconList /> 更新日志</span>
+              <span class="link-left"><IconList /> {{ t("settings.about.changelog") }}</span>
               <span class="link-arrow">→</span>
             </button>
             <button class="about-link" @click="openUrl('https://qm.qq.com/q/91keQnJ8dy')">
-              <span class="link-left"><IconUsers /> 官方 Q 群</span>
+              <span class="link-left"><IconUsers /> {{ t("settings.about.qqGroup") }}</span>
               <span class="link-arrow">→</span>
             </button>
             <button class="about-link" @click="openUrl('https://afdian.com/a/qookix')">
-              <span class="link-left"><IconHeart /> 爱发电赞助</span>
+              <span class="link-left"><IconHeart /> {{ t("settings.about.sponsor") }}</span>
               <span class="link-arrow">→</span>
             </button>
           </div>
-          <div class="card glass about-license-card">
-            <h3>许可证</h3>
+          <div class="card glass about-license-card" id="about-license">
+            <h3>{{ t("settings.about.license") }}</h3>
             <p class="license-text">
-              QookiX Launcher 基于
-              <span class="license-accent">GPL-3.0</span>
-              开源协议发布。图标、名称与品牌归属 QookiX 开发组所有，未经许可请勿用于商业用途。
+              {{ t("settings.about.licenseLead") }}
+              <span class="license-accent">{{ t("settings.about.licenseAccent") }}</span>
+              {{ t("settings.about.licenseTail") }}
             </p>
+            <p class="legal-privacy-note">{{ t("settings.about.legalPrivacyNote") }}</p>
             <button class="about-link" @click="openUrl('https://github.com/weimosheng/QookiX-Launcher/blob/main/LICENSE')">
-              <span class="link-left"><IconFile /> 查看 GPL-3.0 完整文本</span>
+              <span class="link-left"><IconFile /> {{ t("settings.about.viewLicense") }}</span>
+              <span class="link-arrow">→</span>
+            </button>
+            <button class="about-link" @click="openUrl('https://docs.qookix.cn/agreement.html')">
+              <span class="link-left"><IconShield /> {{ t("settings.about.agreement") }}</span>
               <span class="link-arrow">→</span>
             </button>
           </div>
-          <div class="card glass about-replay-card">
+          <div class="card glass about-replay-card" id="about-onboarding">
             <div class="about-replay-info">
-              <div class="about-replay-title">新手向导</div>
-              <p class="about-replay-desc">首次使用或想重新了解各功能？跟随引导快速熟悉 QookiX 的每个页面。</p>
+              <div class="about-replay-title">{{ t("settings.about.onboarding") }}</div>
+              <p class="about-replay-desc">{{ t("settings.about.onboardingDesc") }}</p>
             </div>
             <button class="mini-btn primary" @click="onboarding.open">
-              <IconBookOpen /> 重播新手向导
+              <IconBookOpen /> {{ t("settings.about.replayOnboarding") }}
             </button>
           </div>
-          <div class="card glass about-deps-card">
-            <h3>许可与版权声明</h3>
-            <p class="license-text">QookiX Launcher 的构建得益于以下优秀的开源项目。</p>
+          <div class="card glass about-deps-card" id="about-deps">
+            <h3>{{ t("settings.about.depsTitle") }}</h3>
+            <p class="license-text">{{ t("settings.about.depsIntro") }}</p>
             <div class="deps-groups">
               <div class="deps-group">
-                <div class="deps-group-title">前端</div>
+                <div class="deps-group-title">{{ t("settings.about.depsFrontend") }}</div>
                 <div v-for="d in aboutDeps.frontend" :key="d.name" class="about-dep-row">
                   <div class="dep-info">
                     <span class="dep-name">{{ d.name }}<span class="dep-ver" v-if="d.version">v{{ d.version }}</span></span>
                     <span class="dep-license">{{ d.license }}</span>
                   </div>
                   <div class="dep-links">
-                    <button class="dep-link" @click="openUrl(d.url)">来源 ↗</button>
-                    <button class="dep-link" @click="openUrl(d.licenseUrl)">许可 ↗</button>
+                    <button class="dep-link" @click="openUrl(d.url)">{{ t("settings.about.source") }}</button>
+                    <button class="dep-link" @click="openUrl(d.licenseUrl)">{{ t("settings.about.licenseLabel") }}</button>
                   </div>
                 </div>
               </div>
@@ -1420,21 +1668,21 @@ onUnmounted(() => {
                     <span class="dep-license">{{ d.license }}</span>
                   </div>
                   <div class="dep-links">
-                    <button class="dep-link" @click="openUrl(d.url)">来源 ↗</button>
-                    <button class="dep-link" @click="openUrl(d.licenseUrl)">许可 ↗</button>
+                    <button class="dep-link" @click="openUrl(d.url)">{{ t("settings.about.source") }}</button>
+                    <button class="dep-link" @click="openUrl(d.licenseUrl)">{{ t("settings.about.licenseLabel") }}</button>
                   </div>
                 </div>
               </div>
               <div class="deps-group">
-                <div class="deps-group-title">第三方组件</div>
+                <div class="deps-group-title">{{ t("settings.about.depsThirdparty") }}</div>
                 <div v-for="d in aboutDeps.thirdparty" :key="d.name" class="about-dep-row">
                   <div class="dep-info">
                     <span class="dep-name">{{ d.name }}<span class="dep-ver" v-if="d.version">v{{ d.version }}</span></span>
                     <span class="dep-license">{{ d.license }}</span>
                   </div>
                   <div class="dep-links">
-                    <button class="dep-link" @click="openUrl(d.url)">来源 ↗</button>
-                    <button class="dep-link" @click="openUrl(d.licenseUrl)">许可 ↗</button>
+                    <button class="dep-link" @click="openUrl(d.url)">{{ t("settings.about.source") }}</button>
+                    <button class="dep-link" @click="openUrl(d.licenseUrl)">{{ t("settings.about.licenseLabel") }}</button>
                   </div>
                 </div>
               </div>
@@ -1456,43 +1704,55 @@ onUnmounted(() => {
       @restored="instances.load(true)"
     />
 
-    <n-modal v-model:show="migrateModal" preset="card" title="更改数据目录" class="migrate-modal">
+    <n-modal v-model:show="migrateModal" preset="card" :title="t('settings.migrate.modalTitle')" class="migrate-modal">
       <div v-if="migratePhase === 'select'" class="migrate-body">
-        <p class="migrate-label">新数据目录：</p>
+        <p class="migrate-label">{{ t("settings.migrate.newDir") }}</p>
         <code class="mono dir">{{ pendingNewDir }}</code>
-        <p class="migrate-label">迁移方式：</p>
+        <p class="migrate-label">{{ t("settings.migrate.mode") }}</p>
         <div class="migrate-modes">
-          <label :class="{ active: migrateMode === 'move' }">
-            <input type="radio" value="move" v-model="migrateMode" />
-            <span class="mm-title">移动数据</span>
-            <span class="mm-desc">把所有数据移动到新目录（推荐，同盘瞬间完成）</span>
-          </label>
-          <label :class="{ active: migrateMode === 'copy' }">
-            <input type="radio" value="copy" v-model="migrateMode" />
-            <span class="mm-title">复制数据</span>
-            <span class="mm-desc">复制到新目录，保留旧目录作为备份</span>
-          </label>
-          <label :class="{ active: migrateMode === 'pointer' }">
-            <input type="radio" value="pointer" v-model="migrateMode" />
-            <span class="mm-title">仅切换目录</span>
-            <span class="mm-desc">不迁移数据，仅指向新目录（需自行处理数据）</span>
-          </label>
+          <button
+            type="button"
+            class="migrate-mode"
+            :class="{ active: migrateMode === 'move' }"
+            @click="migrateMode = 'move'"
+          >
+            <span class="mm-title">{{ t("settings.migrate.moveTitle") }}</span>
+            <span class="mm-desc">{{ t("settings.migrate.moveDesc") }}</span>
+          </button>
+          <button
+            type="button"
+            class="migrate-mode"
+            :class="{ active: migrateMode === 'copy' }"
+            @click="migrateMode = 'copy'"
+          >
+            <span class="mm-title">{{ t("settings.migrate.copyTitle") }}</span>
+            <span class="mm-desc">{{ t("settings.migrate.copyDesc") }}</span>
+          </button>
+          <button
+            type="button"
+            class="migrate-mode"
+            :class="{ active: migrateMode === 'pointer' }"
+            @click="migrateMode = 'pointer'"
+          >
+            <span class="mm-title">{{ t("settings.migrate.pointerTitle") }}</span>
+            <span class="mm-desc">{{ t("settings.migrate.pointerDesc") }}</span>
+          </button>
         </div>
-        <p class="migrate-warn">更改后需要重启应用才能完全生效。</p>
+        <p class="migrate-warn">{{ t("settings.migrate.warn") }}</p>
         <div class="migrate-actions">
-          <button class="mini-btn" @click="migrateModal = false">取消</button>
+          <button class="mini-btn" @click="migrateModal = false">{{ t("common.cancel") }}</button>
           <button class="mini-btn primary" :disabled="migrating" @click="confirmMigrate">
-            {{ migrating ? "迁移中…" : "开始迁移" }}
+            {{ migrating ? t("settings.migrate.migrating") : t("settings.migrate.start") }}
           </button>
         </div>
       </div>
       <div v-else class="migrate-body">
-        <p class="migrate-ok">数据目录已更改：</p>
+        <p class="migrate-ok">{{ t("settings.migrate.done") }}</p>
         <code class="mono dir">{{ pendingNewDir }}</code>
-        <p class="migrate-warn">需要重启应用以完全生效。</p>
+        <p class="migrate-warn">{{ t("settings.migrate.restartWarn") }}</p>
         <div class="migrate-actions">
-          <button class="mini-btn" @click="migrateModal = false">稍后重启</button>
-          <button class="mini-btn primary" @click="relaunchNow">立即重启</button>
+          <button class="mini-btn" @click="migrateModal = false">{{ t("settings.migrate.later") }}</button>
+          <button class="mini-btn primary" @click="relaunchNow">{{ t("settings.migrate.now") }}</button>
         </div>
       </div>
     </n-modal>
@@ -1505,22 +1765,85 @@ onUnmounted(() => {
   gap: 18px;
   align-items: flex-start;
 }
-.settings-nav {
+.settings-side {
   flex-shrink: 0;
-  width: 188px;
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   position: sticky;
   top: 0;
-  padding: 16px 14px;
+  align-self: flex-start;
+}
+.nav-search-card {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  backdrop-filter: blur(var(--glass-blur, 8px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 8px));
+  transition: border-color 0.12s;
+}
+.nav-search-card:focus-within {
+  border-color: var(--accent);
+}
+.nav-search-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.6;
+  color: var(--text-2);
+}
+.nav-search-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  outline: none;
+  color: var(--text-1);
+  font-size: 13px;
+  font-family: inherit;
+}
+.nav-search-input::placeholder {
+  color: var(--text-3);
+}
+.settings-nav {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 14px;
   backdrop-filter: blur(var(--glass-blur, 8px));
   -webkit-backdrop-filter: blur(var(--glass-blur, 8px));
+  padding: 8px 6px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
 }
 .nav-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
+}
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.nav-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 10px 4px;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.nav-group-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  opacity: 0.7;
 }
 .nav-item {
   display: flex;
@@ -1553,8 +1876,69 @@ onUnmounted(() => {
   color: var(--accent);
   font-weight: 600;
 }
-.nav-item.active .nav-icon {
-  opacity: 1;
+.nav-result {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s;
+}
+.nav-result-title {
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-result-sub {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-result:hover {
+  background: var(--panel-hover);
+}
+.nav-result.current {
+  box-shadow: inset 3px 0 0 0 var(--accent);
+}
+.nav-result.active {
+  background: var(--accent-soft);
+}
+.hl {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+.nav-empty {
+  padding: 14px 10px;
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: center;
+}
+.setting-flash {
+  animation: setting-flash 1.2s ease-out;
+}
+@keyframes setting-flash {
+  0% {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  100% {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+  }
 }
 .settings-body {
   flex: 1;
@@ -1897,23 +2281,6 @@ textarea.text-input {
   gap: 16px;
   margin-bottom: 14px;
 }
-.radio-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--text-2);
-  cursor: pointer;
-  user-select: none;
-}
-.radio-label input {
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-.radio-label.active {
-  color: var(--accent);
-  font-weight: 600;
-}
 .mem-gauge {
   margin-top: 14px;
 }
@@ -1968,15 +2335,15 @@ textarea.text-input {
 .dot.total {
   background: #9aa4b2;
 }
-.range {
-  width: 100%;
-  accent-color: var(--accent);
-}
 .row-label {
   display: block;
   font-size: 13px;
   color: var(--text-2);
   margin-bottom: 10px;
+}
+.row-label-text {
+  display: block;
+  margin-bottom: 4px;
 }
 .choice-row {
   display: flex;
@@ -2057,28 +2424,27 @@ textarea.text-input {
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
 .color-custom {
-  position: relative;
   width: 22px;
   height: 22px;
   border-radius: 50%;
   cursor: pointer;
-  overflow: hidden;
-  box-shadow: inset 0 0 0 1px var(--border);
+  padding: 0;
+  position: relative;
+  background: conic-gradient(from 0deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+  border: none;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.color-custom:hover {
+  transform: scale(1.12);
+}
+.color-custom.active {
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 .color-custom-ring {
   position: absolute;
-  inset: 0;
+  inset: 3px;
   border-radius: 50%;
-}
-.color-custom input[type="color"] {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
-  border: none;
-  padding: 0;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
 }
 .dir-row {
   display: flex;
@@ -2112,7 +2478,7 @@ textarea.text-input {
   gap: 8px;
   margin-top: 4px;
 }
-.migrate-modes label {
+.migrate-mode {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2121,17 +2487,20 @@ textarea.text-input {
   border: 1px solid var(--border);
   border-radius: 10px;
   cursor: pointer;
+  font-family: inherit;
   font-size: 13px;
+  line-height: inherit;
+  text-align: left;
   color: var(--text-2);
   background: var(--w-03);
+  transition: border-color 0.15s, background 0.15s;
 }
-.migrate-modes label.active {
+.migrate-mode:hover {
+  border-color: var(--accent-05);
+}
+.migrate-mode.active {
   border-color: var(--accent);
   background: var(--accent-soft);
-}
-.migrate-modes input[type="radio"] {
-  accent-color: var(--accent);
-  margin: 0;
 }
 .mm-title {
   font-weight: 600;
@@ -2142,7 +2511,6 @@ textarea.text-input {
   width: 100%;
   font-size: 11px;
   color: var(--text-3);
-  margin-left: 22px;
 }
 .migrate-warn {
   font-size: 12px;
@@ -2176,7 +2544,10 @@ textarea.text-input {
   grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+}
+.about-license-card .about-link {
+  margin-bottom: 0;
 }
 .about-license-card h3 {
   margin: 0;
@@ -2189,6 +2560,16 @@ textarea.text-input {
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-3);
+}
+.legal-privacy-note {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-2);
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
 }
 .license-accent {
   color: var(--accent);
@@ -2542,8 +2923,9 @@ textarea.text-input {
   flex-shrink: 0;
   width: 96px;
 }
-.tune-row .range {
+.tune-row .tune-slider {
   flex: 1;
+  min-width: 0;
 }
 .tune-val {
   flex-shrink: 0;
@@ -2680,6 +3062,15 @@ textarea.text-input {
   align-items: center;
   gap: 10px;
 }
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-2);
+}
 .proxy-row .seg {
   flex: 1;
   min-width: 0;
@@ -2691,18 +3082,20 @@ textarea.text-input {
   flex-wrap: wrap;
 }
 .mirror-custom-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-family: inherit;
   font-size: 13px;
+  line-height: inherit;
   font-weight: 600;
   color: var(--text-1);
   cursor: pointer;
-  flex-shrink: 0;
+  transition: color 0.15s;
 }
-.mirror-custom-head input {
-  accent-color: var(--accent);
-  margin: 0;
+.mirror-custom-head:hover {
+  color: var(--accent);
 }
 .mirror-custom .text-input {
   flex: 1;

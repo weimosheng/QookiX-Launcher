@@ -137,6 +137,14 @@ pub fn change_data_dir(
     Ok(json!({ "ok": true, "new_dir": new_dir, "need_restart": true }))
 }
 
+/// 在系统文件管理器中打开启动器数据目录（设置页「打开」按钮）。
+/// 前端不能直接 `openUrl("file://…")`：opener 插件默认权限只放行
+/// `http/https/mailto/tel`，file:// 会被作用域拦掉。
+#[tauri::command]
+pub fn reveal_data_dir(app: tauri::AppHandle, state: State<AppState>) -> Result<(), String> {
+    crate::fsutil::reveal(&app, &state.root)
+}
+
 /// Auto-detect system memory and return (total, used, available) + recommended (max, min) in MB.
 #[tauri::command]
 pub fn auto_detect_memory() -> Result<Value, String> {

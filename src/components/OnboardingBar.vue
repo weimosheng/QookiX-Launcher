@@ -1,11 +1,14 @@
 <script setup lang="ts">
 // 新手引导条：三步开始玩（账号 → 实例 → 启动），非阻塞、可关闭、完成即消失。
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { useAccountsStore } from "../stores/accounts";
 import { useInstancesStore } from "../stores/instances";
 import { useSettingsStore } from "../stores/settings";
 import { IconClose, IconPlay } from "./icons";
+
+const { t } = useI18n();
 
 const DONE_KEY = "qookix:onboarding:done";
 const LAUNCHED_KEY = "qookix:onboarding:launched";
@@ -58,7 +61,7 @@ function openBrowse() {
   <section v-if="show" class="onboarding glass">
     <div class="ob-head">
       <IconPlay class="ob-title-icon" />
-      <span class="ob-title">快速上手</span>
+      <span class="ob-title">{{ t("onboardingBar.title") }}</span>
     </div>
     <div class="ob-steps">
       <button
@@ -68,8 +71,8 @@ function openBrowse() {
       >
         <span class="ob-num">{{ step1 ? "✓" : "1" }}</span>
         <span class="ob-text">
-          <span class="ob-name">{{ step1 ? "账号已就绪" : "添加账号" }}</span>
-          <span class="ob-sub">离线 / 微软 / 皮肤站</span>
+          <span class="ob-name">{{ step1 ? t("onboardingBar.step1.done") : t("onboardingBar.step1.todo") }}</span>
+          <span class="ob-sub">{{ t("onboardingBar.step1.sub") }}</span>
         </span>
       </button>
       <span class="ob-arrow">→</span>
@@ -80,8 +83,8 @@ function openBrowse() {
       >
         <span class="ob-num">{{ step2 ? "✓" : "2" }}</span>
         <span class="ob-text">
-          <span class="ob-name">{{ step2 ? "游戏已就绪" : "获取游戏" }}</span>
-          <span class="ob-sub">选择版本或整合包安装</span>
+          <span class="ob-name">{{ step2 ? t("onboardingBar.step2.done") : t("onboardingBar.step2.todo") }}</span>
+          <span class="ob-sub">{{ t("onboardingBar.step2.sub") }}</span>
         </span>
       </button>
       <span class="ob-arrow">→</span>
@@ -92,12 +95,12 @@ function openBrowse() {
       >
         <span class="ob-num">{{ launched ? "✓" : "3" }}</span>
         <span class="ob-text">
-          <span class="ob-name">{{ launched ? "一切就绪" : "启动游戏" }}</span>
-          <span class="ob-sub">{{ launched ? "祝玩得开心" : "选好实例即可开玩" }}</span>
+          <span class="ob-name">{{ launched ? t("onboardingBar.step3.done") : t("onboardingBar.step3.todo") }}</span>
+          <span class="ob-sub">{{ launched ? t("onboardingBar.step3.subDone") : t("onboardingBar.step3.subTodo") }}</span>
         </span>
       </button>
     </div>
-    <button class="ob-close" title="不再显示" @click="dismiss">
+    <button class="ob-close" :title="t('onboardingBar.closeTitle')" @click="dismiss">
       <IconClose />
     </button>
   </section>

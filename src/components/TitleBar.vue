@@ -28,11 +28,13 @@ import {
   applyUpdateNow,
 } from "../updater";
 import { error as devError } from "../utils/logger";
+import { useI18n } from "vue-i18n";
 
 const route = useRoute();
 const router = useRouter();
 const tasks = useTasksStore();
 const servers = useServersStore();
+const { t } = useI18n();
 
 const pageIcons: Record<string, any> = {
   home: IconHome,
@@ -51,8 +53,13 @@ const actionIcons: Record<string, any> = {
   plus: IconPlus,
   trash: IconTrash,
 };
-// 页面路由 meta 中配置的导航按钮（如“新建实例”）
-const pageAction = computed(() => (route.meta.action as { text?: string; icon?: string; to?: string }) ?? null);
+// 页面路由 meta 中配置的导航按钮（如“新建实例”）；textKey 为文案 key
+const pageAction = computed(() => (route.meta.action as { textKey?: string; icon?: string; to?: string }) ?? null);
+// 页面标题也用 key，跟随语言切换
+const pageTitle = computed(() => {
+  const key = route.meta.titleKey as string | undefined;
+  return key ? t(key) : "";
+});
 // 供实例页触发的“新建分组”信号（由 App 提供）
 const groupDialogRequest = inject<{ value: number }>("groupDialogRequest", { value: 0 });
 function requestCreateGroup() {
@@ -95,10 +102,10 @@ onMounted(async () => {
   <div class="titlebar" id="app-titlebar" data-tauri-drag-region>
     <div class="tb-left" data-tauri-drag-region>
       <img src="/app-icon.png" class="tb-logo" draggable="false" alt="" />
-      <span class="tb-title">QookiX Launcher</span>
+      <span class="tb-title">{{ t("titlebar.title") }}</span>
       <span class="tb-divider">/</span>
       <component :is="pageIcon" class="tb-page-icon" />
-      <span class="tb-page">{{ (route.meta.title as string) ?? "" }}</span>
+      <span class="tb-page">{{ pageTitle }}</span>
     </div>
     <div class="tb-right" data-tauri-drag-region>
       <div class="tb-actions">
@@ -106,25 +113,25 @@ onMounted(async () => {
           v-if="updateReady"
           class="tb-action primary"
           :disabled="updateInstalling"
-          :title="updateReadyVersion ? `已下载 v${updateReadyVersion}，点击安装并重启` : '已下载更新，点击安装并重启'"
+          :title="updateReadyVersion ? t('titlebar.updateTooltip', { version: updateReadyVersion }) : t('titlebar.updateTooltipGeneric')"
           @click="doApplyUpdate()"
         >
           <IconRefresh class="tb-action-icon" />
-          {{ updateInstalling ? "正在安装…" : "重启以更新" }}
+          {{ updateInstalling ? t("titlebar.updateInstalling") : t("titlebar.updateReady") }}
         </button>
         <button
           v-if="route.name === 'instances'"
           class="tb-action"
           @click="requestCreateGroup"
         >
-          <IconPlus class="tb-action-icon" /> 新建分组
+          <IconPlus class="tb-action-icon" /> {{ t("titlebar.newGroup") }}
         </button>
         <button
           v-if="route.name === 'multiplayer' && servers.canCreate"
           class="tb-action primary"
           @click="servers.requestCreate()"
         >
-          <IconPlus class="tb-action-icon" /> 创建服务器
+          <IconPlus class="tb-action-icon" /> {{ t("titlebar.createServer") }}
         </button>
         <button
           v-if="pageAction?.to"
@@ -132,7 +139,7 @@ onMounted(async () => {
           @click="router.push(pageAction.to)"
         >
           <component :is="actionIcons[pageAction.icon ?? '']" class="tb-action-icon" />
-          {{ pageAction.text }}
+          {{ t(pageAction.textKey ?? "") }}
         </button>
         <button
           v-if="route.name === 'downloads'"
@@ -140,18 +147,18 @@ onMounted(async () => {
           :disabled="!finishedCount"
           @click="tasks.clearFinished()"
         >
-          <IconTrash class="tb-action-icon" /> 清除已完成
+          <IconTrash class="tb-action-icon" /> {{ t("titlebar.clearFinished") }}
         </button>
       </div>
       <div class="tb-controls">
-        <button class="tb-btn" title="最小化" @click="win.minimize()">
+        <button class="tb-btn" :title="t('titlebar.minimize')" @click="win.minimize()">
         <IconMinus />
       </button>
-      <button class="tb-btn" :title="maximized ? '还原' : '最大化'" @click="toggleMax">
+        <button class="tb-btn" :title="maximized ? t('titlebar.restore') : t('titlebar.maximize')" @click="toggleMax">
         <IconSquare v-if="!maximized" />
         <IconRestore v-else />
       </button>
-      <button class="tb-btn tb-close" title="关闭" @click="win.close()">
+        <button class="tb-btn tb-close" :title="t('titlebar.close')" @click="win.close()">
         <IconClose />
       </button>
       </div>

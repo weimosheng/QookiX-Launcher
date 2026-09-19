@@ -10,6 +10,7 @@ import { NButton, NModal, NSelect, NSwitch, useMessage } from "naive-ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "../api";
 import { useInstancesStore } from "../stores/instances";
+import { useI18n } from "vue-i18n";
 import type { CloudSnapshot } from "../types";
 import { fmtSize } from "../utils/format";
 import {
@@ -33,6 +34,7 @@ const emit = defineEmits<{ (e: "update:show", v: boolean): void; (e: "restored")
 
 const message = useMessage();
 const instances = useInstancesStore();
+const { t } = useI18n();
 
 type Phase = "loading" | "connect" | "authing" | "ready";
 const phase = ref<Phase>("loading");
@@ -117,12 +119,15 @@ function updateSpeed(p: { sent?: number; total?: number }) {
 }
 function fmtEta(secs: number) {
   if (!Number.isFinite(secs) || secs <= 0) return "";
-  if (secs < 60) return `剩余约 ${Math.ceil(secs)} 秒`;
+  if (secs < 60) return t('cloudSync.etaSeconds', { secs: Math.ceil(secs) });
   const m = Math.floor(secs / 60);
   const s = Math.round(secs % 60);
-  return s > 0 ? `剩余约 ${m} 分 ${s} 秒` : `剩余约 ${m} 分钟`;
+  return s > 0 ? t('cloudSync.etaMinutesSeconds', { mins: m, secs: s }) : t('cloudSync.etaMinutes', { mins: m });
 }
 let unlistenProgress: (() => void) | null = null;
+const authStep2Html = computed(() =>
+  t('cloudSync.auth.step2', { code: codeCopied.value ? t('cloudSync.auth.code') : '' })
+);
 const showValue = computed({
   get: () => props.show,
   set: (v: boolean) => emit("update:show", v),
@@ -215,17 +220,17 @@ function expandWorld(g: CloudWorldGroup) {
 async function restoreBrowse(s: CloudSnapshot, g: CloudWorldGroup) {
   const inst = targetInstanceId.value;
   if (!inst) {
-    message.warning("请先选择要查看哪个实例的云存档");
+    message.warning(t('cloudSync.selectInstanceWarn'));
     return;
   }
   const name = targetName.value.trim() || g.worldName;
   busy.value = "restore-" + s.releaseId;
-  progress.value = { kind: "restore", step: "download", msg: "正在下载云端快照…" };
+  progress.value = { kind: "restore", step: "download", msg: t('cloudSync.downloadingSnapshot') };
   try {
     const r = await api.cloudSyncRestore(inst, name, s.releaseId, g.worldId);
     message.success(
-      (r.backupName ? `已恢复到「${name}」，原目录已备份为「${r.backupName}」` : `已恢复到「${name}」`) +
-        "，世界列表已刷新",
+      (r.backupName ? t('cloudSync.restoreOkWithBackup', { name, backup: r.backupName }) : t('cloudSync.restoreOk', { name })) +
+        t('cloudSync.worldListRefreshed'),
     );
     emit("restored");
   } catch (e) {
@@ -267,7 +272,7 @@ function schedulePoll(interval: number) {
       const r = await api.cloudSyncPollAuth(deviceCode.value);
       if (r.status === "ok") {
         stopPoll();
-        message.success("GitHub 授权成功");
+        message.success(t('cloudSync.githubAuthOk'));
         await loadInfo();
         return;
       }
@@ -292,20 +297,20 @@ function copyCode() {
   navigator.clipboard.writeText(userCode.value).then(
     () => {
       codeCopied.value = true;
-      message.success("已复制，请到浏览器粘贴");
+      message.success(t('cloudSync.copiedToPaste'));
     },
     () => {},
   );
 }
 
 function openVerify() {
-  openUrl(verificationUri.value).catch(() => message.error("打开浏览器失败，请手动访问 " + verificationUri.value));
+  openUrl(verificationUri.value).catch(() => message.error(t('cloudSync.openBrowserFailed', { url: verificationUri.value })));
 }
 
 async function disconnect() {
   try {
     await api.cloudSyncDisconnect();
-    message.success("已断开连接（云端数据未删除）");
+    message.success(t('cloudSync.disconnected'));
     phase.value = "connect";
   } catch (e) {
     message.error(String(e));
@@ -315,7 +320,7 @@ async function disconnect() {
 // ---- 快照操作 ----
 async function upload() {
   busy.value = "upload";
-  progress.value = { kind: "upload", step: "pack", msg: "正在打包世界存档…" };
+  progress.value = { kind: "upload", step: "pack", msg: t('cloudSync.packingWorld') };
   try {
     const r = await api.cloudSyncUpload(
       props.instanceId,
@@ -325,7 +330,7 @@ async function upload() {
       props.gameVersion,
     );
     message.success(
-      `快照已上传（${fmtSize(r.sizeBytes)}）${r.cleaned ? `，已清理 ${r.cleaned} 个旧快照` : ""}`,
+      r.cleaned ? t('cloudSync.uploadOkCleaned', { size: fmtSize(r.sizeBytes), count: r.cleaned }) : t('cloudSync.uploadOk', { size: fmtSize(r.sizeBytes) }),
     );
     await loadWorld();
   } catch (e) {
@@ -338,13 +343,13 @@ async function upload() {
 
 async function restore(s: CloudSnapshot) {
   busy.value = "restore-" + s.releaseId;
-  progress.value = { kind: "restore", step: "download", msg: "正在下载云端快照…" };
+  progress.value = { kind: "restore", step: "download", msg: t('cloudSync.downloadingSnapshot') };
   try {
     const r = await api.cloudSyncRestore(props.instanceId, props.world, s.releaseId);
     message.success(
       r.backupName
-        ? `已恢复，原存档已保留为「${r.backupName}」`
-        : "已恢复",
+        ? t('cloudSync.restoreDoneWithBackup', { backup: r.backupName })
+        : t('cloudSync.restoreDone'),
     );
     emit("restored");
   } catch (e) {
@@ -429,54 +434,49 @@ onBeforeUnmount(() => {
   <n-modal
     v-model:show="showValue"
     preset="card"
-    :title="browseMode ? '云存档：从云端恢复' : `云存档：${world}`"
+    :title="browseMode ? t('cloudSync.titleBrowse') : t('cloudSync.titleWorld', { world })"
     style="width: 600px; max-width: 94vw"
     :mask-closable="phase !== 'authing'"
     :close-on-esc="phase !== 'authing'"
   >
     <!-- 加载中 -->
-    <div v-if="phase === 'loading'" class="center">加载中…</div>
+    <div v-if="phase === 'loading'" class="center">{{ t('cloudSync.loading') }}</div>
 
     <!-- 未连接：介绍 + 授权入口 -->
     <div v-else-if="phase === 'connect'" class="connect">
       <div class="hero">
         <IconCloud class="hero-icon" />
         <div>
-          <div class="hero-title">把存档同步到你的 GitHub</div>
-          <div class="hero-sub">
-            存档保存在你自己的 GitHub <b>私有仓库</b> 里，启动器只是帮你打包上传，
-            不会经过任何第三方服务器。可在多台电脑间恢复进度。
-          </div>
+          <div class="hero-title">{{ t('cloudSync.hero.title') }}</div>
+          <div class="hero-sub" v-html="t('cloudSync.hero.sub')"></div>
         </div>
       </div>
       <ul class="perk">
-        <li>自动打包世界文件夹并上传，每个世界保留最近几个快照</li>
-        <li>恢复前会自动备份本地现有存档，不怕覆盖丢档</li>
-        <li>只申请仓库读写权限，随时可以断开</li>
+        <li>{{ t('cloudSync.perk.auto') }}</li>
+        <li>{{ t('cloudSync.perk.backup') }}</li>
+        <li>{{ t('cloudSync.perk.scope') }}</li>
       </ul>
       <NButton type="primary" size="large" block @click="startAuth">
-        <IconGithub />&nbsp;使用 GitHub 登录
+        <IconGithub />&nbsp;{{ t('cloudSync.loginWithGithub') }}
       </NButton>
     </div>
 
     <!-- 授权中：展示用户码 -->
     <div v-else-if="phase === 'authing'" class="authing">
       <div class="auth-step">
-        <span class="step-num">1</span> 已自动打开授权页并复制好验证码
-        <button class="link-btn" @click="openVerify">没弹出？重新打开</button>
+        <span class="step-num">1</span> {{ t('cloudSync.auth.step1') }}
+        <button class="link-btn" @click="openVerify">{{ t('cloudSync.auth.reopen') }}</button>
       </div>
-      <div class="auth-step">
-        <span class="step-num">2</span> 在页面中粘贴（<b>Ctrl+V</b>）<template v-if="codeCopied">验证码</template>，然后点击 <b>Authorize</b>
-      </div>
-      <button class="code-box" :title="codeCopied ? '已自动复制，也可点击重新复制' : '点击复制'" @click="copyCode">
+      <div class="auth-step" v-html="authStep2Html"></div>
+      <button class="code-box" :title="codeCopied ? t('cloudSync.auth.copiedTitle') : t('cloudSync.auth.copyTitle')" @click="copyCode">
         {{ userCode || "…" }}
-        <span class="code-hint">{{ codeCopied ? "已复制 ✓" : "点击复制" }}</span>
+        <span class="code-hint">{{ codeCopied ? t('cloudSync.auth.copied') : t('cloudSync.auth.copy') }}</span>
       </button>
       <div v-if="authError" class="auth-err">
         {{ authError }}
-        <button class="link-btn" @click="startAuth">重新开始</button>
+        <button class="link-btn" @click="startAuth">{{ t('cloudSync.auth.restart') }}</button>
       </div>
-      <div v-else class="auth-wait">等待你在 GitHub 完成授权，成功后这里会自动进入下一步…</div>
+      <div v-else class="auth-wait">{{ t('cloudSync.auth.waiting') }}</div>
     </div>
 
     <!-- 已连接：快照管理 -->
@@ -485,13 +485,13 @@ onBeforeUnmount(() => {
         <span class="acct">
           <IconGithub /> {{ account }} / {{ repoName }}
         </span>
-        <button class="link-btn" @click="disconnect">断开连接</button>
+        <button class="link-btn" @click="disconnect">{{ t('cloudSync.disconnect') }}</button>
       </div>
 
       <!-- 进度条：上传 / 恢复期间显示具体阶段与百分比 -->
       <div v-if="progress" class="progress-box">
         <div class="progress-head">
-          <span>{{ progress.msg || "处理中…" }}</span>
+          <span>{{ progress.msg || t('cloudSync.processing') }}</span>
           <span v-if="progressPercent != null" class="progress-pct">{{ progressPercent }}%</span>
           <span v-else-if="progressPercent === null && (progress.step === 'pack' || progress.step === 'hash')" class="progress-pct">…</span>
         </div>
@@ -515,18 +515,18 @@ onBeforeUnmount(() => {
       <!-- 浏览模式：只显示所选实例自己的云端快照 -->
       <template v-if="browseMode">
         <div class="cw-target">
-          <span>实例</span>
+          <span>{{ t('cloudSync.instance') }}</span>
           <NSelect
             v-model:value="targetInstanceId"
             :options="instanceOptions"
-            placeholder="选择实例"
+            :placeholder="t('cloudSync.selectInstance')"
             size="small"
             filterable
           />
         </div>
-        <div v-if="!targetInstanceId" class="center">请先选择实例</div>
+        <div v-if="!targetInstanceId" class="center">{{ t('cloudSync.selectInstanceFirst') }}</div>
         <div v-else-if="!visibleWorlds.length" class="center">
-          该实例还没有云端快照
+          {{ t('cloudSync.noSnapshots') }}
         </div>
         <div v-else class="snap-list">
           <div v-for="g in visibleWorlds" :key="g.worldId" class="cw-group">
@@ -535,15 +535,15 @@ onBeforeUnmount(() => {
               <div class="c-info">
                 <div class="c-name">{{ g.worldName }}</div>
                 <div class="c-meta">
-                  <span>{{ g.snapshots.length }} 个快照</span>
-                  <span>最近：{{ fmtTime(g.snapshots[0]?.createdAt ?? "") }}</span>
+                  <span>{{ t('cloudSync.snapshotCount', { count: g.snapshots.length }) }}</span>
+                  <span>{{ t('cloudSync.recent', { time: fmtTime(g.snapshots[0]?.createdAt ?? "") }) }}</span>
                 </div>
               </div>
-              <span class="cw-chevron">{{ expandedWorld === g.worldId ? "收起" : "展开" }}</span>
+              <span class="cw-chevron">{{ expandedWorld === g.worldId ? t('cloudSync.collapse') : t('cloudSync.expand') }}</span>
             </button>
             <div v-if="expandedWorld === g.worldId" class="cw-detail">
               <div class="cw-target">
-                <span>恢复到目录</span>
+                <span>{{ t('cloudSync.restoreTo') }}</span>
                 <input v-model="targetName" class="cw-input" spellcheck="false" />
               </div>
               <div v-for="s in g.snapshots" :key="s.releaseId" class="snap-row">
@@ -551,7 +551,7 @@ onBeforeUnmount(() => {
                   <div class="c-name">{{ fmtTime(s.createdAt) }}</div>
                   <div class="c-meta">
                     <span>{{ fmtSize(s.assetSize) }}</span>
-                    <span v-if="(s.partCount ?? 1) > 1">{{ s.partCount }} 卷</span>
+                    <span v-if="(s.partCount ?? 1) > 1">{{ t('cloudSync.parts', { count: s.partCount }) }}</span>
                     <span v-if="s.gameVersion">{{ s.gameVersion }}</span>
                   </div>
                 </div>
@@ -561,14 +561,14 @@ onBeforeUnmount(() => {
                   :loading="busy === 'restore-' + s.releaseId"
                   @click="restoreBrowse(s, g)"
                 >
-                  <IconDownloadCloud />&nbsp;恢复
+                  <IconDownloadCloud />&nbsp;{{ t('cloudSync.restore') }}
                 </NButton>
               </div>
             </div>
           </div>
         </div>
         <div class="foot-hint">
-          恢复会写入左侧目录名（默认用云端记录的世界名）；如果本地已有同名世界，恢复前会自动备份
+          {{ t('cloudSync.browseHint') }}
         </div>
       </template>
 
@@ -576,16 +576,16 @@ onBeforeUnmount(() => {
       <template v-else>
         <div class="toolbar">
           <NButton type="primary" :loading="busy === 'upload'" @click="upload">
-            <IconUploadCloud />&nbsp;上传当前存档
+            <IconUploadCloud />&nbsp;{{ t('cloudSync.uploadCurrent') }}
           </NButton>
           <label class="auto-toggle">
             <NSwitch size="small" :value="autoSync" @update:value="toggleAuto" />
-            <span>退出游戏后自动上传</span>
+            <span>{{ t('cloudSync.autoUpload') }}</span>
           </label>
         </div>
 
         <div class="quota-row">
-          <span>每个世界保留快照数</span>
+          <span>{{ t('cloudSync.keepPerWorld') }}</span>
           <div class="quota-ctl">
             <button
               class="q-btn"
@@ -601,8 +601,8 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="snap-title">云端快照（{{ snapshots.length }}）</div>
-        <div v-if="!snapshots.length" class="center">还没有云端快照，点上方「上传当前存档」开始</div>
+        <div class="snap-title">{{ t('cloudSync.cloudSnapshots', { count: snapshots.length }) }}</div>
+        <div v-if="!snapshots.length" class="center">{{ t('cloudSync.emptyHint') }}</div>
         <div v-else class="snap-list">
           <div v-for="s in snapshots" :key="s.releaseId" class="snap-row">
             <IconCloud class="snap-icon" />
@@ -620,11 +620,11 @@ onBeforeUnmount(() => {
                 :loading="busy === 'restore-' + s.releaseId"
                 @click="restore(s)"
               >
-                <IconDownloadCloud />&nbsp;恢复
+                <IconDownloadCloud />&nbsp;{{ t('cloudSync.restore') }}
               </NButton>
               <button
                 class="snap-del"
-                title="删除此快照"
+                :title="t('cloudSync.deleteSnapshot')"
                 :disabled="busy === 'del-' + s.releaseId"
                 @click="remove(s)"
               >
@@ -633,7 +633,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
-        <div class="foot-hint">恢复时会把云端快照下载并覆盖本地「{{ world }}」，覆盖前自动备份</div>
+        <div class="foot-hint">{{ t('cloudSync.restoreHint', { world }) }}</div>
       </template>
     </div>
   </n-modal>

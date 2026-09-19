@@ -1,6 +1,5 @@
 ; ============================================================================
 ;  QookiX Launcher NSIS installer/uninstaller hooks
-;  Learned from Mystic-Stars/Axolotl's hooks.nsi.
 ;  These macros are invoked by the custom installer.nsi via !insertmacro:
 ;    NSIS_HOOK_PREINSTALL / NSIS_HOOK_POSTINSTALL / NSIS_HOOK_PREUNINSTALL
 ; ============================================================================

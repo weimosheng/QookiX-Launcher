@@ -10,6 +10,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
 import type { DiagnosticReport, DiagnosticReportEntry } from "../types";
 import { fmtSize, fmtTime } from "../utils/format";
+import { useI18n } from "vue-i18n";
 
 const props = withDefaults(
   defineProps<{
@@ -22,6 +23,7 @@ const props = withDefaults(
 const show = defineModel<boolean>("show", { required: true });
 
 const message = useMessage();
+const { t } = useI18n();
 const collecting = ref(false);
 const report = ref<DiagnosticReport | null>(null);
 /** 预览模式：结构化视图 / Markdown 全文 */
@@ -60,7 +62,7 @@ async function removeHistory(entry: DiagnosticReportEntry) {
     await api.deleteDiagnosticsReport(entry.filename);
     if (viewingHistory.value === entry.filename) viewingHistory.value = null;
     await loadHistory();
-    message.success("已删除该报告");
+    message.success(t("diagnostics.deletedReport"));
   } catch (e) {
     message.error(String(e));
   }
@@ -91,9 +93,9 @@ async function copyAll() {
   if (!report.value) return;
   try {
     await navigator.clipboard.writeText(report.value.markdown);
-    message.success("诊断报告已复制到剪贴板");
+    message.success(t("diagnostics.copiedToClipboard"));
   } catch (e) {
-    message.error(`复制失败：${String(e)}`);
+    message.error(t("diagnostics.copyFailed", { error: String(e) }));
   }
 }
 
@@ -102,12 +104,12 @@ async function saveAs() {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
   const dest = await save({
     defaultPath: `qookix-diagnostics-${stamp}.md`,
-    filters: [{ name: "诊断报告（Markdown）", extensions: ["md", "txt"] }],
+    filters: [{ name: t("diagnostics.fileFilterName"), extensions: ["md", "txt"] }],
   });
   if (!dest) return;
   try {
     await api.saveDiagnosticsReport(dest as string, report.value.markdown);
-    message.success(`已保存到 ${dest}`);
+    message.success(t("diagnostics.savedTo", { dest }));
   } catch (e) {
     message.error(String(e));
   }
@@ -118,7 +120,7 @@ async function saveAs() {
   <n-modal
     v-model:show="show"
     preset="card"
-    title="诊断报告"
+    :title="t('diagnostics.title')"
     style="width: 720px; max-width: 95vw"
     :mask-closable="true"
     :close-on-esc="true"
@@ -126,10 +128,9 @@ async function saveAs() {
     <div class="dg-body">
       <div class="dg-head">
         <p class="dg-hint">
-          一键收集运行环境与实例状态，用于反馈问题或远程排障。
-          报告已自动脱敏（系统用户名 / 账号 UUID / access token），发送前建议自行过目。
+          {{ t("diagnostics.hint") }}
           <template v-if="props.instanceName">
-            当前包含实例：<b>{{ props.instanceName }}</b>
+            {{ t("diagnostics.currentInstance") }}<b>{{ props.instanceName }}</b>
           </template>
         </p>
         <div class="dg-modes">
@@ -138,14 +139,14 @@ async function saveAs() {
             :disabled="!report?.sections.length"
             @click="previewMode = 'list'"
           >
-            分类查看
+            {{ t("diagnostics.modeList") }}
           </button>
-          <button :class="{ active: previewMode === 'markdown' }" @click="previewMode = 'markdown'">Markdown 全文</button>
+          <button :class="{ active: previewMode === 'markdown' }" @click="previewMode = 'markdown'">{{ t("diagnostics.modeMarkdown") }}</button>
         </div>
       </div>
 
       <div v-if="collecting" class="dg-loading">
-        正在采集（含网络探测，约几秒）…
+        {{ t("diagnostics.collecting") }}
       </div>
 
       <template v-else-if="report">
@@ -157,7 +158,7 @@ async function saveAs() {
                 <li v-for="(l, i) in s.lines" :key="i">{{ l }}</li>
               </ul>
               <details v-if="s.block" class="dg-block">
-                <summary>查看详情</summary>
+                <summary>{{ t("diagnostics.viewDetails") }}</summary>
                 <pre>{{ s.block }}</pre>
               </details>
             </section>
@@ -166,19 +167,19 @@ async function saveAs() {
         </n-scrollbar>
 
         <p class="dg-meta">
-          <template v-if="viewingHistory">正在查看历史报告（{{ viewingHistory }}）</template>
+          <template v-if="viewingHistory">{{ t("diagnostics.viewingHistory", { filename: viewingHistory }) }}</template>
           <template v-else>
-            已脱敏 <b>{{ report.redactions }}</b> 处 · 已自动保存到数据目录
-            <span v-if="report.sections.length">· {{ report.sections.length }} 个分类</span>
+            {{ t("diagnostics.redactedSummary", { count: report.redactions }) }}
+            <span v-if="report.sections.length">{{ t("diagnostics.sectionCount", { count: report.sections.length }) }}</span>
           </template>
         </p>
 
         <div class="dg-history">
           <div class="dg-history-head">
-            历史报告
-            <span class="dg-history-note">自动保留最近 20 份</span>
+            {{ t("diagnostics.historyTitle") }}
+            <span class="dg-history-note">{{ t("diagnostics.historyNote") }}</span>
           </div>
-          <div v-if="!history.length" class="dg-history-empty">暂无</div>
+          <div v-if="!history.length" class="dg-history-empty">{{ t("diagnostics.historyEmpty") }}</div>
           <n-scrollbar v-else style="max-height: 120px" trigger="none">
             <div
               v-for="h in history"
@@ -189,16 +190,16 @@ async function saveAs() {
               <button class="dg-history-open" @click="openHistory(h)">
                 {{ fmtTime(h.generated_at) }} · {{ fmtSize(h.size) }}
               </button>
-              <button class="dg-history-del" title="删除" @click="removeHistory(h)">✕</button>
+              <button class="dg-history-del" :title="t('diagnostics.deleteTitle')" @click="removeHistory(h)">✕</button>
             </div>
           </n-scrollbar>
         </div>
       </template>
 
       <div class="dg-actions">
-        <n-button :loading="collecting" @click="collect">重新采集</n-button>
-        <n-button :disabled="!report || collecting" @click="copyAll">复制报告</n-button>
-        <n-button type="primary" :disabled="!report || collecting" @click="saveAs">另存为文件</n-button>
+        <n-button :loading="collecting" @click="collect">{{ t("diagnostics.recollect") }}</n-button>
+        <n-button :disabled="!report || collecting" @click="copyAll">{{ t("diagnostics.copyReport") }}</n-button>
+        <n-button type="primary" :disabled="!report || collecting" @click="saveAs">{{ t("diagnostics.saveAsFile") }}</n-button>
       </div>
     </div>
   </n-modal>

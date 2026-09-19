@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { useTasksStore, type TaskEntry } from "../stores/tasks";
 import { fmtBytes, fmtSpeed, fmtTimeMs as fmtTime } from "../utils/format";
@@ -11,6 +12,7 @@ import {
   IconDownload,
 } from "../components/icons";
 
+const { t } = useI18n();
 const tasks = useTasksStore();
 const instances = useInstancesStore();
 const router = useRouter();
@@ -33,31 +35,32 @@ watch(activeTab, () => nextTick(() => refreshTabIndicator()));
 watch([() => activeTasks.value.length, () => finishedTasks.value.length], () => nextTick(() => snapTabIndicator()));
 
 const STAGE_LABELS: Record<string, string> = {
-  manifest: "获取版本信息",
-  client: "游戏客户端",
-  libraries: "依赖库",
-  natives: "解压运行库",
-  assets: "资源文件",
-  logging: "日志配置",
-  loader: "加载器",
-  content: "内容下载",
-  modpack: "整合包下载",
-  "modpack-install": "写入整合包",
-  runtime: "Java 运行时",
-  done: "完成",
-  prepare: "准备中",
-  download: "下载",
-  extract: "解压",
-  verify: "校验",
-  install: "安装",
-  fetch: "获取",
-  resolve: "解析依赖",
-  copy: "复制文件",
-  write: "写入文件",
+  manifest: "downloads.stage.manifest",
+  client: "downloads.stage.client",
+  libraries: "downloads.stage.libraries",
+  natives: "downloads.stage.natives",
+  assets: "downloads.stage.assets",
+  logging: "downloads.stage.logging",
+  loader: "downloads.stage.loader",
+  content: "downloads.stage.content",
+  modpack: "downloads.stage.modpack",
+  "modpack-install": "downloads.stage.modpack-install",
+  runtime: "downloads.stage.runtime",
+  done: "downloads.stage.done",
+  prepare: "downloads.stage.prepare",
+  download: "downloads.stage.download",
+  extract: "downloads.stage.extract",
+  verify: "downloads.stage.verify",
+  install: "downloads.stage.install",
+  fetch: "downloads.stage.fetch",
+  resolve: "downloads.stage.resolve",
+  copy: "downloads.stage.copy",
+  write: "downloads.stage.write",
 };
 
-function stageLabel(t: TaskEntry) {
-  return STAGE_LABELS[t.stage] ?? t.stage;
+function stageLabel(task: TaskEntry) {
+  const key = STAGE_LABELS[task.stage];
+  return key ? t(key) : task.stage;
 }
 
 function pct(done: number, total: number) {
@@ -71,9 +74,9 @@ function downloadPct(t: TaskEntry) {
   return pct(t.fileDone, t.fileTotal);
 }
 
-function statusText(t: TaskEntry) {
-  if (t.finished) return t.ok === false ? "失败" : "完成";
-  return "进行中";
+function statusText(task: TaskEntry) {
+  if (task.finished) return task.ok === false ? t("downloads.status.failed") : t("downloads.status.done");
+  return t("downloads.status.running");
 }
 
 function toggle(t: TaskEntry) {
@@ -260,78 +263,78 @@ function onExpandLeave(el: Element, done: () => void) {
     <div ref="tabBox" class="tabs">
       <div class="indicator" :style="tabIndicatorStyle"></div>
       <button :class="{ active: activeTab === 'active' }" @click="activeTab = 'active'">
-        进行中 <span v-if="activeTasks.length" class="tab-count">{{ activeTasks.length }}</span>
+        {{ t('downloads.tab.active') }} <span v-if="activeTasks.length" class="tab-count">{{ activeTasks.length }}</span>
       </button>
       <button :class="{ active: activeTab === 'finished' }" @click="activeTab = 'finished'">
-        已完成 <span v-if="finishedTasks.length" class="tab-count">{{ finishedTasks.length }}</span>
+        {{ t('downloads.tab.finished') }} <span v-if="finishedTasks.length" class="tab-count">{{ finishedTasks.length }}</span>
       </button>
     </div>
 
     <div v-if="!visibleTasks.length" class="empty glass">
       <div class="empty-icon"><IconDownload /></div>
-      <p>{{ activeTab === 'active' ? '暂无进行中的任务' : '没有已完成的任务' }}</p>
+      <p>{{ activeTab === 'active' ? t('downloads.empty.noActive') : t('downloads.empty.noFinished') }}</p>
     </div>
 
     <div v-else class="task-list">
-      <div v-for="t in visibleTasks" :key="t.id" class="task-card glass">
-        <div class="task-top" @click="toggle(t)">
+      <div v-for="task in visibleTasks" :key="task.id" class="task-card glass">
+        <div class="task-top" @click="toggle(task)">
           <div class="task-main">
             <div class="task-title text-ellipsis">
-              {{ t.source ?? t.message }}
-              <span class="status" :class="t.finished ? (t.ok === false ? 'fail' : 'ok') : 'run'">
-                {{ statusText(t) }}
+              {{ task.source ?? task.message }}
+              <span class="status" :class="task.finished ? (task.ok === false ? 'fail' : 'ok') : 'run'">
+                {{ statusText(task) }}
               </span>
-              <IconChevronDown class="caret" :class="{ open: expanded.has(t.id) }" />
+              <IconChevronDown class="caret" :class="{ open: expanded.has(task.id) }" />
             </div>
             <div class="task-meta">
-              <span class="meta-item">{{ fmtTime(t.startedAt) }}</span>
+              <span class="meta-item">{{ fmtTime(task.startedAt) }}</span>
               <span
-                v-if="t.instanceName && !isModpackTask(t)"
+                v-if="task.instanceName && !isModpackTask(task)"
                 class="meta-item"
-                :class="instanceReady(t) ? 'link' : 'pending'"
-                :title="instanceReady(t) ? '跳转到该实例' : '实例正在创建/安装，完成后才能跳转'"
-                @click.stop="gotoInstance(t)"
+                :class="instanceReady(task) ? 'link' : 'pending'"
+                :title="instanceReady(task) ? t('downloads.instanceLink') : t('downloads.instancePending')"
+                @click.stop="gotoInstance(task)"
               >
-                目标实例：{{ t.instanceName }}
-                <IconChevronRight v-if="instanceReady(t)" />
-                <span v-else class="pending-tag">创建中</span>
+                {{ t('downloads.targetInstance', { name: task.instanceName }) }}
+                <IconChevronRight v-if="instanceReady(task)" />
+                <span v-else class="pending-tag">{{ t('downloads.creating') }}</span>
               </span>
-              <span class="meta-item">{{ stageLabel(t) }}</span>
+              <span class="meta-item">{{ stageLabel(task) }}</span>
             </div>
           </div>
           <div class="task-side">
-            <template v-if="t.activity === 'download' && !t.finished">
-              <div class="speed">{{ fmtSpeed(t.speed) }}</div>
-              <div v-if="t.fraction != null" class="stage">{{ Math.round(t.fraction * 100) }}%</div>
-              <div v-else class="stage">{{ t.fileDone }} / {{ t.fileTotal }} 个文件</div>
+            <template v-if="task.activity === 'download' && !task.finished">
+              <div class="speed">{{ fmtSpeed(task.speed) }}</div>
+              <div v-if="task.fraction != null" class="stage">{{ Math.round(task.fraction * 100) }}%</div>
+              <div v-else class="stage">{{ task.fileDone }} / {{ task.fileTotal }} {{ t('downloads.fileUnit') }}</div>
             </template>
-            <template v-else-if="!t.finished">
-              <div class="stage install">安装阶段</div>
-              <div v-if="t.stepTotal" class="stage">{{ t.stepDone }} / {{ t.stepTotal }}</div>
+            <template v-else-if="!task.finished">
+              <div class="stage install">{{ t('downloads.installStage') }}</div>
+              <div v-if="task.stepTotal" class="stage">{{ task.stepDone }} / {{ task.stepTotal }}</div>
             </template>
           </div>
         </div>
 
         <!-- error message for failed tasks -->
-        <div v-if="t.finished && t.ok === false" class="task-error">
-          {{ t.message }}
+        <div v-if="task.finished && task.ok === false" class="task-error">
+          {{ task.message }}
         </div>
 
         <!-- download progress -->
-        <div v-if="t.activity === 'download' || t.finished" class="task-progress">
+        <div v-if="task.activity === 'download' || task.finished" class="task-progress">
           <div class="bar">
             <div
               class="fill"
-              :style="{ width: downloadPct(t) + '%' }"
+              :style="{ width: downloadPct(task) + '%' }"
             ></div>
           </div>
           <div class="bar-info">
-            <span v-if="t.fraction != null">{{ Math.round(t.fraction * 100) }}%</span>
-            <span v-else>{{ t.fileDone }} / {{ t.fileTotal }} 个文件</span>
-            <span v-if="t.bytesTotal">
-              {{ fmtBytes(t.bytesDone) }} / {{ fmtBytes(t.bytesTotal) }}
+            <span v-if="task.fraction != null">{{ Math.round(task.fraction * 100) }}%</span>
+            <span v-else>{{ task.fileDone }} / {{ task.fileTotal }} {{ t('downloads.fileUnit') }}</span>
+            <span v-if="task.bytesTotal">
+              {{ fmtBytes(task.bytesDone) }} / {{ fmtBytes(task.bytesTotal) }}
             </span>
-            <span v-else-if="t.bytesDone">{{ fmtBytes(t.bytesDone) }}</span>
+            <span v-else-if="task.bytesDone">{{ fmtBytes(task.bytesDone) }}</span>
           </div>
         </div>
 
@@ -340,12 +343,12 @@ function onExpandLeave(el: Element, done: () => void) {
           <div class="bar">
             <div
               class="fill"
-              :style="{ width: pct(t.stepDone, t.stepTotal) + '%' }"
+              :style="{ width: pct(task.stepDone, task.stepTotal) + '%' }"
             ></div>
           </div>
           <div class="bar-info">
-            <span>{{ t.message }}</span>
-            <span v-if="t.stepTotal">{{ t.stepDone }} / {{ t.stepTotal }}</span>
+            <span>{{ task.message }}</span>
+            <span v-if="task.stepTotal">{{ task.stepDone }} / {{ task.stepTotal }}</span>
           </div>
         </div>
 
@@ -355,20 +358,20 @@ function onExpandLeave(el: Element, done: () => void) {
           @enter="onExpandEnter"
           @leave="onExpandLeave"
         >
-          <div v-if="expanded.has(t.id)" class="task-detail-wrap">
+          <div v-if="expanded.has(task.id)" class="task-detail-wrap">
             <div class="task-detail">
               <div class="detail-row">
-                <span class="dl-label">正在下载</span>
-                <span class="dl-value">{{ t.activeFiles.length }} 个文件</span>
+                <span class="dl-label">{{ t('downloads.detail.downloading') }}</span>
+                <span class="dl-value">{{ task.activeFiles.length }} {{ t('downloads.fileUnit') }}</span>
               </div>
               <div class="detail-row">
-                <span class="dl-label">平均速度</span>
-                <span class="dl-value">{{ fmtSpeed(t.speed) }}</span>
+                <span class="dl-label">{{ t('downloads.detail.avgSpeed') }}</span>
+                <span class="dl-value">{{ fmtSpeed(task.speed) }}</span>
               </div>
-              <div v-if="t.files.length || t.activeFiles.length" class="detail-row files">
-                <span class="dl-label">文件明细</span>
+              <div v-if="task.files.length || task.activeFiles.length" class="detail-row files">
+                <span class="dl-label">{{ t('downloads.detail.files') }}</span>
                 <div class="dl-files">
-                  <div v-for="(f, i) in t.activeFiles" :key="'a'+i" class="file-current">
+                  <div v-for="(f, i) in task.activeFiles" :key="'a'+i" class="file-current">
                     <div class="file-current-row">
                       <span class="file-status">→</span>
                       <span class="file-name text-ellipsis">{{ f.name }}</span>
@@ -379,7 +382,7 @@ function onExpandLeave(el: Element, done: () => void) {
                     </div>
                   </div>
                   <div
-                    v-for="(f, i) in t.files.slice(-30).reverse()"
+                    v-for="(f, i) in task.files.slice(-30).reverse()"
                     :key="i"
                     class="file-row"
                     :class="f.ok ? 'ok' : 'fail'"

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { fmtBytes } from "../utils/format";
 import { CORE_COLORS, CORE_LABELS } from "../utils/cores";
 import { isAprilFools } from "../utils/versions";
@@ -19,6 +20,8 @@ import {
   IconDoorOpen,
   IconDownload,
   IconExternal,
+  IconGlobe,
+  IconPackage,
   IconPlay,
   IconPlus,
   IconRefresh,
@@ -29,6 +32,7 @@ import {
 } from "../components/icons";
 
 const router = useRouter();
+const { t } = useI18n();
 const accounts = useAccountsStore();
 const servers = useServersStore();
 const message = useMessage();
@@ -49,12 +53,12 @@ const filteredVersions = computed(() =>
 
 // ---- 服务器核心选项 ----
 const CORES: { value: ServerCore; label: string; desc: string }[] = [
-  { value: "vanilla", label: "Vanilla", desc: "官方原版核心" },
-  { value: "paper", label: "Paper", desc: "高性能，推荐" },
-  { value: "spigot", label: "Spigot", desc: "经典插件核心" },
-  { value: "purpur", label: "Purpur", desc: "Paper 下游优化" },
-  { value: "forge", label: "Forge", desc: "模组服务端" },
-  { value: "fabric", label: "Fabric", desc: "轻量模组服务端" },
+  { value: "vanilla", label: "Vanilla", desc: "multiplayer.core.vanillaDesc" },
+  { value: "paper", label: "Paper", desc: "multiplayer.core.paperDesc" },
+  { value: "spigot", label: "Spigot", desc: "multiplayer.core.spigotDesc" },
+  { value: "purpur", label: "Purpur", desc: "multiplayer.core.purpurDesc" },
+  { value: "forge", label: "Forge", desc: "multiplayer.core.forgeDesc" },
+  { value: "fabric", label: "Fabric", desc: "multiplayer.core.fabricDesc" },
 ];
 
 // ---- 创建对话框（仅名称 / 核心 / 版本）----
@@ -92,14 +96,14 @@ const canSave = computed(() => {
 async function saveDialog() {
   const d = dialog.value;
   if (!d) return;
-  if (!d.mc_version) return message.warning("请选择游戏版本");
+  if (!d.mc_version) return message.warning(t("multiplayer.msg.selectVersion"));
   saving.value = true;
   try {
     const s = await servers.create(d.name, d.core, d.mc_version);
     dialog.value = null;
     saving.value = false;
 
-    installing.value = { name: s.name, phase: "正在准备核心…", done: 0, total: 0 };
+    installing.value = { name: s.name, phase: t("multiplayer.msg.preparingCore"), done: 0, total: 0 };
     const un = await listen<{ serverId: string; phase: string; done: number; total: number }>(
       "server://install-progress",
       (ev) => {
@@ -115,7 +119,7 @@ async function saveDialog() {
     );
     try {
       await servers.installCore(s.id);
-      message.success(`服务器「${s.name}」核心已就绪`);
+      message.success(t("multiplayer.msg.coreReady", { name: s.name }));
     } catch (e) {
       message.error(String(e));
     }
@@ -139,7 +143,7 @@ async function doDelete() {
   if (!c) return;
   try {
     await servers.remove(c.id);
-    message.success(`已删除「${c.name}」`);
+    message.success(t("multiplayer.msg.deleted", { name: c.name }));
   } catch (e) {
     message.error(String(e));
   }
@@ -151,10 +155,10 @@ async function toggleRun(id: string, running: boolean) {
   try {
     if (running) {
       await servers.stop(id);
-      message.success("已停止服务器");
+      message.success(t("multiplayer.msg.stopped"));
     } else {
       await servers.start(id);
-      message.success("服务器已启动");
+      message.success(t("multiplayer.msg.started"));
     }
   } catch (e) {
     message.error(String(e));
@@ -195,7 +199,7 @@ const tcPlayers = computed<Record<string, unknown>[]>(() => {
   return raw.filter((p): p is Record<string, unknown> => !!p && typeof p === "object");
 });
 const playerName = (p: Record<string, unknown>): string =>
-  String(p.name ?? p.username ?? p.playerName ?? p.displayName ?? "未知玩家");
+  String(p.name ?? p.username ?? p.playerName ?? p.displayName ?? t("multiplayer.msg.unknownPlayer"));
 const playerUuid = (p: Record<string, unknown>): string =>
   String(p.uuid ?? p.id ?? "");
 const playerPing = (p: Record<string, unknown>): string => {
@@ -207,16 +211,16 @@ const playerDesc = (p: Record<string, unknown>): string =>
 
 const tcStateText = computed(() => {
   const map: Record<string, string> = {
-    waiting: "等待中，可创建或加入房间",
-    "host-scanning": "正在扫描局域网世界…",
-    "host-starting": "房间创建中…",
-    "host-ok": "房间已创建",
-    "guest-connecting": "正在连接房间…",
-    "guest-starting": "正在加入房间…",
-    "guest-ok": "已加入房间",
-    exception: "连接发生错误",
+    waiting: "multiplayer.tc.state.waiting",
+    "host-scanning": "multiplayer.tc.state.hostScanning",
+    "host-starting": "multiplayer.tc.state.hostStarting",
+    "host-ok": "multiplayer.tc.state.hostOk",
+    "guest-connecting": "multiplayer.tc.state.guestConnecting",
+    "guest-starting": "multiplayer.tc.state.guestStarting",
+    "guest-ok": "multiplayer.tc.state.guestOk",
+    exception: "multiplayer.tc.state.exception",
   };
-  return map[tcStateName.value] ?? "状态同步中…";
+  return t(map[tcStateName.value] ?? "multiplayer.tc.state.syncing");
 });
 
 async function refreshTc() {
@@ -231,11 +235,6 @@ async function refreshTc() {
   }
 }
 
-function openTcDownload() {
-  const url = tc.value?.download_url;
-  if (url) openUrl(url).catch(() => {});
-}
-
 const tcDownloadPercent = computed(() => {
   const p = tcDownloadProgress.value;
   if (!p) return 0;
@@ -246,14 +245,14 @@ const tcDownloadPercent = computed(() => {
 
 const tcDownloadText = computed(() => {
   const p = tcDownloadProgress.value;
-  if (!p) return "正在准备下载…";
-  if (p.extracting) return "下载完成，正在解压安装…";
-  if (p.done) return "安装完成";
+  if (!p) return t("multiplayer.tc.dlText.preparing");
+  if (p.extracting) return t("multiplayer.tc.dlText.extracting");
+  if (p.done) return t("multiplayer.tc.dlText.done");
   if (p.total > 0) {
     const mb = (v: number) => (v / 1024 / 1024).toFixed(1);
     return `${tcDownloadPercent.value}%（${mb(p.downloaded)} / ${mb(p.total)} MB）`;
   }
-  return "正在获取下载地址…";
+  return t("multiplayer.tc.dlText.fetching");
 });
 
 async function downloadTc() {
@@ -269,7 +268,7 @@ async function downloadTc() {
     );
     await api.terracottaDownload();
     tcDownloadProgress.value = { downloaded: 1, total: 1, percent: 100, done: true };
-    message.success("陶瓦联机已安装完成");
+    message.success(t("multiplayer.msg.tcInstalled"));
     await refreshTc();
   } catch (e) {
     message.error(String(e));
@@ -289,7 +288,7 @@ async function launchTc() {
     const l = await api.terracottaLaunch();
     if (tc.value) tc.value = { ...tc.value, running: true, port: l.port };
     startTcPoll();
-    message.success("陶瓦联机已启动");
+    message.success(t("multiplayer.msg.tcStarted"));
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -303,7 +302,7 @@ async function stopTc() {
     stopTcPoll();
     if (tc.value) tc.value = { ...tc.value, running: false, port: null };
     tcRoom.value = null;
-    message.success("已停止陶瓦联机");
+    message.success(t("multiplayer.msg.tcStopped"));
   } catch (e) {
     message.error(String(e));
   }
@@ -370,7 +369,7 @@ async function createRoom() {
 async function joinRoom() {
   if (tcBusy.value) return;
   const code = tcRoomCode.value.trim();
-  if (!code) return message.warning("请输入房间码");
+  if (!code) return message.warning(t("multiplayer.msg.enterRoomCode"));
   tcBusy.value = true;
   // 点击后立即进入连接引导，避免等待轮询期间掉回创建/加入面板
   tcRoom.value = { state: "guest-connecting" };
@@ -390,7 +389,7 @@ async function leaveRoom() {
   try {
     await api.terracottaLeave();
     tcRoom.value = null;
-    message.success("已退出房间");
+    message.success(t("multiplayer.msg.leftRoom"));
   } catch (e) {
     message.error(String(e));
   }
@@ -446,10 +445,10 @@ onUnmounted(() => stopTcPoll());
   <div id="mp-root" class="mp-view">
     <div id="mp-tabs" class="mode-tabs glass">
       <button :class="{ active: tab === 'servers' }" @click="tab = 'servers'">
-        <IconServer /> 服务器
+        <IconServer /> {{ t('multiplayer.tab.servers') }}
       </button>
       <button :class="{ active: tab === 'rooms' }" @click="tab = 'rooms'">
-        <IconUsers /> 联机房间
+        <IconUsers /> {{ t('multiplayer.tab.rooms') }}
       </button>
     </div>
 
@@ -471,14 +470,20 @@ onUnmounted(() => stopTcPoll());
             </span>
             <h3 class="card-name">{{ s.name }}</h3>
           </div>
-          <div class="card-meta">
-            <div class="meta-row"><span>版本</span><b class="mono">{{ s.mc_version }}</b></div>
-            <div class="meta-row"><span>端口</span><b>{{ s.port }}</b></div>
+          <div class="card-tags">
+            <span class="tag" :title="t('multiplayer.card.version')">
+              <IconPackage />
+              {{ s.mc_version }}
+            </span>
+            <span class="tag" :title="t('multiplayer.card.port')">
+              <IconGlobe />
+              {{ s.port }}
+            </span>
           </div>
           <div class="card-motd">{{ s.motd || "A Minecraft Server" }}</div>
           <div class="card-foot" @click.stop>
             <span class="status" :class="{ on: servers.isRunning(s.id) }">
-              {{ servers.isRunning(s.id) ? "运行中" : "未启动" }}
+              {{ servers.isRunning(s.id) ? t('multiplayer.card.running') : t('multiplayer.card.stopped') }}
             </span>
             <div class="ops">
               <button
@@ -488,9 +493,9 @@ onUnmounted(() => stopTcPoll());
               >
                 <IconStop v-if="servers.isRunning(s.id)" />
                 <IconPlay v-else />
-                {{ servers.isRunning(s.id) ? "停止" : "启动" }}
+                {{ servers.isRunning(s.id) ? t('multiplayer.card.stop') : t('multiplayer.card.start') }}
               </button>
-              <button class="op danger" title="删除" @click="confirmDelete(s.id, s.name)">
+              <button class="op danger" :title="t('multiplayer.card.delete')" @click="confirmDelete(s.id, s.name)">
                 <IconTrash />
               </button>
             </div>
@@ -500,8 +505,8 @@ onUnmounted(() => stopTcPoll());
 
       <div v-else class="empty glass">
         <div class="empty-icon"><IconServer /></div>
-        <p>还没有服务器，创建一个开始联机</p>
-        <button class="btn primary" @click="openCreate">创建第一个服务器</button>
+        <p>{{ t('multiplayer.empty.noServers') }}</p>
+        <button class="btn primary" @click="openCreate">{{ t('multiplayer.empty.createFirst') }}</button>
       </div>
     </template>
 
@@ -510,25 +515,25 @@ onUnmounted(() => stopTcPoll());
       <!-- 检测中 -->
       <div v-if="tcLoading || !tc" class="empty glass">
         <div class="empty-icon"><IconRefresh /></div>
-        <p>正在检测陶瓦联机…</p>
+        <p>{{ t('multiplayer.tc.detecting') }}</p>
       </div>
 
       <!-- 未安装 -->
       <div v-else-if="!tc.found" class="tc-download">
         <div class="tc-hero glass">
           <div v-if="tc.icon" class="tc-hero-icon tc-icon-img">
-            <img :src="tc.icon" alt="陶瓦联机" />
+            <img :src="tc.icon" :alt="t('multiplayer.tc.name')" />
           </div>
           <div class="tc-hero-text">
-            <h2>陶瓦联机</h2>
-            <p>通过房间码与好友 NAT 穿透联机，无需公网 IP 和端口映射。</p>
+            <h2>{{ t('multiplayer.tc.name') }}</h2>
+            <p>{{ t('multiplayer.tc.intro') }}</p>
           </div>
         </div>
 
         <div class="glass tc-dl-card">
-          <div class="tc-dl-title"><IconDownload /> 需要下载陶瓦联机</div>
+          <div class="tc-dl-title"><IconDownload /> {{ t('multiplayer.tc.needDownload') }}</div>
           <p class="tc-dl-desc">
-            未检测到陶瓦联机程序（Terracotta.exe）。点击下方按钮直接下载并自动安装，完成后即可创建或加入房间。
+            {{ t('multiplayer.tc.downloadDesc') }}
           </p>
 
           <div v-if="tcDownloading" class="tc-dl-progress">
@@ -539,15 +544,15 @@ onUnmounted(() => stopTcPoll());
           </div>
           <div v-else class="tc-dl-actions">
             <button class="btn primary" :disabled="tcLoading" @click="downloadTc">
-              <IconDownload /> 下载陶瓦联机
+              <IconDownload /> {{ t('multiplayer.tc.download') }}
             </button>
             <button class="btn ghost" :disabled="tcLoading" @click="refreshTc">
-              <IconRefresh /> 重新检测
+              <IconRefresh /> {{ t('multiplayer.tc.recheck') }}
             </button>
           </div>
 
           <p class="tc-hint">
-            安装后程序通常位于 <code>%LOCALAPPDATA%\Programs\Terracotta\Terracotta.exe</code>
+            {{ t('multiplayer.tc.installHintPrefix') }} <code>%LOCALAPPDATA%\Programs\Terracotta\Terracotta.exe</code>
           </p>
         </div>
       </div>
@@ -556,25 +561,18 @@ onUnmounted(() => stopTcPoll());
       <div v-else-if="!tc.running" class="tc-download">
         <div class="tc-hero glass">
           <div v-if="tc.icon" class="tc-hero-icon tc-icon-img">
-            <img :src="tc.icon" alt="陶瓦联机" />
+            <img :src="tc.icon" :alt="t('multiplayer.tc.name')" />
           </div>
           <div class="tc-hero-text">
-            <h2>陶瓦联机</h2>
-            <p>已安装陶瓦联机程序，启动后即可创建或加入房间。</p>
+            <h2>{{ t('multiplayer.tc.name') }}</h2>
+            <p>{{ t('multiplayer.tc.installed') }}</p>
           </div>
-        </div>
-
-        <div class="tc-actions">
-          <button class="tc-action glass" :disabled="tcBusy" @click="launchTc">
-            <div class="tc-action-icon"><IconPlay /></div>
-            <div class="tc-action-name">启动陶瓦联机</div>
-            <div class="tc-action-desc">启动后台进程，开始创建或加入房间</div>
-          </button>
-          <button class="tc-action glass" @click="openTcDownload">
-            <div class="tc-action-icon"><IconDownload /></div>
-            <div class="tc-action-name">检查更新</div>
-            <div class="tc-action-desc">前往陶瓦联机发布页查看最新版本</div>
-          </button>
+          <div class="tc-hero-ops">
+            <button class="tc-hero-launch" :disabled="tcBusy" @click="launchTc">
+              <IconPlay class="tc-hero-launch-icon" />
+              <span>{{ t('multiplayer.tc.launch') }}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -582,35 +580,35 @@ onUnmounted(() => stopTcPoll());
       <div v-else class="tc-download">
         <div class="tc-hero glass">
           <div v-if="tc.icon" class="tc-hero-icon tc-icon-img">
-            <img :src="tc.icon" alt="陶瓦联机" />
+            <img :src="tc.icon" :alt="t('multiplayer.tc.name')" />
           </div>
           <div class="tc-hero-text">
-            <h2>陶瓦联机</h2>
+            <h2>{{ t('multiplayer.tc.name') }}</h2>
             <p class="tc-state">{{ tcStateText }}</p>
           </div>
           <div class="tc-hero-ops">
-            <button class="op" @click="openTcUi"><IconExternal /> 打开界面</button>
-            <button class="op stop" @click="stopTc"><IconStop /> 停止</button>
+            <button class="op" @click="openTcUi"><IconExternal /> {{ t('multiplayer.tc.openUi') }}</button>
+            <button class="op stop" @click="stopTc"><IconStop /> {{ t('multiplayer.tc.stop') }}</button>
           </div>
         </div>
 
         <!-- 主机：房间已创建 -->
         <div v-if="tcStateName === 'host-ok'" class="glass tc-code-card">
-          <div class="tc-code-label"><IconUsers /> 房间已创建，把房间码分享给好友</div>
+          <div class="tc-code-label"><IconUsers /> {{ t('multiplayer.tc.roomCreated') }}</div>
           <div class="tc-code-value mono">{{ tcRoomCodeFinal }}</div>
-          <p class="tc-code-hint">好友在「加入房间」中输入该房间码即可加入</p>
+          <p class="tc-code-hint">{{ t('multiplayer.tc.roomCodeHint') }}</p>
           <div class="tc-code-actions">
             <button class="btn primary" @click="copyRoomCode">
-              <IconCopy /> {{ tcJoined ? "已复制" : "复制房间码" }}
+              <IconCopy /> {{ tcJoined ? t('multiplayer.tc.copied') : t('multiplayer.tc.copyCode') }}
             </button>
-            <button class="btn ghost" @click="leaveRoom"><IconClose /> 退出房间</button>
+            <button class="btn ghost" @click="leaveRoom"><IconClose /> {{ t('multiplayer.tc.leaveRoom') }}</button>
           </div>
         </div>
 
         <!-- 主机：玩家列表 -->
         <div v-if="tcStateName === 'host-ok' && tcPlayers.length" class="glass tc-players-card">
           <div class="tc-players-head">
-            <span class="tc-players-title"><IconUsers /> 房间玩家</span>
+            <span class="tc-players-title"><IconUsers /> {{ t('multiplayer.tc.players') }}</span>
             <span class="tc-players-count">{{ tcPlayers.length }}</span>
           </div>
           <div class="tc-players-list">
@@ -628,13 +626,13 @@ onUnmounted(() => stopTcPoll());
 
         <!-- 访客：已加入 -->
         <div v-if="tcStateName === 'guest-ok'" class="glass tc-code-card">
-          <div class="tc-code-label"><IconCheck /> 已加入房间</div>
+          <div class="tc-code-label"><IconCheck /> {{ t('multiplayer.tc.joined') }}</div>
           <p class="tc-code-hint">
-            在游戏「多人游戏 → 直接连接」中填入地址：
+            {{ t('multiplayer.tc.joinHint') }}
             <b class="mono">{{ tcUrl || "127.0.0.1" }}</b>
           </p>
           <div class="tc-code-actions">
-            <button class="btn ghost" @click="leaveRoom"><IconClose /> 退出房间</button>
+            <button class="btn ghost" @click="leaveRoom"><IconClose /> {{ t('multiplayer.tc.leaveRoom') }}</button>
           </div>
         </div>
 
@@ -644,7 +642,7 @@ onUnmounted(() => stopTcPoll());
           class="glass tc-players-card"
         >
           <div class="tc-players-head">
-            <span class="tc-players-title"><IconUsers /> 房间玩家</span>
+            <span class="tc-players-title"><IconUsers /> {{ t('multiplayer.tc.players') }}</span>
             <span class="tc-players-count">{{ tcPlayers.length }}</span>
           </div>
           <div class="tc-players-list">
@@ -669,7 +667,7 @@ onUnmounted(() => stopTcPoll());
             <span class="tc-scan-spinner"></span>
             <div>
               <div class="tc-scan-title">{{ tcStateText }}</div>
-              <p class="tc-scan-sub">正在通过陶瓦联机连接房间，请稍候…</p>
+              <p class="tc-scan-sub">{{ t('multiplayer.tc.connecting') }}</p>
             </div>
           </div>
         </div>
@@ -682,60 +680,60 @@ onUnmounted(() => stopTcPoll());
           <div class="tc-scan-head">
             <span class="tc-scan-spinner"></span>
             <div>
-              <div class="tc-scan-title">正在扫描局域网世界…</div>
-              <p class="tc-scan-sub">陶瓦联机正在等待检测你开放的 Minecraft 局域网世界</p>
+              <div class="tc-scan-title">{{ t('multiplayer.tc.scanning') }}</div>
+              <p class="tc-scan-sub">{{ t('multiplayer.tc.scanningSub') }}</p>
             </div>
           </div>
           <div class="tc-scan-steps">
             <div class="tc-scan-step">
               <span class="tc-step-num">1</span>
-              <span>启动 Minecraft，进入你想要联机的世界</span>
+              <span>{{ t('multiplayer.tc.step1') }}</span>
             </div>
             <div class="tc-scan-step">
               <span class="tc-step-num">2</span>
-              <span>按 <b>ESC</b> 打开暂停菜单</span>
+              <span>{{ t('multiplayer.tc.step2Prefix') }} <b>{{ t('multiplayer.tc.step2Key') }}</b> {{ t('multiplayer.tc.step2Suffix') }}</span>
             </div>
             <div class="tc-scan-step">
               <span class="tc-step-num">3</span>
-              <span>点击「<b>对局域网开放</b>」，端口保持默认即可</span>
+              <span>{{ t('multiplayer.tc.step3Prefix') }}<b>{{ t('multiplayer.tc.step3Key') }}</b>{{ t('multiplayer.tc.step3Suffix') }}</span>
             </div>
           </div>
           <p class="tc-scan-tip">
-            开放后陶瓦联机会自动检测并完成房间创建，请耐心等待，无需重复操作。
+            {{ t('multiplayer.tc.scanTip') }}
           </p>
         </div>
 
         <!-- 空闲：创建 / 加入 -->
         <div v-if="tcStateName === 'waiting'" class="glass tc-room-controls">
           <div class="tc-name-input">
-            <label class="tc-field-label">玩家名</label>
+            <label class="tc-field-label">{{ t('multiplayer.tc.playerName') }}</label>
             <n-input
               v-model:value="tcPlayerName"
-              placeholder="默认读取当前账号"
+              :placeholder="t('multiplayer.tc.playerNamePlaceholder')"
               maxlength="16"
               clearable
             />
           </div>
           <div class="tc-control-grid">
             <div class="tc-col">
-              <div class="tc-sub-title"><IconBox /> 创建房间</div>
-              <p class="tc-sub-desc">作为主机开放房间，自动生成房间码</p>
+              <div class="tc-sub-title"><IconBox /> {{ t('multiplayer.tc.createRoom') }}</div>
+              <p class="tc-sub-desc">{{ t('multiplayer.tc.createRoomDesc') }}</p>
               <button class="btn primary" :disabled="tcBusy" @click="createRoom">
-                <IconPlus /> 创建房间
+                <IconPlus /> {{ t('multiplayer.tc.createRoom') }}
               </button>
             </div>
             <div class="tc-divider"></div>
             <div class="tc-col">
-              <div class="tc-sub-title"><IconDoorOpen /> 加入房间</div>
-              <p class="tc-sub-desc">输入好友分享的房间码加入</p>
+              <div class="tc-sub-title"><IconDoorOpen /> {{ t('multiplayer.tc.joinRoom') }}</div>
+              <p class="tc-sub-desc">{{ t('multiplayer.tc.joinRoomDesc') }}</p>
               <div class="tc-join-input">
                 <n-input
                   v-model:value="tcRoomCode"
-                  placeholder="例如 ABCD-EFGH-ABCD-EFGH"
+                  :placeholder="t('multiplayer.tc.roomCodePlaceholder')"
                   @keyup.enter="joinRoom"
                 />
                 <button class="btn primary" :disabled="tcBusy" @click="joinRoom">
-                  <IconPlay /> 加入
+                  <IconPlay /> {{ t('multiplayer.tc.join') }}
                 </button>
               </div>
             </div>
@@ -745,15 +743,15 @@ onUnmounted(() => stopTcPoll());
 
       <!-- 第三方版权标注（AGPL 例外条款要求） -->
       <div class="tc-license">
-        由
+        {{ t('multiplayer.tc.poweredByPrefix') }}
         <a href="https://github.com/burningtnt/Terracotta" target="_blank" rel="noopener">
           Terracotta
         </a>
         |
         <a href="https://github.com/burningtnt/Terracotta" target="_blank" rel="noopener">
-          陶瓦联机
+          {{ t('multiplayer.tc.name') }}
         </a>
-        强力驱动
+        {{ t('multiplayer.tc.poweredBySuffix') }}
       </div>
     </template>
 
@@ -761,18 +759,18 @@ onUnmounted(() => stopTcPoll());
     <n-modal
       :show="dialog !== null"
       preset="card"
-      title="创建服务器"
+      :title="t('multiplayer.dialog.createTitle')"
       style="width: 560px; max-width: 92vw"
       @update:show="(v: boolean) => { if (!v) dialog = null; }"
     >
       <div v-if="dialog" class="dialog-body">
         <div class="field">
-          <label>服务器名称</label>
-          <n-input v-model:value="dialog.name" placeholder="留空则自动命名" maxlength="40" />
+          <label>{{ t('multiplayer.dialog.serverName') }}</label>
+          <n-input v-model:value="dialog.name" :placeholder="t('multiplayer.dialog.serverNamePlaceholder')" maxlength="40" />
         </div>
 
         <div class="field">
-          <label>服务器核心</label>
+          <label>{{ t('multiplayer.dialog.serverCore') }}</label>
           <div class="core-grid">
             <button
               v-for="c in CORES"
@@ -782,19 +780,19 @@ onUnmounted(() => stopTcPoll());
               @click="dialog.core = c.value"
             >
               <span class="core-name">{{ c.label }}</span>
-              <span class="core-desc">{{ c.desc }}</span>
+              <span class="core-desc">{{ t(c.desc) }}</span>
             </button>
           </div>
         </div>
 
         <div class="field">
-          <label>游戏版本</label>
+          <label>{{ t('multiplayer.dialog.gameVersion') }}</label>
           <div class="ver-cats">
             <button
               v-for="c in [
-                { key: 'release', label: '正式版' },
-                { key: 'snapshot', label: '快照版' },
-                { key: 'april', label: '愚人节版' },
+                { key: 'release', label: t('multiplayer.dialog.release') },
+                { key: 'snapshot', label: t('multiplayer.dialog.snapshot') },
+                { key: 'april', label: t('multiplayer.dialog.april') },
               ]"
               :key="c.key"
               :class="{ active: versionCat === c.key }"
@@ -812,16 +810,16 @@ onUnmounted(() => stopTcPoll());
               @click="dialog.mc_version = v.id"
             >
               <span class="ver-id mono">{{ v.id }}</span>
-              <span class="ver-type">{{ v.type === "release" || v.type.startsWith("old_") ? "正式" : "快照" }}</span>
+              <span class="ver-type">{{ v.type === "release" || v.type.startsWith("old_") ? t('multiplayer.dialog.releaseShort') : t('multiplayer.dialog.snapshotShort') }}</span>
             </button>
-            <div v-if="!filteredVersions.length" class="ver-empty">该分类下暂无版本</div>
+            <div v-if="!filteredVersions.length" class="ver-empty">{{ t('multiplayer.dialog.noVersions') }}</div>
           </div>
         </div>
 
         <div class="dialog-foot">
-          <button class="btn ghost" @click="dialog = null">取消</button>
+          <button class="btn ghost" @click="dialog = null">{{ t('multiplayer.dialog.cancel') }}</button>
           <button class="btn primary" :disabled="!canSave || saving" @click="saveDialog">
-            <IconPlus /> {{ saving ? "创建中…" : "创建" }}
+            <IconPlus /> {{ saving ? t('multiplayer.dialog.creating') : t('multiplayer.dialog.create') }}
           </button>
         </div>
       </div>
@@ -831,15 +829,15 @@ onUnmounted(() => stopTcPoll());
     <n-modal
       :show="confirmState !== null"
       preset="card"
-      title="删除服务器"
+      :title="t('multiplayer.dialog.deleteTitle')"
       style="width: 420px; max-width: 92vw"
       @update:show="(v: boolean) => { if (!v) confirmState = null; }"
     >
       <div v-if="confirmState" class="confirm-body">
-        <p class="confirm-text">确定要删除服务器「<b>{{ confirmState.name }}</b>」吗？该操作不可撤销。</p>
+        <p class="confirm-text">{{ t('multiplayer.dialog.confirmDeletePrefix') }}<b>{{ confirmState.name }}</b>{{ t('multiplayer.dialog.confirmDeleteSuffix') }}</p>
         <div class="dialog-foot">
-          <button class="btn ghost" @click="confirmState = null">取消</button>
-          <button class="btn danger" @click="doDelete">删除</button>
+          <button class="btn ghost" @click="confirmState = null">{{ t('multiplayer.dialog.cancel') }}</button>
+          <button class="btn danger" @click="doDelete">{{ t('multiplayer.dialog.delete') }}</button>
         </div>
       </div>
     </n-modal>
@@ -848,7 +846,7 @@ onUnmounted(() => stopTcPoll());
     <n-modal
       :show="installing !== null"
       preset="card"
-      title="正在准备服务器"
+      :title="t('multiplayer.dialog.preparingTitle')"
       style="width: 460px; max-width: 92vw"
       :mask-closable="false"
       :close-on-esc="false"
@@ -981,27 +979,29 @@ onUnmounted(() => stopTcPoll());
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.card-meta {
+.card-tags {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: 6px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--w-03);
-  border: 1px solid var(--border);
 }
-.meta-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  font-size: 12px;
-}
-.meta-row span {
-  color: var(--text-3);
-}
-.meta-row b {
-  color: var(--text-1);
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
   font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--w-04);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  line-height: 1.4;
+}
+.tag svg {
+  width: 12px;
+  height: 12px;
+  opacity: 0.85;
+  flex-shrink: 0;
 }
 .card-motd {
   font-size: 12px;
@@ -1337,6 +1337,39 @@ onUnmounted(() => stopTcPoll());
   display: flex;
   gap: 8px;
 }
+.tc-hero-ops .op {
+  padding: 8px 14px;
+  font-size: 13px;
+  border-radius: 9px;
+  gap: 6px;
+}
+.tc-hero-launch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--accent-45);
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.tc-hero-launch:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+}
+.tc-hero-launch:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.tc-hero-launch-icon {
+  font-size: 16px;
+}
 .tc-dl-card {
   display: flex;
   flex-direction: column;
@@ -1427,7 +1460,7 @@ onUnmounted(() => stopTcPoll());
 }
 .tc-actions {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: 1fr;
   gap: 14px;
   margin-top: 4px;
 }

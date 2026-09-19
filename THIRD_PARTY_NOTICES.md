@@ -60,18 +60,6 @@ SOFTWARE.
 
 ---
 
-## Axolotl Launcher（仅交互设计参考）
-
-- **项目**：Axolotl Launcher（美西螈启动器）
-- **作者 / 版权**：Copyright © Mystic-Stars
-- **仓库**：https://github.com/Mystic-Stars/Axolotl
-- **许可证**：GNU General Public License v3.0 only（**GPL-3.0-only**，完整文本见本仓库根目录 `LICENSE`）
-- **集成方式**：不引入其代码或二进制，仅参考其设计思路（Windows 安装脚本 `src-tauri/nsis/*.nsi` 的深色安装器 / 钩子写法、以及「工具箱 → 种子地图」瓦片式浏览的交互设计）
-
-**使用说明**：本启动器未引入 Axolotl 的任何源码、二进制或资源；安装脚本与种子地图的配色、渲染、任务调度均为本启动器自行实现，相关思路参考已在 `src-tauri/nsis/hooks.nsi`、`src-tauri/nsis/installer.nsi` 与 `src/views/SeedMapView.vue` 文件头注明。Axolotl 与本启动器采用相同许可证（GPL-3.0-only）。二者是相互独立、各自发布的开源项目，不存在任何隶属或背书关系。
-
----
-
 ## Feather Icons
 
 - **项目**：Feather Icons
