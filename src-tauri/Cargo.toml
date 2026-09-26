@@ -50,10 +50,11 @@ sysinfo = "0.30"
 junction = "1"
 url = "2"
 tauri-plugin-single-instance = "2.4.4"
+# PNG 编解码：跨平台使用（投影预览解析贴图、Windows 下图标提取），不能放在平台段
+png = "0.17"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Registry", "Win32_Security_Cryptography", "Win32_System_Memory"] }
-png = "0.17"
 
 [profile.release]
 strip = true
