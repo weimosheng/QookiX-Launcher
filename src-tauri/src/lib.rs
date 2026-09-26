@@ -317,6 +317,13 @@ pub fn run() {
             commands::toolbox_world_spawn,
             commands::toolbox_surface_height,
             commands::toolbox_read_world_info,
+            // toolbox (工具箱：投影预览)
+            commands::schematic_preview_open,
+            commands::schematic_preview_list_instance_files,
+            commands::schematic_preview_read_chunk,
+            commands::schematic_preview_block_info,
+            commands::schematic_preview_close,
+            commands::schematic_extract_resources,
         ])
         .on_window_event(|window, event| {
             use tauri::WindowEvent;
@@ -570,6 +577,7 @@ mod smoke {
         let state = crate::state::AppState {
             root: root.clone(),
             settings: RwLock::new(Default::default()),
+            db: Mutex::new(rusqlite::Connection::open_in_memory().unwrap()),
             client: crate::settings::http_client("system", None),
             semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
             game_pids: Arc::new(Mutex::new(HashMap::new())),
@@ -614,6 +622,7 @@ mod smoke {
         let state = crate::state::AppState {
             root: root.clone(),
             settings: RwLock::new(Default::default()),
+            db: Mutex::new(rusqlite::Connection::open_in_memory().unwrap()),
             client: crate::settings::http_client("system", None),
             semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
             game_pids: Arc::new(Mutex::new(HashMap::new())),
@@ -659,6 +668,7 @@ mod smoke {
         let state = crate::state::AppState {
             root: root.clone(),
             settings: RwLock::new(Default::default()),
+            db: Mutex::new(rusqlite::Connection::open_in_memory().unwrap()),
             client: crate::settings::http_client("system", None),
             semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
             game_pids: Arc::new(Mutex::new(HashMap::new())),

@@ -721,6 +721,7 @@ mod diag {
             let state = crate::state::AppState {
                 root,
                 settings: RwLock::new(settings),
+                db: Mutex::new(rusqlite::Connection::open_in_memory().unwrap()),
                 client: crate::settings::http_client(mode, None),
                 semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
                 game_pids: Arc::new(Mutex::new(HashMap::new())),

@@ -72,6 +72,7 @@ export default {
     create: "创建实例",
     serverDetail: "服务器详情",
     seedMap: "种子地图",
+    schematicPreview: "投影工坊",
     newInstance: "新建实例",
   },
   format: {

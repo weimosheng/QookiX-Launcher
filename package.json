@@ -1,7 +1,7 @@
 {
   "name": "qookix-launcher",
   "private": true,
-  "version": "0.8.0",
+  "version": "0.9.0",
   "license": "GPL-3.0-only",
   "type": "module",
   "repository": {
@@ -23,12 +23,15 @@
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-process": "^2",
     "@tauri-apps/plugin-updater": "^2",
+    "@types/three": "^0.186.0",
+    "deepslate": "^0.27.1",
     "dompurify": "^3.4.15",
     "driver.js": "^1.8.0",
     "marked": "^18.0.12",
     "naive-ui": "^2.45.2",
     "pinia": "^2.2.6",
     "skinview3d": "^3.4.2",
+    "three": "^0.186.0",
     "vue": "^3.5.13",
     "vue-i18n": "^11.4.12",
     "vue-router": "^4.4.5"

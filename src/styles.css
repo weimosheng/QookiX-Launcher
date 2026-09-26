@@ -42,6 +42,7 @@ body,
   --bg-0: #0b0d12;
   --bg-1: #10131a;
   --bg-2: #151924;
+  --wipe-bg: #0b0d12;
   --panel: rgba(255, 255, 255, 0.04);
   --panel-hover: rgba(255, 255, 255, 0.07);
   --border: rgba(255, 255, 255, 0.08);
@@ -125,6 +126,7 @@ body,
   --bg-0: #f7f6f4;
   --bg-1: #eceef2;
   --bg-2: #e2e4ea;
+  --wipe-bg: #f7f6f4;
   --panel: rgba(255, 255, 255, 0.55);
   --panel-hover: rgba(255, 255, 255, 0.75);
   --border: rgba(0, 0, 0, 0.09);
@@ -276,25 +278,60 @@ a:active {
   opacity: 0;
 }
 
-/* 路由切换过渡：进入从下方轻移 + 微缩放淡入，离开轻微上移淡出，
-   用一致的缓动让进出衔接更顺，减少 out-in 模式下的空档感 */
-.page-rise-enter-active {
-  transition:
-    opacity 0.26s ease,
-    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+/* 路由切换：纯 opacity 淡入淡出（out-in），无 transform，
+   不触发合成层隔离，backdrop-filter 磨砂全程稳定。 */
+.page-fade-enter-active {
+  transition: opacity 0.22s ease;
 }
-.page-rise-leave-active {
-  transition:
-    opacity 0.18s ease,
-    transform 0.18s cubic-bezier(0.55, 0, 0.55, 0.2);
+.page-fade-leave-active {
+  transition: opacity 0.18s ease;
 }
-.page-rise-enter-from {
+.page-fade-enter-from,
+.page-fade-leave-to {
   opacity: 0;
-  transform: translateY(12px) scale(0.99);
 }
-.page-rise-leave-to {
+
+/* 方向转场：新旧页面都位移（"全部移走"），out-in 先出后入。
+   旧页面用 transform 移出（淡出中磨砂异常不可见，保性能）。
+   新页面用 position:relative + top 位移——top 触发 layout 但不创建合成层，
+   backdrop-filter 采样文档流内容全程有效，磨砂不失效（transform 会隔离合成层）。 */
+/* 向下导航（目标在侧边栏更下方）：旧页面向上移出，新页面从下方移入 */
+.slide-forward-leave-active {
+  transition: opacity 0.18s ease-in, transform 0.2s ease-in;
+  overflow: hidden;
+}
+.slide-forward-leave-to {
   opacity: 0;
-  transform: translateY(-6px) scale(0.995);
+  transform: translateY(-32px);
+}
+.slide-forward-enter-active {
+  transition: opacity 0.24s ease-out, top 0.22s ease-out;
+  overflow: hidden;
+  position: relative;
+  top: 0;
+}
+.slide-forward-enter-from {
+  opacity: 0;
+  top: 32px;
+}
+/* 向上导航（目标在侧边栏更上方）：旧页面向下移出，新页面从上方移入 */
+.slide-back-leave-active {
+  transition: opacity 0.18s ease-in, transform 0.2s ease-in;
+  overflow: hidden;
+}
+.slide-back-leave-to {
+  opacity: 0;
+  transform: translateY(32px);
+}
+.slide-back-enter-active {
+  transition: opacity 0.24s ease-out, top 0.22s ease-out;
+  overflow: hidden;
+  position: relative;
+  top: 0;
+}
+.slide-back-enter-from {
+  opacity: 0;
+  top: -32px;
 }
 
 .n-loading-bar-container {

@@ -19,10 +19,12 @@ import {
   IconSliders,
 } from "../components/icons";
 import { cnCfName, translateCategory } from "../utils/categories";
-import { cacheGet, cacheSet } from "../utils/cache";
+import { cacheGet, cacheSet, cacheGetPersistent, cacheSetPersistent } from "../utils/cache";
 import { instanceLabel } from "../utils/format";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import type { Instance, ProjectDependency, ProjectHit } from "../types";
+
+defineOptions({ name: "BrowseView" });
 
 const message = useMessage();
 const { t } = useI18n();
@@ -143,9 +145,11 @@ const displayVersionOptions = computed(() => {
 let searchSeq = 0;
 async function search() {
   const seq = ++searchSeq;
-  // 短期缓存（5 分钟），避免来回切换页面重复拉取
+  // 缓存：内存（5 分钟，会话内）+ localStorage 持久化（6 小时，跨会话）。
+  // 应用重启后内存清空，但 localStorage 仍在，打开发现页命中持久化缓存不调 API。
   const cacheKey = `browse:${provider.value}|${query.value}|${type.value}|${category.value}|${page.value}|${gameVersion.value}|${loader.value}|${sort.value}|${pageSize.value}`;
-  const cached = cacheGet<{ hits: ProjectHit[]; total: number; cf_error?: string | null; cf_count?: number }>(cacheKey);
+  const cached = cacheGet<{ hits: ProjectHit[]; total: number; cf_error?: string | null; cf_count?: number }>(cacheKey)
+    ?? cacheGetPersistent<{ hits: ProjectHit[]; total: number; cf_error?: string | null; cf_count?: number }>(cacheKey);
   if (cached) {
     if (seq !== searchSeq) return;
     results.value = cached.hits;
@@ -174,6 +178,7 @@ async function search() {
     cfError.value = res.cf_error ?? "";
     cfCount.value = res.cf_count ?? 0;
     cacheSet(cacheKey, res, 5 * 60 * 1000);
+    cacheSetPersistent(cacheKey, res, 6 * 60 * 60 * 1000);
   } catch (e) {
     if (seq !== searchSeq) return;
     message.error(String(e));
@@ -210,7 +215,8 @@ function loaderLabel(v: string) {
 async function loadCfCategories() {
   if (provider.value !== "curseforge") return;
   const cacheKey = `cf-cats:${type.value}`;
-  const cached = cacheGet<{ id: number; name: string }[]>(cacheKey);
+  const cached = cacheGet<{ id: number; name: string }[]>(cacheKey)
+    ?? cacheGetPersistent<{ id: number; name: string }[]>(cacheKey);
   if (cached) {
     cfCategories.value = cached;
     return;
@@ -218,6 +224,7 @@ async function loadCfCategories() {
   try {
     cfCategories.value = (await api.curseforgeCategories(type.value)).categories;
     cacheSet(cacheKey, cfCategories.value, 10 * 60 * 1000);
+    cacheSetPersistent(cacheKey, cfCategories.value, 24 * 60 * 60 * 1000);
   } catch {
     cfCategories.value = [];
   }
@@ -225,7 +232,8 @@ async function loadCfCategories() {
 
 async function loadVersions() {
   const cacheKey = "versions:release";
-  const cached = cacheGet<{ label: string; value: string }[]>(cacheKey);
+  const cached = cacheGet<{ label: string; value: string }[]>(cacheKey)
+    ?? cacheGetPersistent<{ label: string; value: string }[]>(cacheKey);
   if (cached) {
     versionOptions.value = cached;
     return;
@@ -241,6 +249,7 @@ async function loadVersions() {
       ...ids.map((id) => ({ label: id, value: id })),
     ];
     cacheSet(cacheKey, versionOptions.value, 10 * 60 * 1000);
+    cacheSetPersistent(cacheKey, versionOptions.value, 24 * 60 * 60 * 1000);
   } catch {
     versionOptions.value = [{ label: t("browse.version.all"), value: "" }];
   }

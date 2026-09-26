@@ -11,6 +11,7 @@ import CrashDialog from "./components/CrashDialog.vue";
 import CloseConfirmDialog from "./components/CloseConfirmDialog.vue";
 import UpdaterCheck from "./components/UpdaterCheck.vue";
 import SplashScreen from "./components/SplashScreen.vue";
+import { transitionName } from "./composables/usePageTransition";
 import { useSettingsStore } from "./stores/settings";
 import { initDeepLink } from "./composables/deepLink";
 import { MessageBridge } from "./composables/notify";
@@ -196,8 +197,10 @@ onBeforeUnmount(() => {
                   <SideBar />
                   <main id="app-content" class="content">
                     <router-view v-slot="{ Component, route }">
-                      <Transition name="page-rise" mode="out-in">
-                        <component :is="Component" :key="route.path" />
+                      <Transition :name="transitionName" mode="out-in">
+                        <KeepAlive :include="['BrowseView']">
+                          <component :is="Component" :key="route.path" />
+                        </KeepAlive>
                       </Transition>
                     </router-view>
                   </main>

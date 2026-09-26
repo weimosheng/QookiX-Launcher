@@ -992,6 +992,7 @@ mod tests {
         AppState {
             root: root.to_path_buf(),
             settings: RwLock::new(Default::default()),
+            db: Mutex::new(rusqlite::Connection::open_in_memory().unwrap()),
             client: crate::settings::http_client("system", None),
             semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
             game_pids: Arc::new(Mutex::new(std::collections::HashMap::new())),

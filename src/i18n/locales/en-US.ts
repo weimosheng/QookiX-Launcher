@@ -72,6 +72,7 @@ export default {
     create: "Create instance",
     serverDetail: "Server details",
     seedMap: "Seed map",
+    schematicPreview: "Schematic Workshop",
     newInstance: "New instance",
   },
   format: {
