@@ -982,18 +982,34 @@ mod tests {
             names.contains(&"org.lwjgl:lwjgl:3.4.1:unsafe".to_string()),
             "类 jar（:unsafe）必须留在 classpath：{names:?}"
         );
+        // 本机平台对应的 natives classifier（CI 会在 Linux 上跑，不能写死"linux 是其它系统"）
+        let own_native = if cfg!(target_os = "linux") {
+            "natives-linux"
+        } else if cfg!(target_os = "macos") {
+            "natives-macos"
+        } else {
+            "natives-windows"
+        };
         assert!(
-            !names.iter().any(|n| n.ends_with("natives-linux")),
+            !names
+                .iter()
+                .any(|n| n.contains(":natives-") && !n.ends_with(own_native)),
             "其它系统的 natives 不该进 classpath：{names:?}"
         );
         assert!(
             !names.iter().any(|n| n.ends_with("natives-windows-arm64")),
             "非本机架构的 natives 不该进 classpath（安装期也不会下载）：{names:?}"
         );
-        if cfg!(windows) && cfg!(target_arch = "x86_64") {
+        if cfg!(all(windows, target_arch = "x86_64")) {
             assert!(
                 names.contains(&"org.lwjgl:lwjgl:3.4.1:natives-windows".to_string()),
                 "本机 natives 仍需在 classpath 上（LWJGL 3.4 从 classpath 取 DLL）：{names:?}"
+            );
+        }
+        if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+            assert!(
+                names.contains(&"org.lwjgl:lwjgl:3.4.1:natives-linux".to_string()),
+                "本机 natives 仍需在 classpath 上：{names:?}"
             );
         }
         // 同 classifier 的重复条目仍要去重，且保留最高版本
