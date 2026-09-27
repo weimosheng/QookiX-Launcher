@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
-import { IconMapPin, IconBox } from "../components/icons";
+import { IconMapPin, IconBox, IconEdit } from "../components/icons";
 import seedCover from "../assets/seed-cover.png";
 import schematicCover from "../assets/schematic-cover.png";
 
@@ -29,6 +29,16 @@ const tools = computed(() => [
     cover: "linear-gradient(135deg, #6b5b95, #352f44)",
     coverImg: schematicCover,
     beta: false,
+  },
+  {
+    key: "nbt",
+    title: t("toolbox.nbtTitle"),
+    desc: t("toolbox.nbtDesc"),
+    icon: IconEdit,
+    to: "/toolbox/nbt",
+    cover: "linear-gradient(135deg, #2f8f6b, #1d5c45)",
+    coverImg: null as string | null,
+    beta: true,
   },
 ]);
 

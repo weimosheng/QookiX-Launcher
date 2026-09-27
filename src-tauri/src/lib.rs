@@ -14,6 +14,7 @@ mod instances;
 mod java;
 mod launch;
 mod mcmeta;
+mod nbt;
 mod mcping;
 mod mcmod;
 mod mirror;
@@ -145,6 +146,28 @@ pub fn run() {
             cloud_sync::cloud_sync_delete,
             cloud_sync::cloud_sync_set_auto,
             cloud_sync::cloud_sync_set_keep,
+            // nbt 存档编辑
+            commands::nbt_list_worlds,
+            commands::nbt_open_world,
+            commands::nbt_save_world,
+            commands::nbt_tree_view,
+            commands::nbt_list_players,
+            commands::nbt_read_player,
+            commands::nbt_save_player,
+            commands::nbt_read_inventory,
+            commands::nbt_save_item,
+            commands::nbt_set_node,
+            commands::nbt_delete_node,
+            commands::nbt_can_edit,
+            commands::nbt_list_backups,
+            commands::nbt_restore_backup,
+            commands::nbt_delete_backup,
+            commands::nbt_list_chunks,
+            commands::nbt_read_chunk,
+            commands::nbt_set_chunk_node,
+            commands::nbt_delete_chunk_node,
+            commands::nbt_map_bounds,
+            commands::nbt_render_map,
             // settings & java
             commands::get_settings,
             commands::set_settings,

@@ -84,6 +84,14 @@ export async function loadSchematicResources(): Promise<SchematicResources> {
   console.log("[schematic] atlas:", atlasWidth, "x", atlasHeight, "| models:", Object.keys(modelIndex).length, "| textures:", Object.keys(textureLayout).length);
   console.log("[schematic] sample texture keys:", Object.keys(textureLayout).slice(0, 5));
 
+  // 防呆：1.13+ 才是 block/xxx 这种扁平化命名。旧格式（blocks/anvil_base）两边
+  // 键名对不上，所有方块会退化到图集左上角一个像素，看起来就是一坨同色块。
+  if (!Object.keys(textureLayout).some((k) => k.startsWith("block/"))) {
+    throw new Error(
+      "客户端资源格式不匹配（需要 1.13 及以上的版本），已提取的资源无法用于投影预览",
+    );
+  }
+
   try {
     const dbgRes = await fetch(`${resourceBase}/_debug.json`);
     if (dbgRes.ok) console.log("[schematic] debug:", await dbgRes.json());

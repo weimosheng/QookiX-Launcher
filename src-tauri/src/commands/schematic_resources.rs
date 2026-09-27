@@ -18,43 +18,92 @@ fn parse_version_id(id: &str) -> Vec<u32> {
         .collect()
 }
 
-/// 扫描 versions/ 目录，找最新 release 版本的 jar。
-fn find_latest_version(versions_dir: &Path) -> Option<(String, PathBuf)> {
-    let entries = std::fs::read_dir(versions_dir).ok()?;
-    let mut best: Option<(Vec<u32>, String, PathBuf)> = None;
+/// "1.21.4" / "1.20" / "26.2" 这种像版本号的字符串。
+/// 注意：整合包的版本目录名和 id 往往是哈希（如 `5046802d`），不算版本号。
+fn looks_like_mc_version(s: &str) -> bool {
+    let core = s.split('-').next().unwrap_or(s);
+    core.contains('.') && core.chars().all(|c| c.is_ascii_digit() || c == '.') && core != "."
+}
+
+/// 读 jar 内部的 `version.json` 拿版本号（官方客户端 jar 里有；
+/// Forge 的形如 "1.12.2-forge-14.23.5.2860"，取第一段）。
+fn jar_version_id(jar_path: &Path) -> Option<String> {
+    let file = File::open(jar_path).ok()?;
+    let mut archive = ZipArchive::new(BufReader::new(file)).ok()?;
+    let mut entry = archive.by_name("version.json").ok()?;
+    let mut buf = String::new();
+    entry.read_to_string(&mut buf).ok()?;
+    let v: Value = serde_json::from_str(&buf).ok()?;
+    let id = v.get("id").and_then(|x| x.as_str())?;
+    let core = id.split('-').next().unwrap_or(id);
+    looks_like_mc_version(core).then(|| core.to_string())
+}
+
+/// 扫描 versions/ 目录，找**最新且资源格式可用**的版本。
+///
+/// 两个坑：
+/// 1. 整合包版本的目录名 / `id` 常是哈希，`parse_version_id` 会解析出空值 ——
+///    直接按 id 排序等于随机挑一个。真实版本要从 `inheritsFrom` 或 jar 里的
+///    `version.json` 拿。
+/// 2. 投影预览用的是 deepslate，只认 1.13+ 的扁平化资源（`block/stone`）。
+///    1.12 及更早是 `blocks/anvil_base` 这种旧命名，提出来也对不上，必须跳过。
+fn find_latest_version(versions_dir: &Path) -> Result<(String, PathBuf), String> {
+    let entries = std::fs::read_dir(versions_dir).map_err(|e| format!("读取版本目录失败: {e}"))?;
+    // 排序键：(是否经典 1.x, 版本号)。渲染用的 deepslate 跟的是经典版本号，
+    // 新年份版本（26.2 这类）先让位，只有没装 1.x 时才用它。
+    let mut best: Option<((u8, Vec<u32>), String, PathBuf)> = None;
+    let mut legacy_only = false;
+
     for entry in entries.flatten() {
+        let dir = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
-        let json_path = entry.path().join(format!("{}.json", name));
-        let jar_path = entry.path().join(format!("{}.jar", name));
-        if !json_path.exists() || !jar_path.exists() {
+        let jar_path = dir.join(format!("{name}.jar"));
+        if !jar_path.is_file() {
             continue;
         }
-        let Ok(content) = std::fs::read_to_string(&json_path) else {
+
+        // 真实 MC 版本：inheritsFrom（模组版） > id（官方版） > jar 内 version.json
+        let mut version = None;
+        if let Ok(content) = std::fs::read_to_string(dir.join(format!("{name}.json"))) {
+            if let Ok(v) = serde_json::from_str::<Value>(&content) {
+                version = v
+                    .get("inheritsFrom")
+                    .and_then(|x| x.as_str())
+                    .or_else(|| v.get("id").and_then(|x| x.as_str()))
+                    .filter(|s| looks_like_mc_version(s))
+                    .map(|s| s.to_string());
+            }
+        }
+        let Some(version) = version.or_else(|| jar_version_id(&jar_path)) else {
             continue;
         };
-        let Ok(v): Result<Value, _> = serde_json::from_str(&content) else {
-            continue;
-        };
-        let v_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
-        if v_type != "release" {
+        let key = parse_version_id(&version);
+        if key.is_empty() {
             continue;
         }
-        let id = v
-            .get("id")
-            .and_then(|i| i.as_str())
-            .unwrap_or(&name)
-            .to_string();
-        let key = parse_version_id(&id);
-        if best.as_ref().map_or(true, |(bk, _, _)| key > *bk) {
-            best = Some((key, id, jar_path));
+        if key < vec![1, 13] {
+            legacy_only = true;
+            continue;
+        }
+        let rank = (u8::from(key.first() == Some(&1)), key);
+        if best.as_ref().is_none_or(|(bk, _, _)| rank > *bk) {
+            best = Some((rank, version, jar_path));
         }
     }
-    best.map(|(_, id, jar)| (id, jar))
+
+    match best {
+        Some((_, version, jar)) => Ok((version, jar)),
+        None if legacy_only => Err(
+            "投影预览需要 1.13 及以上的客户端资源，当前只找到更旧的版本，请先安装一个 1.13+ 的版本"
+                .into(),
+        ),
+        None => Err("未找到可用的 MC 版本（需要 1.13+）".into()),
+    }
 }
 
 /// 检查缓存目录是否已有完整资源。
 fn is_cache_complete(cache_dir: &Path) -> bool {
-    const CACHE_VERSION: &str = "v4-trns-alpha";
+    const CACHE_VERSION: &str = "v7-atlas-pad";
     let version_file = cache_dir.join("cache-version.txt");
     match std::fs::read_to_string(&version_file) {
         Ok(v) if v.trim() == CACHE_VERSION => {}
@@ -154,6 +203,15 @@ fn extract_resources_from_jar(jar_path: &Path, cache_dir: &Path) -> Result<(), S
     eprintln!("[schematic] 模型:{} 状态:{} 纹理:{} 失败:{}", model_index.len(), state_index.len(), textures.len(), tex_fail);
     if !tex_fail_msg.is_empty() {
         eprintln!("[schematic] 失败示例: {}", tex_fail_msg);
+    }
+
+    // 防呆：渲染器（deepslate）只认 1.13+ 的扁平化模型。旧格式（`blocks/anvil_base`
+    // 这种）提出来两边键名对不上，所有方块都会退化到图集左上角一个像素，
+    // 整张投影变成一坨同色块 —— 不如直接报错说清楚。
+    if !model_index.contains_key("block/stone") {
+        return Err(
+            "该版本的资源是 1.13 之前的旧格式，投影预览需要 1.13 及以上的客户端资源".to_string(),
+        );
     }
 
     std::fs::create_dir_all(cache_dir).map_err(|e| format!("创建缓存目录失败: {e}"))?;
@@ -332,7 +390,14 @@ fn encode_png(path: PathBuf, width: u32, height: u32, rgba: &[u8]) -> Result<(),
 fn pack_texture_atlas(
     textures: &[TextureEntry],
 ) -> (u32, u32, Vec<u8>, BTreeMap<String, [u32; 4]>) {
-    const MAX_WIDTH: u32 = 1024;
+    // 宽一点、矮一点：1024 宽会堆出两万多像素高，超过不少显卡的
+    // MAX_TEXTURE_SIZE（常见上限 16384），贴着上限很危险。
+    const MAX_WIDTH: u32 = 4096;
+    /// 每张贴图四周留的边：内容用边缘像素扩展填充。
+    /// 必须留 —— 掠射角下 mipmap 会越出贴图边界采样，紧挨着打包就会把隔壁
+    /// 贴图（很多是透明的）混进来，alpha 掉到 alphaTest 阈值以下被抠掉，
+    /// 每条方块边界就出现一条断续的暗线。
+    const PAD: u32 = 2;
 
     let mut sorted: Vec<&TextureEntry> = textures.iter().collect();
     sorted.sort_by(|a, b| b.height.cmp(&a.height).then(b.width.cmp(&a.width)));
@@ -345,15 +410,21 @@ fn pack_texture_atlas(
     let mut shelf_h: u32 = 0;
 
     for tex in &sorted {
-        if shelf_x + tex.width > MAX_WIDTH {
+        let bw = tex.width + PAD * 2;
+        let bh = tex.height + PAD * 2;
+        if shelf_x + bw > MAX_WIDTH {
             shelf_y += shelf_h;
             shelf_x = 0;
             shelf_h = 0;
         }
-        layout.insert(tex.key.clone(), [shelf_x, shelf_y, tex.width, tex.height]);
-        shelf_x += tex.width;
-        if tex.height > shelf_h {
-            shelf_h = tex.height;
+        // 布局里只记内圈（真正贴图）的坐标，四周的边不参与 UV
+        layout.insert(
+            tex.key.clone(),
+            [shelf_x + PAD, shelf_y + PAD, tex.width, tex.height],
+        );
+        shelf_x += bw;
+        if bh > shelf_h {
+            shelf_h = bh;
         }
         if shelf_x > atlas_w {
             atlas_w = shelf_x;
@@ -374,18 +445,22 @@ fn pack_texture_atlas(
     for tex in &sorted {
         let &[x, y, w, h] = &layout[&tex.key];
         let expected_len = (w * h * 4) as usize;
-        if tex.data.len() < expected_len {
+        if tex.data.len() < expected_len || w == 0 || h == 0 {
             continue;
         }
-        for row in 0..h {
-            let src_start = ((row * tex.width) * 4) as usize;
-            let src_end = src_start + (w * 4) as usize;
-            let dst_start = (((y + row) * atlas_w + x) * 4) as usize;
-            let dst_end = dst_start + (w * 4) as usize;
-            if src_end > tex.data.len() || dst_end > atlas_data.len() {
-                continue;
+        // 连四周的边一起写：源坐标 clamp 到贴图内 → 边缘像素向外扩展
+        for row in 0..(h + PAD * 2) {
+            let sy = row.saturating_sub(PAD).min(h - 1);
+            let dst_y = (y - PAD) + row;
+            for col in 0..(w + PAD * 2) {
+                let sx = col.saturating_sub(PAD).min(w - 1);
+                let src = ((sy * tex.width + sx) * 4) as usize;
+                let dst = ((dst_y * atlas_w + ((x - PAD) + col)) * 4) as usize;
+                if src + 4 > tex.data.len() || dst + 4 > atlas_data.len() {
+                    continue;
+                }
+                atlas_data[dst..dst + 4].copy_from_slice(&tex.data[src..src + 4]);
             }
-            atlas_data[dst_start..dst_end].copy_from_slice(&tex.data[src_start..src_end]);
         }
     }
 
@@ -445,6 +520,10 @@ fn generate_name_index(lang_data: Option<Value>) -> Value {
     json!(result)
 }
 
+/// 提取是重活（解码几千张贴图 + 打包图集 + 编码 PNG）。同时打开两个投影文件
+/// 会并发提取、互相删掉对方的缓存目录，结果就是两边都拿到半成品 —— 串行化。
+static EXTRACT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// 提取本地 MC 资源，返回缓存目录路径。
 #[tauri::command]
 pub async fn schematic_extract_resources(
@@ -454,13 +533,15 @@ pub async fn schematic_extract_resources(
     let root = state.root.clone();
 
     tokio::task::spawn_blocking(move || {
-        let (version, jar_path) = find_latest_version(&versions_dir)
-            .ok_or_else(|| "未找到已安装的 MC 版本".to_string())?;
+        // 按真实 MC 版本命名缓存目录：同一个版本的不同整合包共用一份，不重复提取
+        let (version, jar_path) = find_latest_version(&versions_dir)?;
 
-        let cache_dir = root
-            .join("schematic-resources")
-            .join(&version);
+        let cache_dir = root.join("schematic-resources").join(&version);
 
+        // 串行化；拿到锁后再查一次缓存，排在前面的任务可能刚提完
+        let _guard = EXTRACT_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if is_cache_complete(&cache_dir) {
             return Ok(cache_dir.to_string_lossy().to_string());
         }
@@ -476,4 +557,92 @@ pub async fn schematic_extract_resources(
     })
     .await
     .map_err(|e| format!("资源提取任务失败: {e}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_version(dir: &Path, name: &str, json: &str) {
+        let d = dir.join(name);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join(format!("{name}.jar")), b"stub").unwrap();
+        std::fs::write(d.join(format!("{name}.json")), json).unwrap();
+    }
+
+    /// 整合包版本的目录名/id 是哈希，必须按 inheritsFrom 里的真实版本判定，
+    /// 并且跳过 1.13 之前的旧资源格式
+    #[test]
+    fn picks_modern_version_not_modpack_hash() {
+        let base = std::env::temp_dir().join(format!("qookix-ver-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+
+        // 1.12.2 整合包：目录名是哈希，真实版本写在 inheritsFrom 里
+        write_version(
+            &base,
+            "5046802d",
+            r#"{"id":"5046802d","type":"release","inheritsFrom":"1.12.2"}"#,
+        );
+        // 1.21.3：id 本身就是版本号
+        write_version(&base, "a4b7bb8b", r#"{"id":"1.21.3","type":"release"}"#);
+        // 年份版本号（渲染库跟的是经典 1.x，让它让位）
+        write_version(&base, "c2d82696", r#"{"id":"26.2","type":"release"}"#);
+
+        let (version, jar) = find_latest_version(&base).expect("应挑到 1.21.3");
+        assert_eq!(version, "1.21.3");
+        assert_eq!(jar, base.join("a4b7bb8b").join("a4b7bb8b.jar"));
+
+        // 只剩年份版本时，它也是可用的（1.13+ 的扁平化资源）
+        std::fs::remove_dir_all(base.join("a4b7bb8b")).unwrap();
+        assert_eq!(find_latest_version(&base).unwrap().0, "26.2");
+        std::fs::remove_dir_all(base.join("c2d82696")).unwrap();
+
+        // 只剩旧版本：明确报错，而不是提一堆用不了的资源出来
+        let err = find_latest_version(&base).unwrap_err();
+        assert!(err.contains("1.13"), "错误信息要说明需要 1.13+：{err}");
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// 图集里每张贴图四周要有边缘扩展的边（否则 mip 采样会串到隔壁贴图）
+    #[test]
+    fn atlas_pads_tiles_with_edge_replication() {
+        let mk = |key: &str, color: [u8; 4]| {
+            let mut data = Vec::new();
+            for _ in 0..4 {
+                data.extend_from_slice(&color);
+            }
+            TextureEntry {
+                key: key.to_string(),
+                width: 2,
+                height: 2,
+                data,
+            }
+        };
+        let (w, _h, data, layout) = pack_texture_atlas(&[
+            mk("a", [255, 0, 0, 255]),
+            mk("b", [0, 0, 255, 128]),
+        ]);
+        let px = |x: u32, y: u32| {
+            let i = ((y * w + x) * 4) as usize;
+            [data[i], data[i + 1], data[i + 2], data[i + 3]]
+        };
+        let [ax, ay, aw, ah] = layout["a"];
+        assert_eq!(px(ax, ay), [255, 0, 0, 255], "内圈是原像素");
+        assert_eq!(px(ax - 1, ay), [255, 0, 0, 255], "左边要做边缘扩展");
+        assert_eq!(px(ax + aw, ay + ah - 1), [255, 0, 0, 255], "右边要做边缘扩展");
+        assert_eq!(px(ax, ay + ah), [255, 0, 0, 255], "下边要做边缘扩展");
+        assert_eq!(px(ax + aw - 1, ay - 1), [255, 0, 0, 255], "上边要做边缘扩展");
+
+        let [bx, ..] = layout["b"];
+        assert!(bx >= ax + aw + 2, "两张贴图之间要隔开：{ax}+{aw} vs {bx}");
+    }
+
+    fn looks_like_version() {
+        assert!(looks_like_mc_version("1.21.4"));
+        assert!(looks_like_mc_version("26.2"));
+        assert!(!looks_like_mc_version("5046802d"));
+        assert!(!looks_like_mc_version("a4b7bb8b"));
+    }
 }

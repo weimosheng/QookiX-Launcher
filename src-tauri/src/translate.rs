@@ -204,6 +204,8 @@ pub async fn translate_body(
     // 拉原文（无译文时的兜底显示内容）
     let original = match provider {
         "curseforge" => crate::curseforge::project_description(state, slug).await,
+        // Spigot：Spiget 的 description 是 base64 编码的 HTML，解码后即原文
+        "spigot" => spigot_resource_description(state, slug).await,
         _ => {
             let info = crate::modrinth::project_info(state, slug).await?;
             Ok(info
@@ -409,6 +411,39 @@ pub fn clear_cache(state: &AppState, service: Option<&str>) -> Result<u64, Strin
     }
     save_cache(&state.root, &kept);
     Ok(freed)
+}
+
+/// 从 Spiget 拉取 SpigotMC 资源的原始描述（base64 编码的 HTML），解码返回。
+/// 元数据接口公开无需鉴权，客户端实测国内可直连。
+async fn spigot_resource_description(
+    state: &AppState,
+    resource_id: &str,
+) -> Result<String, String> {
+    let resp = state
+        .client
+        .get(format!("https://api.spiget.org/v2/resources/{resource_id}"))
+        .send()
+        .await
+        .map_err(|e| format!("请求 Spiget 失败: {e}"))?;
+    let status = resp.status().as_u16();
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    if status == 404 {
+        return Err("Spiget 上没有该资源（可能为付费资源，被 Spigot 拦截查询）".into());
+    }
+    if status != 200 {
+        return Err(format!("Spiget 返回 HTTP {status}"));
+    }
+    let v: Value = serde_json::from_str(&text).map_err(|e| format!("Spiget 响应解析失败: {e}"))?;
+    let encoded = v
+        .get("description")
+        .and_then(|d| d.as_str())
+        .unwrap_or("")
+        .to_string();
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded.trim())
+        .map_err(|e| format!("描述 base64 解码失败: {e}"))?;
+    Ok(String::from_utf8_lossy(&bytes).to_string())
 }
 
 /// 调用用户的 OpenAI 兼容接口翻译一段文本。

@@ -56,6 +56,8 @@ const manifest = ref<PreviewManifest | null>(null);
 const loading = ref(false);
 const loadProgress = ref(0);
 const loadTotal = ref(0);
+/** 当前阶段文案：准备资源 / 解析 / 生成模型 */
+const loadLabel = ref("");
 const error = ref<string | null>(null);
 const layerY = ref<number | null>(null);
 const viewMode = ref<ViewMode>("orbit");
@@ -133,19 +135,26 @@ async function pickAndOpen() {
 }
 
 let currentPath: string | null = null;
+/** 每次打开投影自增：用来作废上一轮还没跑完的区块加载 */
+let openSeq = 0;
 
 async function openSchematic(source: { kind: string; path?: string; instanceId?: string; relativePath?: string }) {
+  openSeq++;
   loading.value = true;
   error.value = null;
   manifest.value = null;
   loadProgress.value = 0;
   loadTotal.value = 0;
+  // 首次打开要提取客户端资源（几秒的重活），必须给出反馈，
+  // 否则界面看起来就是"空白 + 卡死"
+  loadLabel.value = t("toolbox.schematicPreparing");
   currentPath = source.path ?? null;
   try {
     const m = await invoke<PreviewManifest>("schematic_preview_open", { source });
     manifest.value = m;
 
     const res = await ensureResources();
+    loadLabel.value = t("toolbox.schematicMeshing");
 
     await nextTick();
     if (!canvasRef.value) throw new Error("Canvas not ready");
@@ -180,22 +189,39 @@ async function openSchematic(source: { kind: string; path?: string; instanceId?:
     }
     loadTotal.value = allChunks.length;
 
+    // 调色板只下发一次，之后每个区块只传方块数据
+    workerPool.setPalette(m.palette);
     renderer.requestRender();
 
-    await Promise.all(
-      allChunks.map(async (c) => {
+    // 分批复用固定数量的并发，而不是几千个请求一起打出去：
+    // 一次性并发会挤爆 IPC，进度条也刷不动
+    const CONCURRENCY = Math.max(4, Math.min(navigator.hardwareConcurrency ?? 4, 12));
+    const myOpen = openSeq;
+    let cursor = 0;
+    let sinceRender = 0;
+    const runOne = async () => {
+      while (cursor < allChunks.length) {
+        // 中途又打开了别的投影：这轮的区块不能再往场景里塞（调色板也换了）
+        if (myOpen !== openSeq) return;
+        const c = allChunks[cursor++];
         const buf = await invoke<ArrayBuffer>("schematic_preview_read_chunk", {
           sessionId: m.sessionId,
           regionId: c.regionId,
           position: c.position,
         });
-        const blocks = parseChunkData(buf);
-        const { opaque, translucent } = await workerPool!.buildMesh(c.position, blocks, m.palette);
+        const { blocks, neighbors } = parseChunkData(buf);
+        const { opaque, translucent } = await workerPool!.buildMesh(c.position, blocks, neighbors);
         renderer!.setChunkFromMeshData(c.position, opaque, translucent, res.texture);
-        renderer!.requestRender();
         loadProgress.value++;
-      }),
-    );
+        // 每 16 个区块刷一次画面就够，逐个刷屏反而更慢
+        if (++sinceRender >= 16) {
+          sinceRender = 0;
+          renderer!.requestRender();
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, allChunks.length) }, runOne));
+    renderer.requestRender();
 
     if (currentPath) pushRecent(m, currentPath);
   } catch (e) {
@@ -319,14 +345,14 @@ onUnmounted(() => {
           {{ t("toolbox.schematicWalkSpeed") }}: {{ walkSpeed }}
         </div>
 
-        <!-- 加载进度 -->
-        <div v-if="loading && loadTotal > 0" class="map-progress">
+        <!-- 加载进度：准备资源阶段还没总数，用不确定进度条 -->
+        <div v-if="loading" class="map-progress">
           <div class="progress-head">
-            <span>{{ t("toolbox.schematicLoading") }}</span>
-            <span class="mono">{{ loadProgress }} / {{ loadTotal }}</span>
+            <span>{{ loadLabel || t("toolbox.schematicLoading") }}</span>
+            <span v-if="loadTotal > 0" class="mono">{{ loadProgress }} / {{ loadTotal }}</span>
           </div>
-          <div class="progress-track">
-            <i :style="{ width: `${(loadProgress / loadTotal) * 100}%` }" />
+          <div class="progress-track" :class="{ indeterminate: loadTotal === 0 }">
+            <i :style="loadTotal > 0 ? { width: `${(loadProgress / loadTotal) * 100}%` } : {}" />
           </div>
         </div>
       </div>
@@ -534,6 +560,12 @@ onUnmounted(() => {
 .progress-head { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-2); margin-bottom: 6px; }
 .progress-track { height: 4px; border-radius: 2px; background: var(--w-08); overflow: hidden; }
 .progress-track i { display: block; height: 100%; border-radius: 2px; background: var(--accent); transition: width 0.15s ease; }
+/* 还不知道总数（提取客户端资源阶段）：来回跑的不确定进度条 */
+.progress-track.indeterminate i { width: 35%; animation: schem-indet 1.1s ease-in-out infinite; }
+@keyframes schem-indet {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(310%); }
+}
 
 /* —— 错误 —— */
 .error { padding: 12px 16px; border-radius: 10px; color: var(--danger); font-size: 13px; }

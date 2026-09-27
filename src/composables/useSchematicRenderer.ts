@@ -86,16 +86,26 @@ export function createSchematicRenderer(canvas: HTMLCanvasElement): SchematicRen
     return `${pos[0]},${pos[1]},${pos[2]}`;
   }
 
+  // 图层切片用的裁剪平面：**复用同一个 Plane 对象**，只改 constant。
+  // 拖滑块时不能每帧给材质置 needsUpdate —— 那会让 three.js 重新编译着色器
+  // （每秒几十次），画面就会闪。裁剪平面本身每帧会被自动读取，只有
+  // "平面数量变化"才会影响着色器，那时才需要重编译。
+  const slicePlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
+  let sliceOn = false;
+  const activePlanes = (): THREE.Plane[] => (sliceOn ? [slicePlane] : []);
+
   function ensureMaterials(texture: THREE.Texture) {
     let mats = materials.get(texture);
     if (!mats) {
       mats = {
         opaque: new THREE.MeshLambertMaterial({
           map: texture, vertexColors: true, side: THREE.FrontSide, alphaTest: 0.5,
+          clippingPlanes: activePlanes(),
         }),
         translucent: new THREE.MeshLambertMaterial({
           map: texture, vertexColors: true, side: THREE.FrontSide,
           alphaTest: 0.1, transparent: true, opacity: 0.85, depthWrite: false,
+          clippingPlanes: activePlanes(),
         }),
       };
       materials.set(texture, mats);
@@ -206,12 +216,18 @@ export function createSchematicRenderer(canvas: HTMLCanvasElement): SchematicRen
   }
 
   function setLayerSlice(y: number | null) {
-    const planes = y !== null
-      ? [new THREE.Plane(new THREE.Vector3(0, -1, 0), y + 1)]
-      : [];
+    // 保留 y 及以下的方块：-p.y + (y+1) > 0。
+    // 特意抬高千分之一：切面正好压在方块顶面（整数高度）上时，那些面与裁剪面
+    // 共面，浮点误差会让它们时隐时现地闪。
+    slicePlane.constant = (y ?? 0) + 1.001;
+    const on = y !== null;
+    if (on === sliceOn) return; // 只是挪动切面：改 constant 就够了
+    sliceOn = on;
+    const planes = activePlanes();
     for (const mats of materials.values()) {
       mats.opaque.clippingPlanes = planes;
       mats.translucent.clippingPlanes = planes;
+      // 平面数量变了会改变着色器里的 NUM_CLIPPING_PLANES，这时才要重编译
       mats.opaque.needsUpdate = true;
       mats.translucent.needsUpdate = true;
     }
@@ -425,10 +441,16 @@ export function createSchematicRenderer(canvas: HTMLCanvasElement): SchematicRen
   };
 }
 
-export function parseChunkData(buffer: ArrayBuffer): Uint32Array {
+export interface ParsedChunkData {
+  blocks: Uint32Array;
+  /** 邻块边界面（西 东 下 上 北 南，每个 16×16），没有就是 null */
+  neighbors: Uint32Array | null;
+}
+
+export function parseChunkData(buffer: ArrayBuffer): ParsedChunkData {
   const view = new DataView(buffer);
   const magic = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
-  if (magic !== "SPC1") {
+  if (magic !== "SPC1" && magic !== "SPC2") {
     throw new Error(`Invalid chunk data magic: ${magic}`);
   }
   const volume = view.getUint32(4, true);
@@ -439,5 +461,15 @@ export function parseChunkData(buffer: ArrayBuffer): Uint32Array {
   for (let i = 0; i < CHUNK_VOLUME; i++) {
     blocks[i] = view.getUint32(8 + i * 4, true);
   }
-  return blocks;
+  // SPC2 后面还跟着 6 个 16×16 的邻块边界面
+  let neighbors: Uint32Array | null = null;
+  const SLICE = 16 * 16;
+  if (magic === "SPC2" && view.byteLength >= 8 + (CHUNK_VOLUME + 6 * SLICE) * 4) {
+    neighbors = new Uint32Array(6 * SLICE);
+    const base = 8 + CHUNK_VOLUME * 4;
+    for (let i = 0; i < 6 * SLICE; i++) {
+      neighbors[i] = view.getUint32(base + i * 4, true);
+    }
+  }
+  return { blocks, neighbors };
 }

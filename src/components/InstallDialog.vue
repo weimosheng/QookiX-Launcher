@@ -361,10 +361,12 @@ const bodyIsZh = computed(() => {
   return !!st && st.showZh && !!st.bodyHtml;
 });
 
-/** 原文渲染：Modrinth 是 Markdown 转 HTML；CurseForge 本身是 HTML 原样保留 */
+/** 原文渲染：Modrinth 是 Markdown 转 HTML；CurseForge / Spigot 本身是 HTML 原样保留 */
 function renderOriginal(text: string, provider: string): string {
   const html =
-    provider === "curseforge" ? text : (marked.parse(text, { async: false }) as string);
+    provider === "curseforge" || provider === "spigot"
+      ? text
+      : (marked.parse(text, { async: false }) as string);
   return sanitizeBody(html);
 }
 
@@ -379,10 +381,13 @@ function renderTranslated(text: string): string {
 function sanitizeBody(html: string): string {
   const clean = DOMPurify.sanitize(html);
   const doc = new DOMParser().parseFromString(clean, "text/html");
+  const provider = props.project?.provider;
   const base =
-    props.project?.provider === "curseforge"
+    provider === "curseforge"
       ? "https://www.curseforge.com"
-      : "https://modrinth.com";
+      : provider === "spigot"
+        ? "https://www.spigotmc.org"
+        : "https://modrinth.com";
   doc.querySelectorAll("img[src]").forEach((img) => {
     const src = img.getAttribute("src") ?? "";
     if (src.startsWith("//")) {

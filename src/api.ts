@@ -22,6 +22,14 @@ import type {
   ServerConfig,
   ServerEntry,
   ServerStatus,
+  ChunkEntry,
+  MapBounds,
+  MapImageData,
+  NbtBackupInfo,
+  NbtNode,
+  PlayerSummary,
+  PlayerData,
+  ItemSlot,
   Settings,
   StorageStats,
   TerracottaInfo,
@@ -30,6 +38,8 @@ import type {
   PlaytimeStats,
   WorldBackupInfo,
   WorldInfo,
+  WorldSummary,
+  WorldForm,
   ExportPreview,
   ExportSelection,
   IdentifiedMod,
@@ -183,6 +193,111 @@ export const api = {
     invoke<void>("restore_world_backup", { instanceId, world, filename }),
   deleteWorldBackup: (instanceId: string, world: string, filename: string) =>
     invoke<void>("delete_world_backup", { instanceId, world, filename }),
+
+  // ---- NBT 存档编辑 ----
+  // world 既可以是实例 saves 下的目录名，也可以是手动指定的绝对路径
+  nbtListWorlds: (instanceId: string) =>
+    invoke<{ worlds: WorldSummary[] }>("nbt_list_worlds", { instanceId }),
+  nbtOpenWorld: (instanceId: string, world: string) =>
+    invoke<{ form: WorldForm; running: boolean; editable: boolean; reason: string | null }>(
+      "nbt_open_world",
+      { instanceId, world },
+    ),
+  nbtCanEdit: (instanceId: string, world: string) =>
+    invoke<{ editable: boolean; reason: string | null }>("nbt_can_edit", { instanceId, world }),
+  nbtSaveWorld: (instanceId: string, world: string, patch: Record<string, unknown>) =>
+    invoke<{ backup: string }>("nbt_save_world", { instanceId, world, patch }),
+  nbtTreeView: (instanceId: string, world: string) =>
+    invoke<{ root: NbtNode }>("nbt_tree_view", { instanceId, world }),
+  nbtListPlayers: (instanceId: string, world: string) =>
+    invoke<{ players: PlayerSummary[] }>("nbt_list_players", { instanceId, world }),
+  nbtReadPlayer: (instanceId: string, world: string, uuid: string) =>
+    invoke<PlayerData>("nbt_read_player", { instanceId, world, uuid }),
+  nbtSavePlayer: (instanceId: string, world: string, uuid: string, patch: Record<string, unknown>) =>
+    invoke<{ backup: string }>("nbt_save_player", { instanceId, world, uuid, patch }),
+  nbtReadInventory: (instanceId: string, world: string, uuid: string) =>
+    invoke<{ inventory: ItemSlot[]; enderChest: ItemSlot[] }>("nbt_read_inventory", {
+      instanceId,
+      world,
+      uuid,
+    }),
+  nbtSaveItem: (
+    instanceId: string,
+    world: string,
+    uuid: string,
+    container: string,
+    index: number,
+    item: Record<string, unknown>,
+  ) => invoke<{ backup: string }>("nbt_save_item", { instanceId, world, uuid, container, index, item }),
+  /** nodeType 只对新节点生效，已有节点由后端按原类型写回 */
+  nbtSetNode: (instanceId: string, world: string, path: string[], value: unknown, nodeType: string) =>
+    invoke<{ backup: string }>("nbt_set_node", { instanceId, world, path, value, nodeType }),
+  nbtDeleteNode: (instanceId: string, world: string, path: string[]) =>
+    invoke<{ backup: string }>("nbt_delete_node", { instanceId, world, path }),
+  /** 区块（.mca）：dim 为 overworld / nether / end */
+  nbtListChunks: (instanceId: string, world: string, dim: string) =>
+    invoke<{ chunks: ChunkEntry[] }>("nbt_list_chunks", { instanceId, world, dim }),
+  nbtReadChunk: (instanceId: string, world: string, dim: string, cx: number, cz: number) =>
+    invoke<{ root: NbtNode }>("nbt_read_chunk", { instanceId, world, dim, cx, cz }),
+  nbtSetChunkNode: (
+    instanceId: string,
+    world: string,
+    dim: string,
+    cx: number,
+    cz: number,
+    path: string[],
+    value: unknown,
+    nodeType: string,
+  ) =>
+    invoke<{ backup: string }>("nbt_set_chunk_node", {
+      instanceId,
+      world,
+      dim,
+      cx,
+      cz,
+      path,
+      value,
+      nodeType,
+    }),
+  nbtDeleteChunkNode: (
+    instanceId: string,
+    world: string,
+    dim: string,
+    cx: number,
+    cz: number,
+    path: string[],
+  ) =>
+    invoke<{ backup: string }>("nbt_delete_chunk_node", { instanceId, world, dim, cx, cz, path }),
+  /** 区块地图：已生成区块范围 / 渲染一块区域（方块坐标，左闭右开） */
+  nbtMapBounds: (instanceId: string, world: string, dim: string) =>
+    invoke<MapBounds>("nbt_map_bounds", { instanceId, world, dim }),
+  nbtRenderMap: (
+    instanceId: string,
+    world: string,
+    dim: string,
+    x0: number,
+    z0: number,
+    x1: number,
+    z1: number,
+    step: number,
+  ) =>
+    invoke<MapImageData>("nbt_render_map", {
+      instanceId,
+      world,
+      dim,
+      x0,
+      z0,
+      x1,
+      z1,
+      step,
+    }),
+  /** 单文件备份管理：level.dat 与 playerdata 的 .qookix_backup.* */
+  nbtListBackups: (instanceId: string, world: string) =>
+    invoke<{ backups: NbtBackupInfo[] }>("nbt_list_backups", { instanceId, world }),
+  nbtRestoreBackup: (instanceId: string, world: string, file: string, name: string) =>
+    invoke<{ backup: string }>("nbt_restore_backup", { instanceId, world, file, name }),
+  nbtDeleteBackup: (instanceId: string, world: string, file: string, name: string) =>
+    invoke<unknown>("nbt_delete_backup", { instanceId, world, file, name }),
 
   // ---- 云存档同步（GitHub）----
   cloudSyncStatus: () =>

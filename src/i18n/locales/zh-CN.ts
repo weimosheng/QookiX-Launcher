@@ -37,6 +37,7 @@ import newsZh from "./_fragments/news.zh";
 import toolboxZh from "./_fragments/toolbox.zh";
 import seedMapZh from "./_fragments/seedMap.zh";
 import settingsZh from "./_fragments/settings.zh";
+import nbtZh from "./_fragments/nbt.zh";
 
 export default {
   ...home,
@@ -166,4 +167,6 @@ export default {
   ...newsZh,
   ...toolboxZh,
   ...seedMapZh,
+  // NBT 存档编辑器的文案（独立命名空间，键都写成 nbt.xxx）
+  nbt: nbtZh,
 };

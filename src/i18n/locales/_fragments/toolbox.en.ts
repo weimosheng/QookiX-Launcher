@@ -8,6 +8,9 @@ export default {
       "Open .litematic / .schem schematic files to view block statistics and 3D preview.",
     schematicOpen: "Open Schematic File",
     schematicLoading: "Parsing…",
+    schematicPreparing:
+      "Preparing client resources… (first open extracts textures from the client, a few seconds)",
+    schematicMeshing: "Building meshes…",
     schematicEmpty: "Select a schematic file to start previewing.",
     schematicRecent: "Recent",
     schematicNoRecent: "No recent files",
@@ -33,5 +36,7 @@ export default {
       "Block models and textures from local Minecraft client.",
     moreTitle: "More",
     moreDesc: "More tools coming soon.",
+    nbtTitle: "NBT Editor",
+    nbtDesc: "View and edit world saves: game mode, difficulty, seed, time, weather, spawn, border",
   },
 };

@@ -37,6 +37,7 @@ import newsEn from "./_fragments/news.en";
 import toolboxEn from "./_fragments/toolbox.en";
 import seedMapEn from "./_fragments/seedMap.en";
 import settingsEn from "./_fragments/settings.en";
+import nbtEn from "./_fragments/nbt.en";
 
 export default {
   ...home,
@@ -166,4 +167,6 @@ export default {
   ...newsEn,
   ...toolboxEn,
   ...seedMapEn,
+  // NBT save editor strings (own namespace: all keys are nbt.xxx)
+  nbt: nbtEn,
 };

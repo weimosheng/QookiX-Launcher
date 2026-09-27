@@ -223,13 +223,16 @@ jobs:
         run: |
           node scripts/create-update-manifest-local.mjs release "${GITHUB_REF_NAME}" latest.json
 
-      - name: Generate release notes (download table)
+      # 更新日志取自仓库里的 CHANGELOG.md（版本号对得上的那一节），插在下载表格上面
+      - name: Generate release notes (changelog + download table)
         run: |
-          node scripts/generate-release-notes.mjs release "${GITHUB_REF_NAME}" body.md
+          node scripts/generate-release-notes.mjs release "${GITHUB_REF_NAME}" body.md CHANGELOG.md
 
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # 标题带应用名和版本（和 MoboxFrpGUI 那个项目一致）
+          name: QookiX Launcher ${{ github.ref_name }}
           files: |
             release/**/*
           body_path: body.md

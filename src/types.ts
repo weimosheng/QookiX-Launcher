@@ -15,6 +15,10 @@ export interface ContextMenuItem {
   action?: () => void;
 }
 
+/**
+ * 前端可见的设置（后端 `settings::frontend_view` 的投影）。
+ * API Key 这类敏感字段不会下发，只有 `*_set` / `*_hint`。
+ */
 export interface Settings {
   data_dir: string;
   java_path: string | null;
@@ -25,7 +29,10 @@ export interface Settings {
   game_args: string;
   download_threads: number;
   download_chunk_threads: number;
-  curseforge_api_key: string | null;
+  /** CurseForge API Key 是否已配置（Key 原文不下发前端） */
+  curseforge_api_key_set: boolean;
+  /** 已保存的 CurseForge Key 尾号（如 `····ab12`），未配置为空串 */
+  curseforge_api_key_hint: string;
   theme: string;
   theme_color: string;
   /** 界面语言："zh-CN" | "en-US" */
@@ -62,8 +69,10 @@ export interface Settings {
   body_translate_auto: boolean;
   /** 自定义翻译 API 的 OpenAI 兼容地址 */
   translate_api_base: string;
-  /** 自定义翻译 API 的密钥 */
-  translate_api_key: string | null;
+  /** 自定义翻译 Key 是否已配置（Key 原文不下发前端） */
+  translate_api_key_set: boolean;
+  /** 已保存的翻译 Key 尾号（如 `····ab12`） */
+  translate_api_key_hint: string;
   /** 自定义翻译使用的模型名 */
   translate_api_model: string;
   /** 新手向导是否已完成（首次启动为 false，完成后置 true） */
@@ -264,6 +273,150 @@ export interface WorldBackupInfo {
   size: number;
   /** unix 秒 */
   modified: number;
+}
+
+/** NBT 编辑：世界列表条目 */
+export interface WorldSummary {
+  /** saves 下的目录名，手动指定时是绝对路径 */
+  dir: string;
+  levelName: string | null;
+  gameType: number | null;
+  difficulty: number | null;
+  seed: number | null;
+  size: number;
+  /** unix 秒 */
+  modified: number;
+  /** 有 playerdata 的玩家数量 */
+  playerCount?: number;
+  /** 第一个玩家名（usercache 解析不到时是 UUID 短串） */
+  playerName?: string | null;
+}
+
+/** NBT 编辑：level.dat 表单字段 */
+export interface WorldForm {
+  levelName: string | null;
+  gameType: number | null;
+  difficulty: number | null;
+  difficultyLocked: number | null;
+  hardcore: number | null;
+  /** 十进制字符串：种子是 Long，超过 JS 安全整数范围，走数字会丢精度 */
+  seed: string | null;
+  time: number | null;
+  dayTime: number | null;
+  raining: number | null;
+  thundering: number | null;
+  spawnX: number | null;
+  spawnY: number | null;
+  spawnZ: number | null;
+  allowCommands: number | null;
+  /** 游戏规则：值统一是字符串（"true"/"false"/数字） */
+  gameRules: Record<string, string> | null;
+  border: { centerX: number | null; centerZ: number | null; size: number | null } | null;
+  /** 边界用扁平的 Border* 字段存（1.16-）还是 WorldBorder 子复合节点（部分版本） */
+  borderFlat: boolean | null;
+}
+
+/** NBT 编辑：已生成的区块（从 region 文件头部读出） */
+export interface ChunkEntry {
+  cx: number;
+  cz: number;
+  /** 占用的字节数（按扇区对齐） */
+  size: number;
+  /** unix 秒 */
+  modified: number;
+}
+
+/** 区块地图：存档里已生成区块的范围 */
+export interface MapBounds {
+  empty: boolean;
+  minCx?: number;
+  minCz?: number;
+  maxCx?: number;
+  maxCz?: number;
+  chunks?: number;
+  /** 方块坐标：区块最密集的区域中心（存档跨度大时用它当初始视野） */
+  denseX?: number;
+  denseZ?: number;
+}
+
+/** 区块地图：一次渲染的结果（每像素一个调色板下标） */
+export interface MapImageData {
+  originX: number;
+  originZ: number;
+  /** 每个像素代表多少方块 */
+  step: number;
+  width: number;
+  height: number;
+  /** 真正画进图里的区块数 */
+  rendered: number;
+  /** 拍平的 RGB（每 3 个一组） */
+  palette: number[];
+  /** base64：width*height 个调色板下标 */
+  data: string;
+  /** 图例：视野里占比最高的几种方块 */
+  legend: { name: string; color: string; pixels: number }[];
+}
+
+/** NBT 编辑：单文件备份条目 */
+export interface NbtBackupInfo {
+  /** 相对世界目录的路径：level.dat 或 playerdata/<uuid>.dat */
+  file: string;
+  name: string;
+  size: number;
+  /** unix 秒 */
+  modified: number;
+}
+
+/** NBT 编辑：玩家条目 */
+export interface PlayerSummary {
+  uuid: string;
+  name: string;
+  pos: number[];
+  dimension: string | null;
+  health: number | null;
+}
+
+/** NBT 编辑：玩家可编辑数据 */
+export interface PlayerData {
+  pos: number[];
+  dimension: string;
+  health: number;
+  foodLevel: number;
+  xpLevel: number;
+  xpP: number;
+  gameType: number;
+  abilities: { flying: number; mayfly: number } | null;
+}
+
+/** NBT 编辑：物品槽位 */
+export interface ItemSlot {
+  /** 在 NBT 列表里的下标（写回时的兜底定位依据） */
+  index: number;
+  /** 实际槽位号（0-35 背包、36-39 护甲、40 副手） */
+  slot: number;
+  id: string;
+  count: number;
+  name: string | null;
+  lore: string[];
+  unbreakable: number;
+  enchantments: { id: string; level: number }[];
+  modifiers: {
+    name: string;
+    attribute: string;
+    amount: number;
+    operation: number;
+    slot: string | null;
+  }[];
+  /** 1.20.5+ 的 components 格式 */
+  modern: boolean;
+}
+
+/** NBT 树节点（树形模式） */
+export interface NbtNode {
+  name: string;
+  type: string;
+  value?: unknown;
+  children?: NbtNode[];
 }
 
 /** 云端存档快照（GitHub Release；大存档可能有多个分卷附件） */

@@ -405,6 +405,9 @@ pub fn clear_translation_cache(
 }
 
 /// 测试自定义翻译 API 的连通性（OpenAI 兼容接口）。
+///
+/// `key` 传空表示「用设置里已保存的那把」：前端拿不到 Key 原文
+/// （`get_settings` 不下发敏感字段），用户不想重填也能直接测。
 #[tauri::command]
 pub async fn test_translate_api(
     state: State<'_, AppState>,
@@ -412,6 +415,17 @@ pub async fn test_translate_api(
     key: String,
     model: String,
 ) -> Result<(), String> {
+    let key = if key.trim().is_empty() {
+        state
+            .settings
+            .read()
+            .unwrap()
+            .translate_api_key
+            .clone()
+            .unwrap_or_default()
+    } else {
+        key
+    };
     crate::translate::chat_translate(&state, &base, &key, &model, "Hello, this is a test.")
         .await
         .map(|_| ())

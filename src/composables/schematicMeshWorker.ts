@@ -130,7 +130,12 @@ function computeFullCubeBlocks() {
   const noCull: deepslate.Cull = {
     up: false, down: false, north: false, south: false, east: false, west: false,
   };
-  const EPS = 0.1;
+  // 顶点单位是 0..1 个方块 —— deepslate 的 BlockDefinition.getMesh 末尾有
+  // mat4.scale(1/16)（appendFallbackCube 手写的立方体也是 0..1）。
+  // 这里以前按 0..16 判断，永远匹配不上，导致 fullCubeBlocks 一直是空的：
+  // 相邻方块之间被挡住的内侧面全都被画出来，切片时第 S 层顶面和第 S+1 层底面
+  // 完全共面互相打架 —— 看起来就是"方块之间有条缝"，而且会闪。
+  const EPS = 0.01;
   for (const name of Object.keys(blockDefinitions)) {
     const props = defaultBlockProperties[name] ?? {};
     const mesh = new deepslate.Mesh();
@@ -151,12 +156,12 @@ function computeFullCubeBlocks() {
       const minX = Math.min(...xs), maxX = Math.max(...xs);
       const minY = Math.min(...ys), maxY = Math.max(...ys);
       const minZ = Math.min(...zs), maxZ = Math.max(...zs);
-      if (minY > 16 - EPS && maxY < 16 + EPS && minX < EPS && maxX > 16 - EPS && minZ < EPS && maxZ > 16 - EPS) up = true;
-      if (minY > -EPS && maxY < EPS && minX < EPS && maxX > 16 - EPS && minZ < EPS && maxZ > 16 - EPS) down = true;
-      if (minZ > -EPS && maxZ < EPS && minX < EPS && maxX > 16 - EPS && minY < EPS && maxY > 16 - EPS) north = true;
-      if (minZ > 16 - EPS && maxZ < 16 + EPS && minX < EPS && maxX > 16 - EPS && minY < EPS && maxY > 16 - EPS) south = true;
-      if (minX > 16 - EPS && maxX < 16 + EPS && minY < EPS && maxY > 16 - EPS && minZ < EPS && maxZ > 16 - EPS) east = true;
-      if (minX > -EPS && maxX < EPS && minY < EPS && maxY > 16 - EPS && minZ < EPS && maxZ > 16 - EPS) west = true;
+      if (minY > 1 - EPS && maxY < 1 + EPS && minX < EPS && maxX > 1 - EPS && minZ < EPS && maxZ > 1 - EPS) up = true;
+      if (minY > -EPS && maxY < EPS && minX < EPS && maxX > 1 - EPS && minZ < EPS && maxZ > 1 - EPS) down = true;
+      if (minZ > -EPS && maxZ < EPS && minX < EPS && maxX > 1 - EPS && minY < EPS && maxY > 1 - EPS) north = true;
+      if (minZ > 1 - EPS && maxZ < 1 + EPS && minX < EPS && maxX > 1 - EPS && minY < EPS && maxY > 1 - EPS) south = true;
+      if (minX > 1 - EPS && maxX < 1 + EPS && minY < EPS && maxY > 1 - EPS && minZ < EPS && maxZ > 1 - EPS) east = true;
+      if (minX > -EPS && maxX < EPS && minY < EPS && maxY > 1 - EPS && minZ < EPS && maxZ > 1 - EPS) west = true;
     }
     if (up && down && north && south && east && west) fullCubeBlocks.add(name);
   }
@@ -251,11 +256,19 @@ function toMeshData(buf: MeshBuffers): MeshData {
   };
 }
 
-function buildChunkMesh(chunkPos: [number, number, number], blocks: Uint32Array, palette: BlockState[]): MeshResult {
+/** 当前投影的调色板：由主线程一次性下发，避免每个区块都随消息复制一份 */
+let palette: BlockState[] = [];
+
+function buildChunkMesh(chunkPos: [number, number, number], blocks: Uint32Array, neighbors: Uint32Array | null): MeshResult {
   const opaque = emptyBuffers();
   const translucent = emptyBuffers();
   const [cx, cy, cz] = chunkPos;
   const ox = cx * CHUNK_SIZE, oy = cy * CHUNK_SIZE, oz = cz * CHUNK_SIZE;
+
+  // 区块外的邻块边界（西 东 下 上 北 南，每个 16×16，索引 i*16+j）。
+  // 没有它的话，区块接缝两侧会各画一个共面的面互相打架 —— 每 16 格一条缝。
+  const neighbour = (face: number, i: number, j: number): BlockState | undefined =>
+    neighbors ? palette[neighbors[face * 256 + i * 16 + j]] : undefined;
 
   for (let y = 0; y < CHUNK_SIZE; y++) {
     for (let z = 0; z < CHUNK_SIZE; z++) {
@@ -266,12 +279,12 @@ function buildChunkMesh(chunkPos: [number, number, number], blocks: Uint32Array,
         if (!state || isAir(state.name)) continue;
 
         const cull: deepslate.Cull = {
-          west: isOccluding(x > 0 ? palette[blocks[y * 256 + z * 16 + (x - 1)]] : undefined),
-          east: isOccluding(x < 15 ? palette[blocks[y * 256 + z * 16 + (x + 1)]] : undefined),
-          down: isOccluding(y > 0 ? palette[blocks[(y - 1) * 256 + z * 16 + x]] : undefined),
-          up: isOccluding(y < 15 ? palette[blocks[(y + 1) * 256 + z * 16 + x]] : undefined),
-          north: isOccluding(z > 0 ? palette[blocks[y * 256 + (z - 1) * 16 + x]] : undefined),
-          south: isOccluding(z < 15 ? palette[blocks[y * 256 + (z + 1) * 16 + x]] : undefined),
+          west: isOccluding(x > 0 ? palette[blocks[y * 256 + z * 16 + (x - 1)]] : neighbour(0, y, z)),
+          east: isOccluding(x < 15 ? palette[blocks[y * 256 + z * 16 + (x + 1)]] : neighbour(1, y, z)),
+          down: isOccluding(y > 0 ? palette[blocks[(y - 1) * 256 + z * 16 + x]] : neighbour(2, z, x)),
+          up: isOccluding(y < 15 ? palette[blocks[(y + 1) * 256 + z * 16 + x]] : neighbour(3, z, x)),
+          north: isOccluding(z > 0 ? palette[blocks[y * 256 + (z - 1) * 16 + x]] : neighbour(4, y, x)),
+          south: isOccluding(z < 15 ? palette[blocks[y * 256 + (z + 1) * 16 + x]] : neighbour(5, y, x)),
         };
 
         const mesh = buildBlockMesh(state, cull);
@@ -301,9 +314,11 @@ self.onmessage = async (event: MessageEvent) => {
     if (msg.resourceBase) resourceBase = msg.resourceBase;
     await initResources();
     (self as unknown as Worker).postMessage({ type: "ready" });
+  } else if (msg.type === "palette") {
+    palette = msg.palette;
   } else if (msg.type === "mesh") {
     if (!initialized) throw new Error("Worker not initialized");
-    const result = buildChunkMesh(msg.chunkPos, msg.blocks, msg.palette);
+    const result = buildChunkMesh(msg.chunkPos, msg.blocks, msg.neighbors ?? null);
     (self as unknown as Worker).postMessage({
       type: "meshResult",
       chunkPos: msg.chunkPos,

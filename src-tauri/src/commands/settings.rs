@@ -16,14 +16,21 @@ pub fn log_debug(msg: String) {
     crate::util::log_line(&msg);
 }
 
+/// 读取设置。
+///
+/// 返回的是 `settings::frontend_view` 投影：API Key 这类敏感字段不会下发
+/// （前端 DevTools 里 `await api.getSettings()` 就能看到返回值），只给
+/// `*_set` / `*_hint` 告诉前端配没配、尾号是什么。
 #[tauri::command]
-pub fn get_settings(state: State<AppState>) -> Result<Settings, String> {
-    Ok(state.settings.read().unwrap().clone())
+pub fn get_settings(state: State<AppState>) -> Result<Value, String> {
+    let s = state.settings.read().unwrap();
+    Ok(settings::frontend_view(&s))
 }
 
 #[tauri::command]
-pub fn set_settings(state: State<AppState>, patch: Value) -> Result<Settings, String> {
-    settings::update_settings(&state, patch)
+pub fn set_settings(state: State<AppState>, patch: Value) -> Result<Value, String> {
+    let updated = settings::update_settings(&state, patch)?;
+    Ok(settings::frontend_view(&updated))
 }
 
 /// 关闭窗口确认弹窗的落地动作。

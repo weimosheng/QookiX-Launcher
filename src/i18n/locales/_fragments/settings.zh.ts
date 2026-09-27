@@ -93,6 +93,11 @@ export default {
     curseforgePlaceholder: "在 console.curseforge.com 免费申请",
     curseforgeHint:
       "可选。不填使用默认key 可能会导致 CurseForge 内容中心不可用，Modrinth 不受影响。",
+    keyStored: "已保存（{hint}）",
+    keyMissing: "未配置",
+    keyClear: "清除",
+    keySaved: "已保存",
+    keyCleared: "已清除保存的 Key",
     proxy: "下载代理",
     proxyTest: "测试连接",
     proxyPlaceholder: "http://127.0.0.1:7890 或 socks5://127.0.0.1:1080",

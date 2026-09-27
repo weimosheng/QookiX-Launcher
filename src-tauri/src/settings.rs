@@ -114,6 +114,67 @@ pub fn persist(state: &AppState) -> Result<(), String> {
     save_settings(&state.root, &settings)
 }
 
+/// 只落库、不下发前端的敏感字段。
+///
+/// 命令返回值在前端 DevTools 里一条 `await api.getSettings()` 就能拿到，
+/// 所以 API Key 这类东西绝不能出现在 `get_settings` / `set_settings` 的返回体里。
+const SECRET_FIELDS: [&str; 2] = ["curseforge_api_key", "translate_api_key"];
+
+/// 给前端的设置视图：敏感字段替换成「是否已配置 + 掩码尾号」。
+///
+/// 用 JSON 投影而不是另写一个几十字段的结构体：`Settings` 以后加字段不会漏同步
+/// （`frontend_view_strips_secrets` 测试会在敏感字段漏掉时报警）。
+pub fn frontend_view(settings: &Settings) -> serde_json::Value {
+    let mut view = serde_json::to_value(settings).unwrap_or(serde_json::Value::Null);
+    if let Some(obj) = view.as_object_mut() {
+        for field in SECRET_FIELDS {
+            let raw = obj
+                .remove(field)
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .unwrap_or_default();
+            obj.insert(
+                format!("{field}_set"),
+                serde_json::Value::Bool(!raw.trim().is_empty()),
+            );
+            obj.insert(
+                format!("{field}_hint"),
+                serde_json::Value::String(mask_secret(&raw)),
+            );
+        }
+    }
+    view
+}
+
+/// 只留末尾 4 位（`····ab12`）：够用户认出配的是哪把 Key，又不足以还原。
+/// 不足 8 位时连尾号也不给（短 Key 露出 4 位等于泄露一半）。
+fn mask_secret(key: &str) -> String {
+    let key = key.trim();
+    let len = key.chars().count();
+    if len == 0 {
+        return String::new();
+    }
+    if len < 8 {
+        return "····".to_string();
+    }
+    let tail: String = key.chars().skip(len - 4).collect();
+    format!("····{tail}")
+}
+
+/// 处理前端回传的敏感字段：只接受字符串（空串 = 用户主动清空）。
+///
+/// 前端拿不到已保存的 Key，设置页「保存」会把整份设置对象发回来，此时这两个
+/// 字段是缺失的；旧代码把 null 也当清空，那种写法在字段缺失时会把 Key 抹掉。
+fn set_secret(slot: &mut Option<String>, value: &serde_json::Value) {
+    if let Some(s) = value.as_str() {
+        let s = s.trim();
+        *slot = if s.is_empty() {
+            None
+        } else {
+            Some(s.to_string())
+        };
+    }
+}
+
 /// Update settings with a partial patch (values from frontend).
 pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Settings, String> {
     let mut settings = state.settings.write().unwrap();
@@ -146,8 +207,7 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
         settings.download_chunk_threads = (v as usize).clamp(1, 16);
     }
     if let Some(v) = patch.get("curseforge_api_key") {
-        let k = v.as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-        settings.curseforge_api_key = k;
+        set_secret(&mut settings.curseforge_api_key, v);
     }
     if let Some(v) = patch.get("theme").and_then(|v| v.as_str()) {
         settings.theme = v.to_string();
@@ -247,8 +307,7 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
         settings.translate_api_base = v.trim().trim_end_matches('/').to_string();
     }
     if let Some(v) = patch.get("translate_api_key") {
-        settings.translate_api_key =
-            v.as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        set_secret(&mut settings.translate_api_key, v);
     }
     if let Some(v) = patch.get("translate_api_model").and_then(|v| v.as_str()) {
         settings.translate_api_model = v.trim().to_string();
@@ -465,4 +524,77 @@ pub fn state_guard<'a>(state: &'a AppState) -> std::sync::RwLockReadGuard<'a, Se
 pub fn with_settings<T>(state: &AppState, f: impl FnOnce(&Settings) -> T) -> T {
     let s = state.settings.read().unwrap();
     f(&s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// 下发给前端的设置里不能带任何 Key，但要告诉前端「配没配」和尾号
+    #[test]
+    fn frontend_view_strips_secrets() {
+        let s = Settings {
+            curseforge_api_key: Some("cf-secret-key-1234".into()),
+            translate_api_key: Some("sk-translate-9876".into()),
+            theme: "light".into(),
+            ..Default::default()
+        };
+
+        let view = frontend_view(&s);
+        let text = serde_json::to_string(&view).unwrap();
+        assert!(
+            !text.contains("cf-secret-key-1234") && !text.contains("sk-translate-9876"),
+            "返回体里不能出现 Key 原文：{text}"
+        );
+        assert!(view.get("curseforge_api_key").is_none());
+        assert!(view.get("translate_api_key").is_none());
+
+        assert_eq!(view["curseforge_api_key_set"], json!(true));
+        assert_eq!(view["translate_api_key_set"], json!(true));
+        assert_eq!(view["curseforge_api_key_hint"], json!("····1234"));
+        assert_eq!(view["translate_api_key_hint"], json!("····9876"));
+        // 其它字段要照常透传（这条防的是「投影把字段写漏」）
+        assert_eq!(view["theme"], json!("light"));
+        assert_eq!(view["max_memory_mb"], json!(s.max_memory_mb));
+        assert_eq!(view["language"], json!(s.language));
+    }
+
+    #[test]
+    fn frontend_view_flags_missing_keys() {
+        // curseforge 留默认 None；translate 只填空白 → 两者都算未配置
+        let s = Settings {
+            translate_api_key: Some("   ".into()),
+            ..Default::default()
+        };
+
+        let view = frontend_view(&s);
+        assert_eq!(view["curseforge_api_key_set"], json!(false));
+        assert_eq!(view["translate_api_key_set"], json!(false));
+        assert_eq!(view["curseforge_api_key_hint"], json!(""));
+        assert_eq!(view["translate_api_key_hint"], json!(""));
+    }
+
+    #[test]
+    fn mask_keeps_only_tail_of_long_keys() {
+        assert_eq!(mask_secret(""), "");
+        assert_eq!(mask_secret("   "), "");
+        assert_eq!(mask_secret("short"), "····");
+        assert_eq!(mask_secret("12345678"), "····5678");
+        assert_eq!(mask_secret("  sk-abcdefgh  "), "····efgh");
+    }
+
+    /// 前端整份设置回传时（字段缺失 / null）不能把已存的 Key 抹掉
+    #[test]
+    fn set_secret_keeps_value_on_null() {
+        let mut slot = Some("old".to_string());
+        set_secret(&mut slot, &json!(null));
+        assert_eq!(slot.as_deref(), Some("old"), "null 不能抹掉已存的 Key");
+
+        set_secret(&mut slot, &json!("  new-key  "));
+        assert_eq!(slot.as_deref(), Some("new-key"));
+
+        set_secret(&mut slot, &json!(""));
+        assert_eq!(slot, None, "空串是用户主动清空");
+    }
 }

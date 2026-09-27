@@ -3,14 +3,20 @@ import type { BlockState, MeshResult } from "./schematicMeshWorker";
 interface PendingTask {
   chunkPos: [number, number, number];
   blocks: Uint32Array;
-  palette: BlockState[];
+  neighbors?: Uint32Array | null;
   resolve: (value: MeshResult) => void;
   reject: (reason: unknown) => void;
 }
 
 export interface SchematicWorkerPool {
   init: (resourceBase?: string) => Promise<void>;
-  buildMesh: (chunkPos: [number, number, number], blocks: Uint32Array, palette: BlockState[]) => Promise<MeshResult>;
+  /** 调色板一次性下发（`blocks` 里存的是它的下标） */
+  setPalette: (palette: BlockState[]) => void;
+  buildMesh: (
+    chunkPos: [number, number, number],
+    blocks: Uint32Array,
+    neighbors?: Uint32Array | null,
+  ) => Promise<MeshResult>;
   dispose: () => void;
 }
 
@@ -49,10 +55,25 @@ export function createSchematicWorkerPool(size: number): SchematicWorkerPool {
 
   function sendToWorker(worker: Worker, task: PendingTask) {
     (worker as Worker & { _current?: PendingTask })._current = task;
+    // 只传 16 KiB 的方块数据（+ 邻块边界）；调色板每个 worker 只收一次
+    // （否则每块重传一份，一份一千多个对象，几千个区块下来光复制就是几十万次对象拷贝）
+    const transfer = [task.blocks.buffer];
+    if (task.neighbors) transfer.push(task.neighbors.buffer);
     worker.postMessage(
-      { type: "mesh", chunkPos: task.chunkPos, blocks: task.blocks, palette: task.palette },
-      [task.blocks.buffer],
+      {
+        type: "mesh",
+        chunkPos: task.chunkPos,
+        blocks: task.blocks,
+        neighbors: task.neighbors ?? null,
+      },
+      transfer,
     );
+  }
+
+  function setPalette(palette: BlockState[]) {
+    for (const worker of workers) {
+      worker.postMessage({ type: "palette", palette });
+    }
   }
 
   function init(resourceBase?: string): Promise<void> {
@@ -71,10 +92,10 @@ export function createSchematicWorkerPool(size: number): SchematicWorkerPool {
   function buildMesh(
     chunkPos: [number, number, number],
     blocks: Uint32Array,
-    palette: BlockState[],
+    neighbors?: Uint32Array | null,
   ): Promise<MeshResult> {
     return new Promise((resolve, reject) => {
-      const task: PendingTask = { chunkPos, blocks, palette, resolve, reject };
+      const task: PendingTask = { chunkPos, blocks, neighbors, resolve, reject };
       const worker = idle.pop();
       if (worker) {
         sendToWorker(worker, task);
@@ -91,5 +112,5 @@ export function createSchematicWorkerPool(size: number): SchematicWorkerPool {
     queue.length = 0;
   }
 
-  return { init, buildMesh, dispose };
+  return { init, setPalette, buildMesh, dispose };
 }

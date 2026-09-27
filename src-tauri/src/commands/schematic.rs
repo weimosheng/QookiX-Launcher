@@ -769,7 +769,6 @@ impl SessionRegion {
         chunk.blocks[index] = palette_index;
     }
 
-    #[allow(dead_code)]
     fn block_at(&self, position: [i32; 3]) -> u32 {
         let chunk_position = position.map(|v| v.div_euclid(CHUNK_SIZE));
         let local = position.map(|v| v.rem_euclid(CHUNK_SIZE) as usize);
@@ -1018,7 +1017,12 @@ fn scan_schematics(
 }
 
 /// 读取一个 16³ 分块的方块数据，返回二进制 Response。
-/// 布局：4 字节 "SPC1" 魔数 | 4 字节 u32 LE 分块体积 | 4096 × 4 字节 u32 LE 调色板索引
+///
+/// 布局：4 字节 "SPC2" 魔数 | 4 字节 u32 LE 分块体积 | 4096 × 4 字节 u32 LE 调色板索引
+///      | 6 × 256 × 4 字节 u32 LE 邻块边界面（西 东 下 上 北 南）
+///
+/// 带上邻块边界是为了剔除区块接缝处的面：不带的话，相邻两个区块会各画一个
+/// 完全共面的面，深度打架 —— 每 16 格一条缝，还会闪。
 #[tauri::command]
 pub async fn schematic_preview_read_chunk(
     session_id: String,
@@ -1031,8 +1035,15 @@ pub async fn schematic_preview_read_chunk(
         .iter()
         .find(|r| r.manifest.id == region_id)
         .ok_or_else(|| "未知投影区域".to_string())?;
-    let mut output = Vec::with_capacity(8 + CHUNK_VOLUME * 4);
-    output.extend_from_slice(b"SPC1");
+    Ok(Response::new(build_chunk_payload(region, position)))
+}
+
+/// 拼一个区块的二进制载荷（格式见上面命令的注释）
+fn build_chunk_payload(region: &SessionRegion, position: [i32; 3]) -> Vec<u8> {
+    const NEIGHBOUR_SLICES: usize = 6;
+    const SLICE: usize = 16 * 16;
+    let mut output = Vec::with_capacity(8 + (CHUNK_VOLUME + NEIGHBOUR_SLICES * SLICE) * 4);
+    output.extend_from_slice(b"SPC2");
     output.extend_from_slice(&(CHUNK_VOLUME as u32).to_le_bytes());
     if let Some(chunk) = region.chunks.get(&position) {
         for value in &chunk.blocks {
@@ -1041,7 +1052,34 @@ pub async fn schematic_preview_read_chunk(
     } else {
         output.resize(8 + CHUNK_VOLUME * 4, 0);
     }
-    Ok(Response::new(output))
+
+    // 邻块边界：每个面 16×16，索引约定 i*16 + j
+    //   西/东(i=y, j=z)  下/上(i=z, j=x)  北/南(i=y, j=x)
+    let origin = position.map(|v| v * CHUNK_SIZE);
+    let mut slice = |axis: usize, step: i32, order: (usize, usize)| {
+        for i in 0..16i32 {
+            for j in 0..16i32 {
+                let mut local = [0i32; 3];
+                local[axis] = step;
+                local[order.0] = i;
+                local[order.1] = j;
+                let value = region.block_at([
+                    origin[0] + local[0],
+                    origin[1] + local[1],
+                    origin[2] + local[2],
+                ]);
+                output.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+    };
+    slice(0, -1, (1, 2)); // 西
+    slice(0, 16, (1, 2)); // 东
+    slice(1, -1, (2, 0)); // 下
+    slice(1, 16, (2, 0)); // 上
+    slice(2, -1, (1, 0)); // 北
+    slice(2, 16, (1, 0)); // 南
+
+    output
 }
 
 /// 查询某个位置的方块状态。
@@ -1066,6 +1104,66 @@ pub async fn schematic_preview_block_info(
         .map(|c| c.blocks[index] as usize)
         .unwrap_or(0);
     Ok(session.manifest.palette.get(palette_index).cloned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn meta() -> ManifestMetadata {
+        ManifestMetadata {
+            source_path: "x".into(),
+            source_instance_id: None,
+            file_name: "x".into(),
+            format: "litematic".into(),
+            format_version: 6,
+            data_version: None,
+            name: None,
+            description: None,
+            author: None,
+            created_at: None,
+            modified_at: None,
+            entity_count: 0,
+            block_entity_count: 0,
+        }
+    }
+
+    /// 区块载荷：区块内 4096 个方块 + 6 个邻块边界面（西 东 下 上 北 南）
+    #[test]
+    fn chunk_payload_carries_neighbour_slices() {
+        let mut builder = SessionBuilder::new();
+        let stone = builder.palette_index(PreviewBlockState {
+            name: "minecraft:stone".into(),
+            properties: Default::default(),
+        });
+        let mut region = builder
+            .new_region("region-0".into(), "R".into(), [0, 0, 0], [32, 32, 32], [0, 0, 0])
+            .unwrap();
+        // 区块 (0,0,0) 内一块；它西边（属于区块 (-1,0,0)）一块
+        region.put_block([2, 3, 4], stone);
+        region.put_block([-1, 5, 7], stone);
+        builder.finish_region(region);
+        let session = builder.finish(meta()).unwrap();
+
+        let bytes = build_chunk_payload(&session.regions[0], [0, 0, 0]);
+        assert_eq!(&bytes[0..4], b"SPC2", "魔数要能表明带邻块数据");
+        let word = |i: usize| {
+            u32::from_le_bytes([bytes[8 + i * 4], bytes[9 + i * 4], bytes[10 + i * 4], bytes[11 + i * 4]])
+        };
+        // 区块内 (2,3,4) → y*256 + z*16 + x
+        let inside = word(3 * 256 + 4 * 16 + 2);
+        assert_ne!(inside, 0, "区块内那块石头应该在");
+
+        const BASE: usize = CHUNK_VOLUME;
+        // 西面：(i=y, j=z)，世界 (-1,5,7) 是石头
+        assert_eq!(word(BASE + 0 * 256 + 5 * 16 + 7), inside, "西邻面索引应为 y*16+z");
+        // 东面上同一个位置应该是空气
+        assert_eq!(word(BASE + 1 * 256 + 5 * 16 + 7), 0, "东边没有方块");
+        // 下面：(i=z, j=x)，世界 (2,-1,4) 没东西
+        assert_eq!(word(BASE + 2 * 256 + 4 * 16 + 2), 0);
+        // 北面：(i=y, j=x)，世界 (2,3,-1) 没东西
+        assert_eq!(word(BASE + 4 * 256 + 3 * 16 + 2), 0);
+    }
 }
 
 /// 关闭预览会话，释放内存。

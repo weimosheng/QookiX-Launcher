@@ -8,6 +8,8 @@ export default {
       "打开 .litematic / .schem 投影文件，查看方块统计与 3D 预览。",
     schematicOpen: "打开投影文件",
     schematicLoading: "解析中…",
+    schematicPreparing: "准备客户端资源…（首次打开需从客户端提取贴图，稍等几秒）",
+    schematicMeshing: "生成模型…",
     schematicEmpty: "选择一个投影文件开始预览。",
     schematicRecent: "最近打开",
     schematicNoRecent: "暂无记录",
@@ -31,6 +33,8 @@ export default {
     schematicWalkSpeed: "速度",
     schematicAttribution:
       "方块模型与纹理资源来自本地 Minecraft 客户端",
+    nbtTitle: "NBT 存档编辑器",
+    nbtDesc: "查看并修改世界存档：游戏模式、难度、种子、时间、天气、出生点、世界边界等",
     moreTitle: "更多功能",
     moreDesc: "更多工具即将推出。",
   },

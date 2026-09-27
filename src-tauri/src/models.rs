@@ -48,7 +48,8 @@ pub struct Settings {
     pub download_threads: usize,
     /// Threads per file for chunked (ranged) download
     pub download_chunk_threads: usize,
-    /// CurseForge API key (optional; required for CurseForge features)
+    /// CurseForge API key (optional; required for CurseForge features).
+    /// 敏感：下发给前端前必须过 `settings::frontend_view`，不能直接返回 `Settings`。
     pub curseforge_api_key: Option<String>,
     /// "dark" | "light"
     pub theme: String,
@@ -102,7 +103,8 @@ pub struct Settings {
     pub translate_provider: String,
     /// 自定义翻译 API 的 OpenAI 兼容 base（如 https://api.deepseek.com/v1）
     pub translate_api_base: String,
-    /// 自定义翻译 API 的密钥
+    /// 自定义翻译 API 的密钥。
+    /// 敏感：下发给前端前必须过 `settings::frontend_view`。
     #[serde(default)]
     pub translate_api_key: Option<String>,
     /// 自定义翻译使用的模型名（如 deepseek-chat）

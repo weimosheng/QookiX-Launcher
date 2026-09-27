@@ -507,16 +507,59 @@ const translateOptions = computed(() => [
   { label: t("settings.content.translateBaidu"), value: "baidu_web" },
 ]);
 const testingTranslate = ref(false);
+
+// 两把 Key 都是「只写不读」：后端不下发 Key 原文（只给「配没配 + 尾号」），
+// 所以输入框绑本地状态，填了才会写回后端，保存成功后清空。
+const cfKey = ref("");
+const trKey = ref("");
+const savingKey = ref<"curseforge" | "translate" | "">("");
+
+function keyField(which: "curseforge" | "translate") {
+  return which === "curseforge" ? "curseforge_api_key" : "translate_api_key";
+}
+
+/** 保存输入框里的 Key（留空不动，避免把已存的 Key 冲掉） */
+async function saveKey(which: "curseforge" | "translate") {
+  const value = (which === "curseforge" ? cfKey : trKey).value.trim();
+  if (!value) return;
+  savingKey.value = which;
+  try {
+    await settings.patch({ [keyField(which)]: value });
+    if (which === "curseforge") cfKey.value = "";
+    else trKey.value = "";
+    message.success(t("settings.content.keySaved"));
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    savingKey.value = "";
+  }
+}
+
+/** 清掉已保存的 Key（空串 = 后端删除该 Key） */
+async function clearKey(which: "curseforge" | "translate") {
+  savingKey.value = which;
+  try {
+    await settings.patch({ [keyField(which)]: "" });
+    message.success(t("settings.content.keyCleared"));
+  } catch (e) {
+    message.error(String(e));
+  } finally {
+    savingKey.value = "";
+  }
+}
+
 async function testTranslate() {
   const s = settings.settings;
   if (!s) return;
-  if (!s.translate_api_base || !s.translate_api_key || !s.translate_api_model) {
+  const key = trKey.value.trim();
+  // Key 可以留空：表示用已保存的那把（后端会自己取）
+  if (!s.translate_api_base || !s.translate_api_model || (!key && !s.translate_api_key_set)) {
     message.warning(t("settings.content.translateMissingFields"));
     return;
   }
   testingTranslate.value = true;
   try {
-    await api.testTranslateApi(s.translate_api_base, s.translate_api_key, s.translate_api_model);
+    await api.testTranslateApi(s.translate_api_base, key, s.translate_api_model);
     message.success(t("settings.content.translateOk"));
   } catch (e) {
     message.error(String(e));
@@ -1270,12 +1313,33 @@ onUnmounted(() => {
         <div class="grid">
           <div class="card glass" id="content-curseforge">
             <h3>{{ t("settings.content.curseforgeKey") }}</h3>
-            <input
-              v-model="settings.settings.curseforge_api_key"
-              class="text-input mono"
-              :placeholder="t('settings.content.curseforgePlaceholder')"
-            />
-            <p class="hint">{{ t("settings.content.curseforgeHint") }}</p>
+            <div class="proxy-row">
+              <input
+                v-model="cfKey"
+                class="text-input mono"
+                :placeholder="t('settings.content.curseforgePlaceholder')"
+                @change="saveKey('curseforge')"
+              />
+              <button
+                v-if="settings.settings.curseforge_api_key_set"
+                class="mirror-btn"
+                @click="clearKey('curseforge')"
+              >
+                {{ t("settings.content.keyClear") }}
+              </button>
+            </div>
+            <p class="hint">
+              <b>
+                {{
+                  settings.settings.curseforge_api_key_set
+                    ? t("settings.content.keyStored", {
+                        hint: settings.settings.curseforge_api_key_hint,
+                      })
+                    : t("settings.content.keyMissing")
+                }}
+              </b>
+              {{ t("settings.content.curseforgeHint") }}
+            </p>
           </div>
           <div class="card glass" id="content-proxy">
             <h3>{{ t("settings.content.proxy") }}</h3>
@@ -1333,14 +1397,22 @@ onUnmounted(() => {
                 :placeholder="t('settings.content.translateApiPlaceholder')"
                 @change="settings.save()"
               />
-              <input
-                v-model="settings.settings.translate_api_key"
-                class="text-input mono"
-                type="password"
-                style="margin-top: 10px"
-                :placeholder="t('settings.content.translateKeyPlaceholder')"
-                @change="settings.save()"
-              />
+              <div class="proxy-row" style="margin-top: 10px">
+                <input
+                  v-model="trKey"
+                  class="text-input mono"
+                  type="password"
+                  :placeholder="t('settings.content.translateKeyPlaceholder')"
+                  @change="saveKey('translate')"
+                />
+                <button
+                  v-if="settings.settings.translate_api_key_set"
+                  class="mirror-btn"
+                  @click="clearKey('translate')"
+                >
+                  {{ t("settings.content.keyClear") }}
+                </button>
+              </div>
               <div class="proxy-row" style="margin-top: 10px">
                 <input
                   v-model="settings.settings.translate_api_model"
@@ -1356,7 +1428,18 @@ onUnmounted(() => {
                   {{ testingTranslate ? t("settings.download.testing") : t("settings.content.proxyTest") }}
                 </button>
               </div>
-              <p class="hint">{{ t("settings.content.translateCustomHint") }}</p>
+              <p class="hint">
+                <b>
+                  {{
+                    settings.settings.translate_api_key_set
+                      ? t("settings.content.keyStored", {
+                          hint: settings.settings.translate_api_key_hint,
+                        })
+                      : t("settings.content.keyMissing")
+                  }}
+                </b>
+                {{ t("settings.content.translateCustomHint") }}
+              </p>
             </template>
             <p v-else-if="settings.settings.translate_provider === 'baidu_web'" class="hint">
               {{ t("settings.content.translateBaiduHint") }}
@@ -1508,7 +1591,7 @@ onUnmounted(() => {
           <AboutShowcase />
           <div class="about-hero-title">
             <span class="about-name about-hero-name">QookiX Launcher</span>
-            <span class="about-ver">v0.9.0</span>
+            <span class="about-ver">v0.10.0</span>
           </div>
           <p class="about-hero-slogan">{{ t("settings.about.slogan") }}</p>
         </div>

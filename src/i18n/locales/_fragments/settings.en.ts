@@ -98,6 +98,11 @@ export default {
     curseforgePlaceholder: "Apply for free at console.curseforge.com",
     curseforgeHint:
       "Optional. Using the default key may cause the CurseForge content center to be unavailable; Modrinth is unaffected.",
+    keyStored: "Saved ({hint})",
+    keyMissing: "Not set",
+    keyClear: "Clear",
+    keySaved: "Saved",
+    keyCleared: "Saved key cleared",
     proxy: "Download proxy",
     proxyTest: "Test connection",
     proxyPlaceholder: "http://127.0.0.1:7890 or socks5://127.0.0.1:1080",
