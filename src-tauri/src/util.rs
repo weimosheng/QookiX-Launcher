@@ -89,6 +89,24 @@ pub fn log_best_effort<T>(what: &str, result: Result<T, String>) -> Option<T> {
     }
 }
 
+/// 解码文本字节：优先 UTF-8，失败则按 GBK 解。
+///
+/// 为什么需要它：**老版本 Minecraft（1.8.x 这类）在中文 Windows 上把 `latest.log`
+/// 按系统 ANSI 代码页（GBK/CP936）写**（Java 的默认 file.encoding），而 JVM 18+
+/// 起默认才是 UTF-8。直接用 `from_utf8_lossy` 读这种日志，中文会整片变成
+/// `�`（在界面上看成 `?`），而且会连带影响写进云端快照/Release 的日志片段。
+///
+/// 反过来说：UTF-8 文本里几乎不可能凑出合法的 GBK 字节对，所以"先试 UTF-8"是安全的。
+pub fn decode_text(bytes: &[u8]) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(s) => s.to_string(),
+        Err(_) => {
+            let (cow, _, _) = encoding_rs::GBK.decode(bytes);
+            cow.into_owned()
+        }
+    }
+}
+
 /// 落盘诊断日志（追加写）。
 /// Windows 上打包为 GUI 子系统，没有控制台，`eprintln!` 的输出用户看不到，
 /// 所以排查线上问题时改为写文件：%TEMP%/qookix-install-debug.log

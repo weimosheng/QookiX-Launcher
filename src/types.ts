@@ -419,6 +419,41 @@ export interface NbtNode {
   children?: NbtNode[];
 }
 
+/**
+ * 时光机时间轴的一条记忆点（本地 + 云端合并后的统一形态）。
+ *
+ * 本地优先：`localPath` 有值时前端直接显示（不用先下载）；只有云端条目才回源下载。
+ */
+export interface TimelineShot {
+  /** 唯一 key：`local:<实例>:<文件>` 或 `cloud:<release>:<asset>` */
+  id: string;
+  instanceId: string;
+  /** 截图文件名（本地文件 / 云端附件名） */
+  file: string;
+  /** 触发来源：interval / world_enter / death / advance… / manual */
+  trigger: string | null;
+  /** unix 秒 */
+  createdAt: number;
+  /** 是否已经传上云端 */
+  uploaded: boolean;
+  /** 本地文件绝对路径（已删/纯云端条目为 null） */
+  localPath: string | null;
+  /** 截图那一刻游戏日志的末尾几行（老截图没有） */
+  logSnippet: string | null;
+  releaseId: number;
+  assetId: number;
+}
+
+/** 单次游玩（启动游戏 → 退出）；「冒险日志」按它把截图分组成"这次游玩" */
+export interface PlaySession {
+  id: number;
+  instanceId: string;
+  /** unix 秒 */
+  startedAt: number;
+  /** unix 秒；进程被系统直接杀掉时可能为 null（表示"未记录结束"） */
+  endedAt: number | null;
+}
+
 /** 云端存档快照（GitHub Release；大存档可能有多个分卷附件） */
 export interface CloudSnapshot {
   releaseId: number;
@@ -438,6 +473,8 @@ export interface CloudSnapshot {
   instanceName: string | null;
   gameVersion: string | null;
   sha256: string | null;
+  /** 时光机：这张截图由什么触发（interval / death / world_enter / custom:<id> …） */
+  trigger?: string | null;
 }
 
 /** 从存档 level.dat 里读出的世界信息 */

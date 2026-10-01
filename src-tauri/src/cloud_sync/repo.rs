@@ -1,4 +1,7 @@
-//! 云存档仓库：检查 / 创建 / 标识文件（qookix.json）读写。
+//! 云仓库：检查 / 创建 / 标识文件（qookix.json）读写。
+//!
+//! 云存档与时光机各自使用**独立仓库**，共用这里的创建与校验逻辑
+//! （仓库名、描述、标识文件类型由调用方传入）。
 
 use super::github;
 use super::store;
@@ -8,22 +11,62 @@ use serde_json::json;
 
 pub const DEFAULT_REPO: &str = "Qookix-Saves";
 pub const MARKER: &str = "qookix.json";
-const MARKER_TYPE: &str = "qookix-cloud-save";
+pub const MARKER_TYPE_SAVE: &str = "qookix-cloud-save";
+/// 时光机（截图回顾）仓库的标识类型
+pub const MARKER_TYPE_TIMEMACHINE: &str = "qookix-time-machine";
 
 /// 确保云端存在云存档仓库（不存在则创建私有仓库并写入标识文件）。
 /// 返回 `{ repoName, repositoryId }`。
 pub async fn ensure(state: &AppState, token: &str) -> Result<serde_json::Value, String> {
     let mut cs = store::load(state);
-    let account = if cs.account.is_empty() {
+    if cs.account.is_empty() {
         return Err("账号信息缺失，请重新授权".into());
-    } else {
-        cs.account.clone()
-    };
+    }
+    let account = cs.account.clone();
     let repo = if cs.repo_name.is_empty() {
         DEFAULT_REPO.to_string()
     } else {
         cs.repo_name.clone()
     };
+    // 已记录过 repository_id 时校验归属，防止误连到别人的仓库
+    if !cs.repository_id.is_empty() {
+        if let Ok(Some(m)) = read_marker(state, token, &account, &repo).await {
+            let rid = m
+                .get("repository_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if !rid.is_empty() && rid != cs.repository_id {
+                return Err("该仓库与本地记录的仓库 id 不一致，请确认账号或仓库是否正确".into());
+            }
+        }
+    }
+    let (repo, rid, _created) = ensure_repo(
+        state,
+        token,
+        &account,
+        &repo,
+        "Qookix Launcher 云存档（自动创建；请勿手动修改 qookix.json）",
+        MARKER_TYPE_SAVE,
+        "chore: 初始化 Qookix 云存档仓库",
+    )
+    .await?;
+    cs.repo_name = repo.clone();
+    cs.repository_id = rid.clone();
+    store::save(state, &cs)?;
+    Ok(json!({ "repoName": repo, "repositoryId": rid }))
+}
+
+/// 通用：确保指定仓库存在（私有 + auto_init），并写入标识文件。
+/// 返回 `(repoName, repositoryId, 是否新建)`；**不写本地状态**，由调用方自行持久化。
+pub async fn ensure_repo(
+    state: &AppState,
+    token: &str,
+    account: &str,
+    repo: &str,
+    description: &str,
+    marker_type: &str,
+    marker_message: &str,
+) -> Result<(String, String, bool), String> {
     let repo_url = format!("{}/repos/{}/{}", github::API, account, repo);
 
     match github::get(&state.client, &repo_url, token).await? {
@@ -38,23 +81,29 @@ pub async fn ensure(state: &AppState, token: &str) -> Result<serde_json::Value, 
                     "name": repo,
                     "private": true,
                     "auto_init": true,
-                    "description": "Qookix Launcher 云存档（自动创建；请勿手动修改 qookix.json）",
+                    "description": description,
                 })),
             )
             .await
-            .map_err(|e| format!("创建云存档仓库失败: {e}"))?;
+            .map_err(|e| format!("创建仓库失败: {e}"))?;
             // 新建仓库的默认分支初始化有延迟，重试写入标识文件
             let rid = uuid::Uuid::new_v4().simple().to_string();
             let mut last_err = String::new();
             for _ in 0..5 {
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                match put_marker(state, token, &account, &repo, &rid, None).await {
-                    Ok(()) => {
-                        cs.repo_name = repo.clone();
-                        cs.repository_id = rid.clone();
-                        store::save(state, &cs)?;
-                        return Ok(json!({ "repoName": repo, "repositoryId": rid }));
-                    }
+                match put_marker(
+                    state,
+                    token,
+                    account,
+                    repo,
+                    &rid,
+                    None,
+                    marker_type,
+                    marker_message,
+                )
+                .await
+                {
+                    Ok(()) => return Ok((repo.to_string(), rid, true)),
                     Err(e) => last_err = e,
                 }
             }
@@ -62,10 +111,10 @@ pub async fn ensure(state: &AppState, token: &str) -> Result<serde_json::Value, 
         }
         // 已存在 → 读标识文件校验归属
         Some(_) => {
-            let marker = read_marker(state, token, &account, &repo).await?;
+            let marker = read_marker(state, token, account, repo).await?;
             let Some(m) = marker else {
                 return Err(format!(
-                    "已存在仓库 {account}/{repo}，但它不是云存档仓库（缺少 {MARKER}）。请在 GitHub 上删除或改名该仓库后重试。"
+                    "已存在仓库 {account}/{repo}，但它不是本启动器创建的仓库（缺少 {MARKER}）。请在 GitHub 上删除或改名该仓库后重试。"
                 ));
             };
             let ty = m.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -74,16 +123,12 @@ pub async fn ensure(state: &AppState, token: &str) -> Result<serde_json::Value, 
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            if ty != MARKER_TYPE {
-                return Err("该仓库的标识文件类型不匹配，可能不是本启动器创建的云存档仓库".into());
+            if ty != marker_type {
+                return Err(format!(
+                    "该仓库的标识文件类型不匹配（期望 {marker_type}），可能不是本功能使用的仓库"
+                ));
             }
-            if !cs.repository_id.is_empty() && cs.repository_id != rid {
-                return Err("该仓库与本地记录的仓库 id 不一致，请确认账号或仓库是否正确".into());
-            }
-            cs.repo_name = repo.clone();
-            cs.repository_id = rid.clone();
-            store::save(state, &cs)?;
-            Ok(json!({ "repoName": repo, "repositoryId": rid }))
+            Ok((repo.to_string(), rid, false))
         }
     }
 }
@@ -112,6 +157,7 @@ async fn read_marker(
     Ok(serde_json::from_slice(&bytes).ok())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn put_marker(
     state: &AppState,
     token: &str,
@@ -119,15 +165,17 @@ async fn put_marker(
     repo: &str,
     repository_id: &str,
     sha: Option<&str>,
+    marker_type: &str,
+    marker_message: &str,
 ) -> Result<(), String> {
     let content = json!({
-        "type": MARKER_TYPE,
+        "type": marker_type,
         "schema_version": 1,
         "repository_id": repository_id,
     });
     let encoded = base64::engine::general_purpose::STANDARD.encode(content.to_string());
     let mut body = json!({
-        "message": "chore: 初始化 Qookix 云存档仓库",
+        "message": marker_message,
         "content": encoded,
     });
     if let Some(s) = sha {

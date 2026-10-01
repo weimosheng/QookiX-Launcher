@@ -74,8 +74,7 @@ pub fn analyze_crash_log(state: State<AppState>, id: String, filename: String) -
     if !crash_path.is_file() {
         return Err("崩溃报告文件不存在".into());
     }
-    let content =
-        String::from_utf8_lossy(&std::fs::read(&crash_path).map_err(|e| e.to_string())?).to_string();
+    let content = crate::util::decode_text(&std::fs::read(&crash_path).map_err(|e| e.to_string())?);
 
     let mut diagnosis = crate::crash::analyze_text(&content, None);
     diagnosis.crash_report = Some(filename);
@@ -95,7 +94,7 @@ pub fn get_crash_report_content(state: State<AppState>, id: String, filename: St
     if !path.is_file() {
         return Err("文件不存在".into());
     }
-    Ok(String::from_utf8_lossy(&std::fs::read(&path).map_err(|e| e.to_string())?).to_string())
+    Ok(crate::util::decode_text(&std::fs::read(&path).map_err(|e| e.to_string())?))
 }
 /// Minecraft 官方新闻搜索接口（minecraft.net 官网自用），按时间倒序取最新中文条目
 const NEWS_API: &str = "https://net-secondary.web.minecraft-services.net/api/v1.0/zh-cn/search?pageSize=24&sortType=Recent&category=News&newsOnly=true&geography=CN";

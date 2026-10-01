@@ -23,7 +23,41 @@ pub fn open(root: &Path) -> Result<Connection, String> {
         .map_err(|e| format!("设置 synchronous 失败: {e}"))?;
     create_tables(&conn)?;
     migrate_json_files(root, &conn)?;
+    backfill_play_sessions(root, &conn)?;
     Ok(conn)
+}
+
+/// 用历史启动日志（`logs/<实例id>-<unix秒>.log`，文件名即开始时刻）回填游玩会话，
+/// 让功能上线前的老截图也能归到对应场次。结束时间留 NULL（前端按下一场/当前时间封口），
+/// 幂等：同一实例同一开始时刻只插一次。
+fn backfill_play_sessions(root: &Path, conn: &Connection) -> Result<(), String> {
+    let Ok(rd) = std::fs::read_dir(root.join("logs")) else {
+        return Ok(());
+    };
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        let Some(stem) = name.strip_suffix(".log") else {
+            continue;
+        };
+        // 实例 id 是带连字符的 UUID，所以从右边切最后一节取时间戳
+        let Some((instance_id, ts)) = stem.rsplit_once('-') else {
+            continue;
+        };
+        let Ok(started) = ts.parse::<i64>() else {
+            continue; // `xxx-live.log` 之类，不是启动记录
+        };
+        if instance_id.is_empty() || started <= 0 {
+            continue;
+        }
+        let _ = conn.execute(
+            "INSERT INTO play_sessions(instance_id, started_at)
+             SELECT ?1, ?2 WHERE NOT EXISTS (
+                 SELECT 1 FROM play_sessions WHERE instance_id = ?1 AND started_at = ?2
+             )",
+            rusqlite::params![instance_id, started],
+        );
+    }
+    Ok(())
 }
 
 fn create_tables(conn: &Connection) -> Result<(), String> {
@@ -47,6 +81,16 @@ fn create_tables(conn: &Connection) -> Result<(), String> {
             day  TEXT PRIMARY KEY,
             secs INTEGER NOT NULL
         );
+        -- 单次游玩（会话）：启动游戏时插入，退出（含强杀）时补 ended_at。
+        -- 时光机的「冒险日志」按它把截图/事件分组成"这次游玩"。
+        CREATE TABLE IF NOT EXISTS play_sessions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            instance_id TEXT NOT NULL,
+            started_at  INTEGER NOT NULL,
+            ended_at    INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_play_sessions_started
+            ON play_sessions(started_at DESC);
         "#,
     )
     .map_err(|e| format!("建表失败: {e}"))
@@ -291,6 +335,52 @@ pub fn add_playtime(conn: &Connection, day: &str, secs: u64) -> Result<(), Strin
     )
     .map_err(|e| format!("写入游玩时长失败: {e}"))?;
     Ok(())
+}
+
+// ---- play sessions（单次游玩）----
+
+/// 记录一次游玩开始，返回行 id（退出时用它补 ended_at）。
+pub fn start_play_session(conn: &Connection, instance_id: &str, started_at: u64) -> Option<i64> {
+    conn.execute(
+        "INSERT INTO play_sessions(instance_id, started_at) VALUES (?1, ?2)",
+        rusqlite::params![instance_id, started_at as i64],
+    )
+    .ok()?;
+    Some(conn.last_insert_rowid())
+}
+
+/// 补上这次游玩的结束时间（正常退出与强杀都会走到；进程被系统杀掉则留 NULL）。
+pub fn end_play_session(conn: &Connection, id: i64, ended_at: u64) {
+    let _ = conn.execute(
+        "UPDATE play_sessions SET ended_at = ?2 WHERE id = ?1 AND ended_at IS NULL",
+        rusqlite::params![id, ended_at as i64],
+    );
+}
+
+/// 最近的游玩会话（新在前）：(id, instance_id, started_at, ended_at)
+pub fn load_play_sessions(
+    conn: &Connection,
+    limit: u32,
+) -> Vec<(i64, String, u64, Option<u64>)> {
+    let mut out = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT id, instance_id, started_at, ended_at FROM play_sessions
+         ORDER BY started_at DESC LIMIT ?1",
+    ) {
+        if let Ok(iter) = stmt.query_map([limit as i64], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, Option<i64>>(3)?,
+            ))
+        }) {
+            for (id, inst, st, en) in iter.flatten() {
+                out.push((id, inst, st.max(0) as u64, en.map(|v| v.max(0) as u64)));
+            }
+        }
+    }
+    out
 }
 
 pub fn load_playtime(conn: &Connection) -> std::collections::HashMap<String, u64> {

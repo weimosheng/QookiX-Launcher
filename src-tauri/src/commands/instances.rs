@@ -287,6 +287,23 @@ pub async fn list_instance_files(
 // Playtime stats / instance export & import
 // ---------------------------------------------------------------------------
 
+/// 最近的游玩会话（启动→退出为一场）：「冒险日志」按它把截图分组成"这次游玩"
+#[tauri::command]
+pub fn play_sessions(state: State<AppState>, limit: Option<u32>) -> Result<Value, String> {
+    let list: Vec<Value> = crate::instances::play_sessions(&state, limit.unwrap_or(200).clamp(1, 2000))
+        .into_iter()
+        .map(|(id, instance_id, started_at, ended_at)| {
+            json!({
+                "id": id,
+                "instanceId": instance_id,
+                "startedAt": started_at,
+                "endedAt": ended_at,
+            })
+        })
+        .collect();
+    Ok(json!({ "sessions": list }))
+}
+
 /// 游玩时长统计：实例排行 + 近 30 天按天曲线
 #[tauri::command]
 pub fn playtime_stats(state: State<AppState>) -> Result<Value, String> {

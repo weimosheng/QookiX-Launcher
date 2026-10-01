@@ -340,6 +340,15 @@ pub async fn translate_mod_descriptions(
     crate::translate::translate_descriptions(&state, &provider, slugs).await
 }
 
+/// 批量翻译模组名（英文 → 中文社区常用称呼，走用户配置的 AI 翻译服务）。
+#[tauri::command]
+pub async fn translate_mod_names(
+    state: State<'_, AppState>,
+    names: Vec<String>,
+) -> Result<Value, String> {
+    crate::translate::translate_mod_names(&state, names).await
+}
+
 /// 递归解析前置依赖树，返回实例中未安装的缺失前置（含间接前置）。
 #[tauri::command]
 pub async fn resolve_dependency_tree(

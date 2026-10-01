@@ -10,11 +10,12 @@ use crate::state::AppState;
 use serde_json::{json, Value};
 use std::path::Path;
 
-/// 解析 Release body 中的元数据 JSON（非本功能的 Release 返回 None）。
+/// 解析 Release body 中的元数据 JSON（非本功能的返回 None）。
+/// 云存档用 `world_id` 标归属，时光机早期只写 `instance_id`，两个都认。
 fn parse_meta(release: &Value) -> Option<Value> {
     let body = release.get("body").and_then(|b| b.as_str())?;
     let meta: Value = serde_json::from_str(body.trim()).ok()?;
-    if meta.get("world_id").is_some() {
+    if meta.get("world_id").is_some() || meta.get("instance_id").is_some() {
         Some(meta)
     } else {
         None
@@ -70,17 +71,28 @@ pub async fn list(
             "releaseId": release_id,
             "tag": tag,
             "createdAt": created,
+            // 元数据里的 unix 秒（时光机按它排序/显示；GitHub 的 createdAt 是 ISO 串）
+            "createdAtUnix": meta.get("created_at").cloned().unwrap_or(Value::Null),
             "assetId": asset_ids.first().copied().unwrap_or(0),
             "assetIds": asset_ids,
             "assetNames": assets.iter().map(|a| a.2.clone()).collect::<Vec<_>>(),
             "assetSize": asset_size,
             "partCount": meta.get("part_count").cloned().unwrap_or(json!(1)),
-            "worldId": meta.get("world_id").cloned().unwrap_or(Value::Null),
+            // 时光机截图没有 world_id：归属键回落到 instance_id（按实例过滤要用）
+            "worldId": meta
+                .get("world_id")
+                .cloned()
+                .or_else(|| meta.get("instance_id").cloned())
+                .unwrap_or(Value::Null),
             "worldName": meta.get("world_name").cloned().unwrap_or(Value::Null),
             "instanceId": meta.get("instance_id").cloned().unwrap_or(Value::Null),
             "instanceName": meta.get("instance_name").cloned().unwrap_or(Value::Null),
             "gameVersion": meta.get("game_version").cloned().unwrap_or(Value::Null),
             "sha256": meta.get("sha256").cloned().unwrap_or(Value::Null),
+            // 时光机：这次截图是被什么触发的（interval / death / custom:<id> …）
+            "trigger": meta.get("trigger").cloned().unwrap_or(Value::Null),
+            // 时光机：一次攒批上传的多张截图 [{name, trigger, created_at}, …]
+            "shots": meta.get("shots").cloned().unwrap_or(Value::Null),
         }));
     }
     Ok(out)
@@ -96,6 +108,8 @@ pub async fn create_and_upload(
     world_id: &str,
     meta: &Value,
     parts: &[super::saves::PackedPart],
+    // 附件 MIME：存档用 `application/zip`，时光机截图用 `image/png`
+    content_type: &str,
     progress: impl Fn(u64, u64) + Send + Sync + 'static,
 ) -> Result<u64, String> {
     let stamp = std::time::SystemTime::now()
@@ -182,7 +196,15 @@ pub async fn create_and_upload(
             .post(&upload_url)
             .header("User-Agent", github::UA)
             .header("Accept", "application/vnd.github+json")
-            .header("Content-Type", "application/zip")
+            .header(
+                "Content-Type",
+                // 同一批里混着图片和 shots.json：按扩展名给 MIME
+                if part.asset_name.ends_with(".json") {
+                    "application/json"
+                } else {
+                    content_type
+                },
+            )
             .header("Content-Length", total)
             .bearer_auth(token)
             .body(reqwest::Body::wrap_stream(stream))
@@ -220,6 +242,40 @@ pub async fn delete(
     );
     github::send_json(&state.client, reqwest::Method::DELETE, &url, token, None).await?;
     Ok(())
+}
+
+/// 删除单个附件（攒批上传的一个 Release 里只删其中一张截图时用）。
+pub async fn delete_asset(
+    state: &AppState,
+    token: &str,
+    account: &str,
+    repo_name: &str,
+    asset_id: u64,
+) -> Result<(), String> {
+    let url = format!(
+        "{}/repos/{}/{}/releases/assets/{}",
+        github::API,
+        account,
+        repo_name,
+        asset_id
+    );
+    github::send_json(&state.client, reqwest::Method::DELETE, &url, token, None).await?;
+    Ok(())
+}
+
+/// 某个 Release 还剩哪些附件 id（删掉一张后判断要不要连 Release 一起删）。
+pub async fn asset_ids(
+    state: &AppState,
+    token: &str,
+    account: &str,
+    repo_name: &str,
+    release_id: u64,
+) -> Result<Vec<u64>, String> {
+    Ok(list_assets(state, token, account, repo_name, release_id)
+        .await?
+        .into_iter()
+        .map(|(id, _, _)| id)
+        .collect())
 }
 
 /// 列出某个 Release 的全部附件（按名字排序，保证分卷顺序）。

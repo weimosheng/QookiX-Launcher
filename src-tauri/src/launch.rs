@@ -272,6 +272,8 @@ pub async fn launch_game(
     let pid = child.id().unwrap_or(0);
     // 游玩计时起点：进程成功 spawn 的时刻
     let started = std::time::Instant::now();
+    // 冒险日志：记下这次游玩的开始（退出时补结束时间；强杀也能补上）
+    let session_id = crate::instances::start_play_session(state, &instance.id);
     let _ = app.emit("launch://progress", serde_json::json!({ "step": "启动成功，正在等待游戏窗口…", "progress": 100 }));
     emit_state(&app, &instance.id, "running", pid, None);
     {
@@ -282,6 +284,8 @@ pub async fn launch_game(
         "launch://pid",
         serde_json::json!({ "instanceId": instance.id, "pid": pid, "logPath": log_path.to_string_lossy() }),
     );
+    // 时光机：开启后随游戏启动跑截图引擎（游戏退出自动停）
+    crate::timemachine::start_engine(app.clone(), instance.id.clone(), pid);
 
     // stream stdout/stderr in the background
     let app2 = app.clone();
@@ -303,6 +307,11 @@ pub async fn launch_game(
         if played_secs > 0 {
             let st = app2.state::<AppState>();
             crate::instances::add_play_time(st.inner(), &inst_id, played_secs);
+        }
+        // 冒险日志：给这次游玩补上结束时间（进程被系统直接杀掉时才留空）
+        if let Some(sid) = session_id {
+            let st = app2.state::<AppState>();
+            crate::instances::end_play_session(st.inner(), sid);
         }
         emit_state(&app2, &inst_id, "exited", pid, outcome);
         let _ = app2.emit(
@@ -356,41 +365,56 @@ async fn stream_output(
             std::fs::File::create(logs_dir.join(format!("{instance_id}-live.log"))).ok()?,
         ));
 
+    /// 按行转发子进程输出。
+    ///
+    /// **不能用 `lines()`**：它要求每行都是合法 UTF-8，老版本游戏（1.8.x）按系统
+    /// ANSI 代码页（GBK）输出中文时，第一行非法字节就会让 `next_line()` 返回 Err、
+    /// 循环直接结束——表现为"实时日志看着看着就不动了"，而且 live.log 也被截断。
+    /// 所以按字节读行、再用 util::decode_text 解码。
+    async fn pump<R>(
+        reader: R,
+        app: tauri::AppHandle,
+        id: String,
+        stream: &'static str,
+        log: std::sync::Arc<std::sync::Mutex<std::fs::File>>,
+    ) where
+        R: tokio::io::AsyncRead + Unpin,
+    {
+        use tokio::io::AsyncBufReadExt;
+        let mut reader = tokio::io::BufReader::new(reader);
+        let mut buf: Vec<u8> = Vec::new();
+        loop {
+            buf.clear();
+            match reader.read_until(b'\n', &mut buf).await {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            while matches!(buf.last(), Some(b'\n') | Some(b'\r')) {
+                buf.pop();
+            }
+            let line = crate::util::decode_text(&buf);
+            let _ = app.emit(
+                "launch://log",
+                serde_json::json!({ "instanceId": id, "stream": stream, "line": line }),
+            );
+            if let Ok(mut f) = log.lock() {
+                use std::io::Write;
+                let _ = writeln!(f, "{line}");
+            }
+        }
+    }
+
     let mut tasks = Vec::new();
     if let Some(out) = stdout {
-        let app = app.clone();
-        let id = instance_id.clone();
-        let log = write_log.clone();
+        let (app2, id2, log2) = (app.clone(), instance_id.clone(), write_log.clone());
         tasks.push(tauri::async_runtime::spawn(async move {
-            use tokio::io::AsyncBufReadExt;
-            let mut reader = tokio::io::BufReader::new(out).lines();
-            while let Ok(Some(line)) = reader.next_line().await {
-                let _ = app.emit("launch://log", serde_json::json!({
-                    "instanceId": id, "stream": "out", "line": line
-                }));
-                if let Ok(mut f) = log.lock() {
-                    use std::io::Write;
-                    let _ = writeln!(f, "{line}");
-                }
-            }
+            pump(out, app2, id2, "out", log2).await;
         }));
     }
     if let Some(err) = stderr {
-        let app = app.clone();
-        let id = instance_id.clone();
-        let log = write_log.clone();
+        let (app2, id2, log2) = (app.clone(), instance_id.clone(), write_log.clone());
         tasks.push(tauri::async_runtime::spawn(async move {
-            use tokio::io::AsyncBufReadExt;
-            let mut reader = tokio::io::BufReader::new(err).lines();
-            while let Ok(Some(line)) = reader.next_line().await {
-                let _ = app.emit("launch://log", serde_json::json!({
-                    "instanceId": id, "stream": "err", "line": line
-                }));
-                if let Ok(mut f) = log.lock() {
-                    use std::io::Write;
-                    let _ = writeln!(f, "{line}");
-                }
-            }
+            pump(err, app2, id2, "err", log2).await;
         }));
     }
 
@@ -1272,21 +1296,21 @@ fn diagnose_crash(
     let mut buf = String::new();
     if let Some(p) = &crash_report {
         if let Ok(t) = fs::read(p) {
-            buf.push_str(&String::from_utf8_lossy(&t));
+            buf.push_str(&crate::util::decode_text(&t));
         }
     }
     if let Some(p) = &hs_err {
         if let Ok(t) = fs::read(p) {
-            buf.push_str(&String::from_utf8_lossy(&t));
+            buf.push_str(&crate::util::decode_text(&t));
         }
     }
     let live_log = logs_dir.join(format!("{}-live.log", instance_id));
     if let Ok(t) = fs::read(&live_log) {
-        buf.push_str(&tail(&String::from_utf8_lossy(&t), 200));
+        buf.push_str(&tail(&crate::util::decode_text(&t), 200));
     }
     let latest_log = instance_dir.join("logs").join("latest.log");
     if let Ok(t) = fs::read(&latest_log) {
-        buf.push_str(&tail(&String::from_utf8_lossy(&t), 300));
+        buf.push_str(&tail(&crate::util::decode_text(&t), 300));
     }
     if buf.trim().is_empty() {
         return None;

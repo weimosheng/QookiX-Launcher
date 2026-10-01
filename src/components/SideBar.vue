@@ -13,6 +13,7 @@ import { useMessage } from "naive-ui";
 import { useI18n } from "vue-i18n";
 import {
   IconChevronsLeft,
+  IconClock,
   IconCompass,
   IconDownload,
   IconGrid,
@@ -60,6 +61,7 @@ const nav = computed(() => {
     { name: "multiplayer", label: t("nav.multiplayer"), icon: IconUsers, to: "/multiplayer" },
     { name: "skins", label: t("nav.skins"), icon: IconSkin, to: "/skins" },
     { name: "toolbox", label: t("nav.toolbox"), icon: IconTool, to: "/toolbox" },
+    { name: "timemachine", label: t("nav.timemachine"), icon: IconClock, to: "/timemachine" },
     { name: "settings", label: t("nav.settings"), icon: IconSettings, to: "/settings" },
   ];
   if (settingsStore.settings?.show_news ?? true) {

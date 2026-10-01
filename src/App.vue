@@ -197,7 +197,14 @@ onBeforeUnmount(() => {
                   <SideBar />
                   <main id="app-content" class="content">
                     <router-view v-slot="{ Component, route }">
-                      <Transition :name="transitionName" mode="out-in">
+                      <!-- duration 必须显式给：out-in 靠 transitionend 判断"旧页面退场完毕"，
+                           一旦某次没收到结束事件（元素被替换 / 过渡被打断），这个 out-in
+                           会**永久卡住**——之后点任何页面都"没反应"、切页空白。 -->
+                      <Transition
+                        :name="transitionName"
+                        mode="out-in"
+                        :duration="{ enter: 260, leave: 200 }"
+                      >
                         <KeepAlive :include="['BrowseView']">
                           <component :is="Component" :key="route.path" />
                         </KeepAlive>

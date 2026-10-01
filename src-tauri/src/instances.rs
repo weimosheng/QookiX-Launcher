@@ -239,6 +239,26 @@ pub fn daily_play_time(state: &AppState) -> std::collections::HashMap<String, u6
     crate::db::load_playtime(&conn)
 }
 
+// ---- 单次游玩（会话）：时光机「冒险日志」按它把截图分组成"这次游玩" ----
+
+/// 记一次游玩开始，返回会话 id（游戏进程退出时用它补结束时间）
+pub fn start_play_session(state: &AppState, id: &str) -> Option<i64> {
+    let conn = state.db.lock().unwrap();
+    crate::db::start_play_session(&conn, id, now())
+}
+
+/// 记一次游玩结束（正常退出与强杀都会走到）
+pub fn end_play_session(state: &AppState, session_id: i64) {
+    let conn = state.db.lock().unwrap();
+    crate::db::end_play_session(&conn, session_id, now());
+}
+
+/// 最近的游玩会话（新在前）：(id, 实例 id, 开始秒, 结束秒)
+pub fn play_sessions(state: &AppState, limit: u32) -> Vec<(i64, String, u64, Option<u64>)> {
+    let conn = state.db.lock().unwrap();
+    crate::db::load_play_sessions(&conn, limit)
+}
+
 // ---------------------------------------------------------------------------
 // Instance groups
 // ---------------------------------------------------------------------------

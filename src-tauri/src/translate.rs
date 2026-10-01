@@ -315,6 +315,161 @@ pub async fn translate_body(
     }
 }
 
+/// 模组名译文缓存有效期：名字基本不变，缓存久一点（30 天）
+const NAME_CACHE_TTL: u64 = 30 * 24 * 3600;
+/// 单次请求交给 AI 的名字个数
+const NAME_BATCH: usize = 20;
+
+fn name_cache_key(name: &str) -> String {
+    format!("modname:{}:{LANG}", name.trim().to_lowercase())
+}
+
+/// 批量翻译模组名（英文 → 中文玩家社区常用称呼）。
+///
+/// 自建服务只提供「按平台 mod id 的描述译文」，不含名字，所以名字翻译走
+/// 用户在设置里配置的 AI（OpenAI 兼容）服务；未配置时返回 `unsupported: true`，
+/// 前端保持显示原名。结果带磁盘缓存（30 天）。
+pub async fn translate_mod_names(state: &AppState, names: Vec<String>) -> Result<Value, String> {
+    let (api_base, api_key, api_model) = {
+        let s = state.settings.read().unwrap();
+        (
+            s.translate_api_base.trim().trim_end_matches('/').to_string(),
+            s.translate_api_key.clone().unwrap_or_default(),
+            s.translate_api_model.trim().to_string(),
+        )
+    };
+    if api_base.is_empty() || api_key.is_empty() || api_model.is_empty() {
+        return Ok(json!({ "translations": {}, "unsupported": true }));
+    }
+    let mut cache = load_cache(&state.root);
+    let now = now_secs();
+    let mut translations: BTreeMap<String, Value> = BTreeMap::new();
+    let mut queue: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for name in names {
+        let name = name.trim().to_string();
+        if name.is_empty() || !seen.insert(name.to_lowercase()) {
+            continue;
+        }
+        let key = name_cache_key(&name);
+        let hit = cache.get(&key).and_then(|e| {
+            let ts = e.get("ts").and_then(|v| v.as_u64()).unwrap_or(0);
+            let text = e.get("text").and_then(|v| v.as_str()).unwrap_or("");
+            (now.saturating_sub(ts) < NAME_CACHE_TTL && !text.is_empty()).then(|| text.to_string())
+        });
+        match hit {
+            Some(t) => {
+                translations.insert(name, json!(t));
+            }
+            None => queue.push(name),
+        }
+    }
+
+    let mut error: Option<String> = None;
+    while !queue.is_empty() {
+        let group: Vec<String> = queue.drain(..queue.len().min(NAME_BATCH)).collect();
+        match chat_translate_names(state, &api_base, &api_key, &api_model, &group).await {
+            Ok(map) => {
+                for (orig, zh) in map {
+                    cache.insert(name_cache_key(&orig), json!({ "text": zh, "ts": now }));
+                    translations.insert(orig, json!(zh));
+                }
+            }
+            Err(e) => {
+                // 鉴权失败 / 限流时继续请求没意义
+                error = Some(e);
+                break;
+            }
+        }
+    }
+    save_cache(&state.root, &cache);
+    Ok(json!({ "translations": translations, "unsupported": false, "error": error }))
+}
+
+/// 让 AI 把一批模组名翻成中文，返回 `{原名: 译名}`。
+async fn chat_translate_names(
+    state: &AppState,
+    base: &str,
+    key: &str,
+    model: &str,
+    names: &[String],
+) -> Result<BTreeMap<String, String>, String> {
+    // 用 JSON 数组传输入：模型不会把列表符号（- 等）当成名字的一部分
+    let list = serde_json::to_string(names).unwrap_or_else(|_| "[]".into());
+    let url = format!("{}/chat/completions", base.trim_end_matches('/'));
+    let body = json!({
+        "model": model,
+        "temperature": 0.1,
+        "messages": [
+            {
+                "role": "system",
+                "content": "你是 Minecraft 模组名称翻译器。用户会给出一个 JSON 数组，元素是模组英文名。\
+请为每个名字给出中文玩家社区里最常用的称呼：能意译的译成中文（如 Just Enough Items → 物品管理器，\
+Create → 机械动力），纯缩写、品牌名或没有通用译名的保持原样（如 Sodium、JEI）。\
+若某个名字在社区里就是直接使用英文，则原样保留。\
+只输出一个 JSON 对象：键必须与输入数组中的元素逐字符一致，值为译文；\
+不要输出思考过程、解释或 Markdown 代码块标记。"
+            },
+            { "role": "user", "content": format!("请翻译这些模组名称：{list}") }
+        ],
+    });
+    let resp = state
+        .client
+        .post(url)
+        .bearer_auth(key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("请求翻译服务失败: {e}"))?;
+    let status = resp.status().as_u16();
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    if status != 200 {
+        return Err(format!(
+            "翻译服务返回 HTTP {status}: {}",
+            text.trim().chars().take(200).collect::<String>()
+        ));
+    }
+    let parsed: Value = serde_json::from_str(&text).map_err(|e| format!("解析翻译响应失败: {e}"))?;
+    let content = parsed
+        .pointer("/choices/0/message/content")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    parse_name_map(&content).ok_or_else(|| "AI 未返回可解析的 JSON".to_string())
+}
+
+/// 从模型输出里抠出 JSON 对象。
+/// 容忍：推理模型的 ` thinking…` 思考过程、```json 代码块包裹、前后多余文字。
+fn parse_name_map(content: &str) -> Option<BTreeMap<String, String>> {
+    // 只取最后一次思考结束后的正文（思考里常出现示例 JSON，会干扰截取）
+    let body = match content.rfind("") {
+        Some(i) => &content[i + "".len()..],
+        None => content,
+    };
+    let body = if body.trim().is_empty() { content } else { body };
+    let start = body.find('{')?;
+    let end = body.rfind('}')?;
+    if end <= start {
+        return None;
+    }
+    let raw: BTreeMap<String, String> = serde_json::from_str(&body[start..=end]).ok()?;
+    // 兜底清洗：模型偶尔把列表符号或空白带进键名
+    Some(
+        raw.into_iter()
+            .map(|(k, v)| {
+                let clean = k
+                    .trim()
+                    .trim_start_matches(|c: char| c == '-' || c == '*' || c == '•' || c.is_whitespace())
+                    .trim()
+                    .to_string();
+                (clean, v.trim().to_string())
+            })
+            .filter(|(k, v)| !k.is_empty() && !v.is_empty())
+            .collect(),
+    )
+}
+
 /// 反馈某条翻译已过期。返回服务端 status；`updated` 时清掉本地缓存，
 /// 下次请求即可拿到重新翻译的结果。
 pub async fn report_stale(state: &AppState, provider: &str, slug: &str) -> Result<String, String> {

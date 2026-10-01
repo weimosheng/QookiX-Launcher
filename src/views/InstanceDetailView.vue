@@ -13,7 +13,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useInstancesStore } from "../stores/instances";
 import { useAccountsStore } from "../stores/accounts";
 import { usePinsStore, type PinTarget } from "../stores/pins";
-import { useMessage, NButton, NModal } from "naive-ui";
+import { useMessage, NButton, NModal, NPopover } from "naive-ui";
 import { useI18n } from "vue-i18n";
 import { api } from "../api";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -26,6 +26,7 @@ import DiagnosticsDialog from "../components/DiagnosticsDialog.vue";
 import ContentTab from "../components/instance/ContentTab.vue";
 import SavesTab from "../components/instance/SavesTab.vue";
 import SettingsTab from "../components/instance/SettingsTab.vue";
+import KeybindTab from "../components/instance/KeybindTab.vue";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import { fmtDateLocale as fmtDate, fmtSize } from "../utils/format";
 import {
@@ -38,6 +39,7 @@ import {
   IconBug,
   IconImage,
   IconInfo,
+  IconKeyboard,
   IconLayers,
   IconLayout,
   IconMapPin,
@@ -107,6 +109,7 @@ const ALL_TABS = [
   { key: "files", label: "instanceDetail.tabFiles", icon: IconHardDrive },
   { key: "logs", label: "instanceDetail.tabLogs", icon: IconFile },
   { key: "crash", label: "instanceDetail.tabCrash", icon: IconBug },
+  { key: "keybinds", label: "instanceDetail.tabKeybinds", icon: IconKeyboard },
   { key: "settings", label: "instanceDetail.tabSettings", icon: IconSliders },
 ];
 
@@ -325,7 +328,32 @@ watch(
     <div class="d-head glass">
       <div class="d-icon"><AppIcon :name="instance.icon" /></div>
       <div class="d-info">
-        <h1>{{ instance.name }}</h1>
+        <h1>
+          {{ instance.name }}
+          <!-- 符号链接实例：只用一个图标提示，hover 展开说明（不占整行） -->
+          <NPopover
+            v-if="instance.is_symlink"
+            trigger="hover"
+            placement="bottom-start"
+            :width="380"
+          >
+            <template #trigger>
+              <span class="symlink-badge" :title="t('instanceDetail.symlinkBadge')">
+                <IconExternal />
+              </span>
+            </template>
+            <div class="symlink-tip">
+              <strong>{{ t("instanceDetail.symlinkBadge") }}</strong>
+              <p>
+                {{ t("instanceDetail.symlinkNoticePrefix")
+                }}<template v-if="instance.source_path">{{
+                  t("instanceDetail.symlinkNoticeSource", { path: instance.source_path })
+                }}</template
+                >{{ t("instanceDetail.symlinkNoticeSuffix") }}
+              </p>
+            </div>
+          </NPopover>
+        </h1>
         <div class="d-meta">
           <span class="badge">{{ loaderLabel() }}</span>
           <span class="mc">{{ instance.mc_version }}</span>
@@ -376,11 +404,6 @@ watch(
       <button class="btn primary" :disabled="installingGame" @click="installGame">
         <IconPlay /> {{ installingGame ? t("instanceDetail.installing") : t("instanceDetail.installGame") }}
       </button>
-    </div>
-
-    <div v-if="instance.is_symlink" class="symlink-notice glass">
-      <IconExternal />
-      <span>{{ t("instanceDetail.symlinkNoticePrefix") }}<template v-if="instance.source_path">{{ t("instanceDetail.symlinkNoticeSource", { path: instance.source_path }) }}</template>{{ t("instanceDetail.symlinkNoticeSuffix") }}</span>
     </div>
 
     <div ref="tabsBox" class="tabs glass">
@@ -461,6 +484,9 @@ watch(
         <CrashAnalyzer :instance-id="instanceId" />
       </template>
 
+      <!-- keybinds -->
+      <KeybindTab v-if="tab === 'keybinds'" :instance-id="instanceId" />
+
       <!-- settings -->
       <SettingsTab v-if="tab === 'settings'" :instance-id="instanceId" />
     </div>
@@ -521,19 +547,40 @@ watch(
   gap: 16px;
   padding: 20px 24px;
 }
-.symlink-notice {
-  display: flex;
+/* 符号链接实例标记：标题旁边的小图标，hover 才展开说明 */
+.symlink-badge {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 20px;
-  margin-top: 12px;
-  font-size: 13px;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 8px;
+  border-radius: 7px;
+  vertical-align: middle;
   color: #e8a33d;
-  background: rgba(232, 163, 61, 0.1);
-  border-radius: 12px;
+  background: rgba(232, 163, 61, 0.14);
+  border: 1px solid rgba(232, 163, 61, 0.35);
+  cursor: help;
+  transition: background 0.12s, transform 0.1s;
 }
-.symlink-notice svg {
-  flex-shrink: 0;
+.symlink-badge:hover {
+  background: rgba(232, 163, 61, 0.24);
+}
+.symlink-badge svg {
+  width: 13px;
+  height: 13px;
+}
+.symlink-tip strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: #e8a33d;
+}
+.symlink-tip p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  word-break: break-all;
 }
 .d-icon {
   width: 56px;

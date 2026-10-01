@@ -38,6 +38,8 @@ import toolboxZh from "./_fragments/toolbox.zh";
 import seedMapZh from "./_fragments/seedMap.zh";
 import settingsZh from "./_fragments/settings.zh";
 import nbtZh from "./_fragments/nbt.zh";
+import keybind from "./_fragments/keybind.zh";
+import timemachine from "./_fragments/timemachine.zh";
 
 export default {
   ...home,
@@ -64,6 +66,7 @@ export default {
     multiplayer: "多人",
     skins: "皮肤",
     toolbox: "工具箱",
+    timemachine: "时光机",
     settings: "设置",
     news: "新闻",
     downloads: "下载",
@@ -74,6 +77,7 @@ export default {
     serverDetail: "服务器详情",
     seedMap: "种子地图",
     schematicPreview: "投影工坊",
+    timemachine: "时光机",
     newInstance: "新建实例",
   },
   format: {
@@ -167,6 +171,8 @@ export default {
   ...newsZh,
   ...toolboxZh,
   ...seedMapZh,
+  keybind,
+  timemachine,
   // NBT 存档编辑器的文案（独立命名空间，键都写成 nbt.xxx）
   nbt: nbtZh,
 };

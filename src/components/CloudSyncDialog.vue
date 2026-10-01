@@ -6,10 +6,11 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
-import { NButton, NModal, NSelect, NSwitch, useMessage } from "naive-ui";
+import { NButton, NModal, NSelect, NSpin, NSwitch, useDialog, useMessage } from "naive-ui";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "../api";
 import { useInstancesStore } from "../stores/instances";
+import { useHeightTransition } from "../composables/useHeightTransition";
 import { useI18n } from "vue-i18n";
 import type { CloudSnapshot } from "../types";
 import { fmtSize } from "../utils/format";
@@ -33,12 +34,12 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: "update:show", v: boolean): void; (e: "restored"): void }>();
 
 const message = useMessage();
+const dialog = useDialog();
 const instances = useInstancesStore();
 const { t } = useI18n();
 
 type Phase = "loading" | "connect" | "authing" | "ready";
 const phase = ref<Phase>("loading");
-const account = ref("");
 const repoName = ref("");
 const keepPerWorld = ref(5);
 const autoSync = ref(false);
@@ -67,20 +68,38 @@ interface CloudWorldGroup {
   snapshots: CloudSnapshot[];
 }
 const cloudWorlds = ref<CloudWorldGroup[]>([]);
-const expandedWorld = ref("");
+/** 展开的云端世界（可同时展开多个） */
+const expandedWorlds = ref<string[]>([]);
 const targetName = ref("");
-/** 浏览/恢复目标实例：默认当前实例；从设置页进入时需先选择 */
-const targetInstanceId = ref(props.instanceId);
-const instanceOptions = computed(() =>
-  instances.instances.map((i) => ({
+/** 浏览模式的实例筛选；空 = 全部 */
+const filterInstanceId = ref("");
+const instanceOptions = computed(() => [
+  { label: t("cloudSync.allInstances"), value: "" },
+  ...instances.instances.map((i) => ({
     label: `${i.name}（${i.mc_version}）`,
     value: i.id,
   })),
-);
-/** 只显示目标实例自己的快照（上传时已打实例标签） */
+]);
+/** 筛选后的云端世界列表 */
 const visibleWorlds = computed(() =>
-  cloudWorlds.value.filter((g) => g.instanceId === targetInstanceId.value),
+  filterInstanceId.value
+    ? cloudWorlds.value.filter((g) => g.instanceId === filterInstanceId.value)
+    : cloudWorlds.value
 );
+
+/** 云存档记录对应的实例：本地还在就显示实例名，否则显示记录的实例名（红色标记） */
+function instanceLabel(g: CloudWorldGroup): string {
+  const local = instances.instances.find((i) => i.id === g.instanceId);
+  return local?.name ?? g.instanceName ?? t("cloudSync.unknownInstance");
+}
+/** 记录里的实例本地是否还存在 */
+function instanceExists(g: CloudWorldGroup): boolean {
+  return !!g.instanceId && instances.instances.some((i) => i.id === g.instanceId);
+}
+/** 恢复目标实例：优先记录里的实例；老快照没有实例信息时用筛选里选中的实例 */
+function restoreTarget(g: CloudWorldGroup): string {
+  return instanceExists(g) ? (g.instanceId ?? "") : filterInstanceId.value;
+}
 
 // 后端推送的进度：{ kind, step, msg, sent, total }
 const progress = ref<{ kind: string; step: string; msg?: string; sent?: number; total?: number } | null>(null);
@@ -137,7 +156,6 @@ async function loadInfo() {
   phase.value = "loading";
   try {
     const st = await api.cloudSyncStatus();
-    account.value = st.account;
     repoName.value = st.repoName;
     keepPerWorld.value = st.keepPerWorld;
     if (!st.connected) {
@@ -211,16 +229,33 @@ async function loadCloudWorlds() {
   phase.value = "ready";
 }
 
-function expandWorld(g: CloudWorldGroup) {
-  expandedWorld.value = expandedWorld.value === g.worldId ? "" : g.worldId;
-  targetName.value = g.worldName;
+function isExpanded(worldId: string): boolean {
+  return expandedWorlds.value.includes(worldId);
 }
 
-/** 浏览模式恢复：写入 targetName 指定的目录，并重建与云端世界的映射 */
+// 展开 / 收起动画：与下载页同一套（高度过渡 + 内容变化跟随），gap 为 0（条目内没有 flex 间距）
+const { onEnter: onExpandEnter, onLeave: onExpandLeave } = useHeightTransition({ gap: 0 });
+
+/** 展开 / 收起一个云端世界（可同时展开多个）；展开后滚进视口，避免内容在折叠线以下 */
+
+/** 展开 / 收起一个云端世界（可同时展开多个）；展开后滚进视口，避免内容在折叠线以下 */
+function toggleWorld(g: CloudWorldGroup, ev: MouseEvent) {
+  if (isExpanded(g.worldId)) {
+    expandedWorlds.value = expandedWorlds.value.filter((x) => x !== g.worldId);
+    return;
+  }
+  expandedWorlds.value = [...expandedWorlds.value, g.worldId];
+  targetName.value = g.worldName;
+  const group = (ev.currentTarget as HTMLElement | null)?.closest(".cw-group");
+  // 等展开动画跑完再滚，否则按展开前的高度算位置、滚不到位
+  window.setTimeout(() => group?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 260);
+}
+
+/** 浏览模式恢复：写入 targetInstance 的 targetName 目录，并重建与云端世界的映射 */
 async function restoreBrowse(s: CloudSnapshot, g: CloudWorldGroup) {
-  const inst = targetInstanceId.value;
+  const inst = restoreTarget(g);
   if (!inst) {
-    message.warning(t('cloudSync.selectInstanceWarn'));
+    message.warning(t('cloudSync.pickInstanceToRestore'));
     return;
   }
   const name = targetName.value.trim() || g.worldName;
@@ -307,16 +342,6 @@ function openVerify() {
   openUrl(verificationUri.value).catch(() => message.error(t('cloudSync.openBrowserFailed', { url: verificationUri.value })));
 }
 
-async function disconnect() {
-  try {
-    await api.cloudSyncDisconnect();
-    message.success(t('cloudSync.disconnected'));
-    phase.value = "connect";
-  } catch (e) {
-    message.error(String(e));
-  }
-}
-
 // ---- 快照操作 ----
 async function upload() {
   busy.value = "upload";
@@ -360,11 +385,23 @@ async function restore(s: CloudSnapshot) {
   }
 }
 
+/** 删除前二次确认：删掉的是 GitHub 上的云端文件，删了找不回来 */
+function confirmRemove(s: CloudSnapshot) {
+  dialog.warning({
+    title: t('cloudSync.deleteSnapshot'),
+    content: t('cloudSync.confirmDeleteSnapshot'),
+    positiveText: t('common.delete'),
+    negativeText: t('common.cancel'),
+    onPositiveClick: () => remove(s),
+  });
+}
+
 async function remove(s: CloudSnapshot) {
   busy.value = "del-" + s.releaseId;
   try {
     await api.cloudSyncDelete(s.releaseId);
     await loadWorld();
+    message.success(t('cloudSync.snapshotDeleted'));
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -481,13 +518,6 @@ onBeforeUnmount(() => {
 
     <!-- 已连接：快照管理 -->
     <div v-else class="ready">
-      <div class="head-row">
-        <span class="acct">
-          <IconGithub /> {{ account }} / {{ repoName }}
-        </span>
-        <button class="link-btn" @click="disconnect">{{ t('cloudSync.disconnect') }}</button>
-      </div>
-
       <!-- 进度条：上传 / 恢复期间显示具体阶段与百分比 -->
       <div v-if="progress" class="progress-box">
         <div class="progress-head">
@@ -512,25 +542,23 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- 浏览模式：只显示所选实例自己的云端快照 -->
+      <!-- 浏览模式：打开即列出云端全部存档，并标注所属实例 -->
       <template v-if="browseMode">
         <div class="cw-target">
           <span>{{ t('cloudSync.instance') }}</span>
           <NSelect
-            v-model:value="targetInstanceId"
+            v-model:value="filterInstanceId"
             :options="instanceOptions"
-            :placeholder="t('cloudSync.selectInstance')"
             size="small"
             filterable
           />
         </div>
-        <div v-if="!targetInstanceId" class="center">{{ t('cloudSync.selectInstanceFirst') }}</div>
-        <div v-else-if="!visibleWorlds.length" class="center">
+        <div v-if="!visibleWorlds.length" class="center">
           {{ t('cloudSync.noSnapshots') }}
         </div>
         <div v-else class="snap-list">
           <div v-for="g in visibleWorlds" :key="g.worldId" class="cw-group">
-            <button class="cw-head" @click="expandWorld(g)">
+            <button class="cw-head" @click="toggleWorld(g, $event)">
               <IconCloud class="snap-icon" />
               <div class="c-info">
                 <div class="c-name">{{ g.worldName }}</div>
@@ -539,36 +567,49 @@ onBeforeUnmount(() => {
                   <span>{{ t('cloudSync.recent', { time: fmtTime(g.snapshots[0]?.createdAt ?? "") }) }}</span>
                 </div>
               </div>
-              <span class="cw-chevron">{{ expandedWorld === g.worldId ? t('cloudSync.collapse') : t('cloudSync.expand') }}</span>
+              <span class="cw-inst" :class="{ missing: !instanceExists(g) }">{{ instanceLabel(g) }}</span>
+              <span class="cw-chevron">{{ isExpanded(g.worldId) ? t('cloudSync.collapse') : t('cloudSync.expand') }}</span>
             </button>
-            <div v-if="expandedWorld === g.worldId" class="cw-detail">
-              <div class="cw-target">
-                <span>{{ t('cloudSync.restoreTo') }}</span>
-                <input v-model="targetName" class="cw-input" spellcheck="false" />
-              </div>
-              <div v-for="s in g.snapshots" :key="s.releaseId" class="snap-row">
-                <div class="c-info">
-                  <div class="c-name">{{ fmtTime(s.createdAt) }}</div>
-                  <div class="c-meta">
-                    <span>{{ fmtSize(s.assetSize) }}</span>
-                    <span v-if="(s.partCount ?? 1) > 1">{{ t('cloudSync.parts', { count: s.partCount }) }}</span>
-                    <span v-if="s.gameVersion">{{ s.gameVersion }}</span>
+            <Transition :css="false" @enter="onExpandEnter" @leave="onExpandLeave">
+              <div v-if="isExpanded(g.worldId)" class="cw-detail-wrap">
+                <div class="cw-detail">
+                  <div class="cw-target">
+                    <span>{{ t('cloudSync.restoreTo') }}</span>
+                    <input v-model="targetName" class="cw-input" spellcheck="false" />
+                  </div>
+                  <div v-for="s in g.snapshots" :key="s.releaseId" class="snap-row">
+                    <div class="c-info">
+                      <div class="c-name">{{ fmtTime(s.createdAt) }}</div>
+                      <div class="c-meta">
+                        <span>{{ fmtSize(s.assetSize) }}</span>
+                        <span v-if="(s.partCount ?? 1) > 1">{{ t('cloudSync.parts', { count: s.partCount }) }}</span>
+                        <span v-if="s.gameVersion">{{ s.gameVersion }}</span>
+                      </div>
+                    </div>
+                    <NButton
+                      size="small"
+                      type="warning"
+                      :disabled="!restoreTarget(g)"
+                      :title="restoreTarget(g) ? '' : t('cloudSync.pickInstanceToRestore')"
+                      :loading="busy === 'restore-' + s.releaseId"
+                      @click="restoreBrowse(s, g)"
+                    >
+                      <IconDownloadCloud />&nbsp;{{ t('cloudSync.restore') }}
+                    </NButton>
+                    <button
+                      class="snap-del"
+                      :title="t('cloudSync.deleteSnapshot')"
+                      :disabled="busy === 'del-' + s.releaseId"
+                      @click="confirmRemove(s)"
+                    >
+                      <NSpin v-if="busy === 'del-' + s.releaseId" :size="14" />
+                      <IconTrash v-else />
+                    </button>
                   </div>
                 </div>
-                <NButton
-                  size="small"
-                  type="warning"
-                  :loading="busy === 'restore-' + s.releaseId"
-                  @click="restoreBrowse(s, g)"
-                >
-                  <IconDownloadCloud />&nbsp;{{ t('cloudSync.restore') }}
-                </NButton>
               </div>
-            </div>
+            </Transition>
           </div>
-        </div>
-        <div class="foot-hint">
-          {{ t('cloudSync.browseHint') }}
         </div>
       </template>
 
@@ -626,9 +667,10 @@ onBeforeUnmount(() => {
                 class="snap-del"
                 :title="t('cloudSync.deleteSnapshot')"
                 :disabled="busy === 'del-' + s.releaseId"
-                @click="remove(s)"
+                @click="confirmRemove(s)"
               >
-                <IconTrash />
+                <NSpin v-if="busy === 'del-' + s.releaseId" :size="14" />
+                <IconTrash v-else />
               </button>
             </div>
           </div>
@@ -641,9 +683,31 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .center {
-  padding: 40px;
+  padding: 26px 16px;
   text-align: center;
   color: var(--text-3);
+  font-size: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+/* 云存档条目上标注的所属实例 */
+.cw-inst {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--w-06);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.cw-inst.missing {
+  color: #e5534b;
+  background: rgba(229, 83, 75, 0.14);
+}
+/* 行内标签不要被挤成竖排 */
+.cw-target > span {
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .connect {
   display: flex;
@@ -746,18 +810,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 12px;
 }
-.head-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.acct {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
-}
+
 .link-btn {
   background: none;
   border: none;
@@ -868,8 +921,10 @@ onBeforeUnmount(() => {
 .snap-list {
   display: flex;
   flex-direction: column;
-  max-height: 300px;
+  /* 给足高度：展开的条目要能完整看到（超出时整列滚动，不再从中间裁掉） */
+  max-height: 56vh;
   overflow-y: auto;
+  padding-right: 4px;
 }
 .snap-row {
   display: flex;
@@ -958,6 +1013,15 @@ onBeforeUnmount(() => {
 .cw-head:hover {
   background: var(--w-08);
 }
+/* 全局 button:active 有 scale(0.96)，整行标题一按就缩、两侧漏出卡片底色 */
+.cw-head:active {
+  transform: none;
+}
+/* 展开动画的外层（高度由 useHeightTransition 驱动） */
+.cw-detail-wrap {
+  overflow: hidden;
+}
+
 .cw-chevron {
   margin-left: auto;
   font-size: 11px;

@@ -56,7 +56,43 @@ const { t } = useI18n();
 const checking = ref(false);
 const showDiag = ref(false);
 const cloudOpen = ref(false);
+/** GitHub 账户（云存档与时光机共用同一套授权） */
+const cloudAccount = ref("");
+const cloudRepo = ref("");
 const updateVersion = ref<string | null>(null);
+
+async function loadCloudAccount() {
+  try {
+    const s = await api.cloudSyncStatus();
+    cloudAccount.value = s.connected ? s.account : "";
+    cloudRepo.value = s.repoName ?? "";
+  } catch {
+    cloudAccount.value = "";
+  }
+}
+onMounted(loadCloudAccount);
+// 云存档弹窗里可能完成授权 / 建仓，关闭后刷新账户显示
+watch(cloudOpen, (v) => {
+  if (!v) void loadCloudAccount();
+});
+
+async function logoutGithub() {
+  dialog.warning({
+    title: t("settings.storage.logoutGithub"),
+    content: t("settings.storage.logoutConfirm"),
+    positiveText: t("common.ok"),
+    negativeText: t("common.cancel"),
+    onPositiveClick: async () => {
+      try {
+        await api.cloudSyncDisconnect();
+        message.success(t("cloudSync.disconnected"));
+        await loadCloudAccount();
+      } catch (e) {
+        message.error(String(e));
+      }
+    },
+  });
+}
 
 async function checkUpdate() {
   if (checking.value) return;
@@ -1495,6 +1531,29 @@ onUnmounted(() => {
                 </button>
               </div>
             </div>
+
+            <!-- GitHub 账户：云存档与时光机共用，用户名可点开主页 -->
+            <div class="gh-row">
+              <IconGithub class="gh-icon" :class="{ dim: !cloudAccount }" />
+              <template v-if="cloudAccount">
+                <button
+                  class="gh-user"
+                  :title="t('settings.about.githubHome')"
+                  @click="openUrl(`https://github.com/${cloudAccount}`)"
+                >
+                  {{ cloudAccount }}
+                </button>
+                <span v-if="cloudRepo" class="gh-repo">{{ cloudRepo }}</span>
+              </template>
+              <span v-else class="gh-none">{{ t("settings.storage.notConnected") }}</span>
+              <span class="gh-spacer" />
+              <button v-if="cloudAccount" class="mini-btn danger" @click="logoutGithub">
+                {{ t("settings.storage.logoutGithub") }}
+              </button>
+              <button v-else class="mini-btn" @click="cloudOpen = true">
+                {{ t("settings.storage.loginGithub") }}
+              </button>
+            </div>
           </div>
 
           <div class="card glass storage-card" id="storage-stats">
@@ -1591,7 +1650,7 @@ onUnmounted(() => {
           <AboutShowcase />
           <div class="about-hero-title">
             <span class="about-name about-hero-name">QookiX Launcher</span>
-            <span class="about-ver">v0.10.0</span>
+            <span class="about-ver">v0.11.0</span>
           </div>
           <p class="about-hero-slogan">{{ t("settings.about.slogan") }}</p>
         </div>
@@ -3183,6 +3242,56 @@ textarea.text-input {
 .mirror-custom .text-input {
   flex: 1;
   min-width: 150px;
+}
+/* 存储页：GitHub 账户行 */
+.gh-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--w-04);
+}
+.gh-icon {
+  font-size: 15px;
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+.gh-icon.dim {
+  opacity: 0.45;
+}
+.gh-user {
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+.gh-user:hover {
+  text-decoration: underline;
+}
+.gh-repo {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.gh-none {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.gh-spacer {
+  flex: 1;
+}
+.mini-btn.danger {
+  color: #e5534b;
+  border-color: rgba(229, 83, 75, 0.45);
+}
+.mini-btn.danger:hover {
+  color: #ff7a70;
+  border-color: #e5534b;
 }
 </style>
 

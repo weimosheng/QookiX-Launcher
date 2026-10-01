@@ -233,6 +233,21 @@ body,
   -webkit-backdrop-filter: blur(var(--glass-blur, 8px));
 }
 
+/* naive-ui 下拉菜单（Select 等）统一成应用内的玻璃面板风格。
+   菜单是 teleport 到 body 的，scoped 样式够不到，所以放在全局。 */
+.qk-select-menu {
+  --n-color: var(--panel) !important;
+  --n-border-radius: 10px !important;
+  --n-option-text-color: var(--text-1) !important;
+  --n-option-text-color-pending: var(--text-1) !important;
+  --n-option-text-color-active: var(--accent) !important;
+  --n-option-color-pending: var(--w-06) !important;
+  --n-option-color-active: var(--accent-soft) !important;
+  --n-option-check-color: var(--accent) !important;
+  backdrop-filter: blur(var(--glass-blur, 8px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 8px));
+}
+
 .clickable {
   cursor: pointer;
   transition: transform 0.1s ease, background 0.12s ease, border-color 0.12s ease;

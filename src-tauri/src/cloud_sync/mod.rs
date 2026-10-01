@@ -160,7 +160,7 @@ pub async fn cloud_sync_upload(
     emit(json!({ "kind": "upload", "step": "upload", "sent": 0u64, "total": size, "msg": "正在上传快照…" }));
     let app2 = app.clone();
     let release_id = release::create_and_upload(
-        &state, &token, &account, &repo_name, &world_id, &meta, &parts,
+        &state, &token, &account, &repo_name, &world_id, &meta, &parts, "application/zip",
         move |sent, total| {
             let _ = app2.emit("cloud_sync://progress", json!({ "kind": "upload", "step": "upload", "sent": sent, "total": total }));
         },
@@ -350,6 +350,7 @@ pub async fn auto_upload_after_exit(
         &world_id,
         &meta,
         &parts,
+        "application/zip",
         |_, _| {},
     )
     .await?;

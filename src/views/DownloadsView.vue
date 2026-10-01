@@ -6,6 +6,7 @@ import { useTasksStore, type TaskEntry } from "../stores/tasks";
 import { fmtBytes, fmtSpeed, fmtTimeMs as fmtTime } from "../utils/format";
 import { useInstancesStore } from "../stores/instances";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
+import { useHeightTransition } from "../composables/useHeightTransition";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -122,140 +123,8 @@ onMounted(() => {
   if (!instances.instances.length) void instances.load();
 });
 
-// —— 展开 / 收起动画 ——
-//
-// 结构：外层 .task-detail-wrap（overflow:hidden，高度被动画驱动）
-//       └ 内层 .task-detail（高度 auto，用来实时量真实内容高度）
-// 分开两层是为了能一边动画一边持续测量内容高度——直接量被动画改写过
-// height 的元素是量不准的。
-//
-// 两个导致"结尾顿一下"的坑，都必须堵掉：
-//
-// 1) 不能用 setTimeout(duration) 当结束信号。CSS transition 是在我们改完
-//    样式后的下一帧才真正开始跑的，而定时器从调用那一刻就开始计时，所以
-//    定时器必然比动画早 1~2 帧触发。那一刻高度大约只走到 97%，我们却把它
-//    一把改成 auto —— 剩下 3% 就是那个"跳"。改成监听 transitionend
-//    （只认 propertyName === 'height' 且 target 是自己），另设一个稍长的
-//    兜底定时器防止极端情况卡住。
-//
-// 2) 动画期间内容还在长。下载中 activeFiles 每 400ms 更新、完成的文件不断
-//    追加，内容高度会变。若目标高度只在开头量一次，结尾就会跳到新的 auto
-//    高度。用 ResizeObserver 盯着内层，内容一变就把动画目标同步过去——
-//    CSS transition 会从当前值平滑改道到新目标，不会跳。
-//
-// 另外 .task-card 是 flex + gap，元素一插入就会多出这段间距，动画期间用负
-// margin-top 抵消，避免开头 / 结尾抖一下。
-const DETAIL_GAP = 10;
-const DETAIL_DUR = 240;
-const DETAIL_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
-const DETAIL_TRANSITION = `height ${DETAIL_DUR}ms ${DETAIL_EASE}, margin-top ${DETAIL_DUR}ms ${DETAIL_EASE}, opacity ${DETAIL_DUR}ms ${DETAIL_EASE}`;
-
-/** 挂在动画元素上的收尾函数，连续快速点击时先取消上一次，避免两个动画打架 */
-type AnimEl = HTMLElement & { _dlCancel?: () => void };
-
-function innerOf(e: HTMLElement): HTMLElement | null {
-  return e.firstElementChild instanceof HTMLElement ? e.firstElementChild : null;
-}
-function contentHeight(e: HTMLElement) {
-  const inner = innerOf(e);
-  return inner ? inner.offsetHeight : e.scrollHeight;
-}
-
-/** 等 height 真正跑完；定时器只作为兜底，不作为正常结束信号 */
-function whenHeightDone(e: AnimEl, done: () => void, after?: () => void) {
-  let settled = false;
-  const finish = () => {
-    if (settled) return;
-    settled = true;
-    e.removeEventListener("transitionend", onEnd);
-    clearTimeout(timer);
-    e._dlCancel = undefined;
-    after?.();
-    done();
-  };
-  // 子元素也会冒泡出 transitionend，认准 target 是自己 + 属性是 height
-  const onEnd = (ev: TransitionEvent) => {
-    if (ev.target !== e || ev.propertyName !== "height") return;
-    finish();
-  };
-  // 兜底：高度没变（无 transition 触发）、元素被隐藏等场景下也要放行
-  const timer = window.setTimeout(finish, DETAIL_DUR + 120);
-  e._dlCancel = () => {
-    if (settled) return;
-    settled = true;
-    e.removeEventListener("transitionend", onEnd);
-    clearTimeout(timer);
-    e._dlCancel = undefined;
-  };
-  e.addEventListener("transitionend", onEnd);
-}
-
-function onExpandEnter(el: Element, done: () => void) {
-  const e = el as AnimEl;
-  e._dlCancel?.();
-
-  e.style.transition = "none";
-  e.style.overflow = "hidden";
-  e.style.height = "0px";
-  e.style.marginTop = `-${DETAIL_GAP}px`;
-  e.style.opacity = "0";
-  void e.offsetHeight; // 强制回流，让起始态生效
-
-  const inner = innerOf(e);
-  let ro: ResizeObserver | null = null;
-  if (inner) {
-    ro = new ResizeObserver(() => {
-      e.style.height = `${contentHeight(e)}px`;
-    });
-    ro.observe(inner);
-  }
-
-  e.style.transition = DETAIL_TRANSITION;
-  e.style.height = `${contentHeight(e)}px`;
-  e.style.marginTop = "0px";
-  e.style.opacity = "1";
-
-  whenHeightDone(
-    e,
-    done,
-    () => {
-      ro?.disconnect();
-      e.style.transition = "none";
-      // 交还 auto，让后续动态内容能自由撑开
-      e.style.height = "";
-      e.style.marginTop = "";
-      e.style.opacity = "";
-      e.style.overflow = "";
-      void e.offsetHeight;
-      e.style.transition = "";
-    }
-  );
-}
-
-function onExpandLeave(el: Element, done: () => void) {
-  const e = el as AnimEl;
-  e._dlCancel?.();
-
-  e.style.transition = "none";
-  e.style.overflow = "hidden";
-  e.style.height = `${e.offsetHeight}px`;
-  e.style.marginTop = "0px";
-  e.style.opacity = "1";
-  void e.offsetHeight; // 强制回流，让起始态生效
-
-  e.style.transition = DETAIL_TRANSITION;
-  e.style.height = "0px";
-  e.style.marginTop = `-${DETAIL_GAP}px`;
-  e.style.opacity = "0";
-
-  whenHeightDone(e, done, () => {
-    e.style.transition = "";
-    e.style.height = "";
-    e.style.marginTop = "";
-    e.style.opacity = "";
-    e.style.overflow = "";
-  });
-}
+// 展开 / 收起动画（实现见 useHeightTransition.ts；gap 对应 .task-card 的 flex gap）
+const { onEnter: onExpandEnter, onLeave: onExpandLeave } = useHeightTransition({ gap: 10 });
 </script>
 
 <template>

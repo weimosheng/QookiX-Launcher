@@ -18,6 +18,8 @@ import {
   IconUsers,
   IconTrash,
   IconRefresh,
+  IconClock,
+  IconTool,
 } from "./icons";
 import { useTasksStore } from "../stores/tasks";
 import { useServersStore } from "../stores/servers";
@@ -46,6 +48,8 @@ const pageIcons: Record<string, any> = {
   settings: IconSettings,
   user: IconUser,
   users: IconUsers,
+  clock: IconClock,
+  tool: IconTool,
 };
 const pageIcon = computed(() => pageIcons[(route.meta.icon as string) ?? ""] ?? IconHome);
 

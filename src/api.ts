@@ -45,6 +45,8 @@ import type {
   IdentifiedMod,
   DiagnosticReport,
   DiagnosticReportEntry,
+  TimelineShot,
+  PlaySession,
 } from "./types";
 
 /**
@@ -147,6 +149,13 @@ export const api = {
     ),
   stopGame: () => invoke<void>("stop_game"),
   isGameRunning: () => invoke<boolean>("is_game_running"),
+  /** options.txt 按键绑定：读取 / 保存（后端只写提交的动作，其余行原样保留） */
+  optionsListKeybinds: (instanceId: string) =>
+    invoke<{ exists: boolean; binds: { action: string; key: string }[] }>("options_list_keybinds", {
+      instanceId,
+    }),
+  optionsSetKeybinds: (instanceId: string, changes: Record<string, string>) =>
+    invoke<{ updated: number }>("options_set_keybinds", { instanceId, changes }),
   openInstanceFolder: (instanceId: string, sub?: string) =>
     invoke<void>("open_instance_folder", { instanceId, sub: sub ?? null }),
   listInstanceFolders: (instanceId: string) =>
@@ -193,6 +202,13 @@ export const api = {
     invoke<void>("restore_world_backup", { instanceId, world, filename }),
   deleteWorldBackup: (instanceId: string, world: string, filename: string) =>
     invoke<void>("delete_world_backup", { instanceId, world, filename }),
+
+  /** 按键动作中文名 + 模组列表（从客户端 jar / mods jar 读取） */
+  keybindActionLabels: (instanceId: string) =>
+    invoke<{ labels: Record<string, string>; mods: { id: string; name: string }[] }>(
+      "keybind_action_labels",
+      { instanceId },
+    ),
 
   // ---- NBT 存档编辑 ----
   // world 既可以是实例 saves 下的目录名，也可以是手动指定的绝对路径
@@ -298,6 +314,84 @@ export const api = {
     invoke<{ backup: string }>("nbt_restore_backup", { instanceId, world, file, name }),
   nbtDeleteBackup: (instanceId: string, world: string, file: string, name: string) =>
     invoke<unknown>("nbt_delete_backup", { instanceId, world, file, name }),
+
+  /** 单次游玩会话（启动→退出）：冒险日志按它把截图分组成"这次游玩" */
+  playSessions: (limit?: number) =>
+    invoke<{ sessions: PlaySession[] }>("play_sessions", { limit: limit ?? null }),
+
+  // ---- 时光机（自动截图回顾，独立 GitHub 仓库）----
+  timemachineStatus: () =>
+    invoke<{
+      connected: boolean;
+      account: string;
+      repoName: string;
+      /** 是否启用 GitHub 云保存（关掉＝纯本地） */
+      cloudEnabled: boolean;
+      /** 攒够几张打包上传一次 */
+      batchSize: number;
+      /** 还没上传的截图总数（所有实例） */
+      pending: number;
+      enabled: boolean;
+      intervalSecs: number;
+      keepPerInstance: number;
+      onInterval: boolean;
+      onWorldEnter: boolean;
+      onWorldExit: boolean;
+      onDeath: boolean;
+      onAdvancement: boolean;
+      foregroundOnly: boolean;
+      keepLocalCopy: boolean;
+      custom: { id: string; label: string; pattern: string; enabled: boolean; cooldownSecs: number }[];
+    }>("timemachine_status"),
+  timemachineInitRepo: () =>
+    invoke<{ repo: string; repositoryId: string; created: boolean }>(
+      "timemachine_init_repo",
+      undefined,
+      { net: true }
+    ),
+  /** instanceId 传空串=后端自动挑一个正在运行的游戏 */
+  timemachineCapture: (instanceId: string, trigger?: string) =>
+    invoke<{
+      releaseId: number;
+      sizeBytes: number;
+      file: string;
+      /** 本次顺带上传了几张（攒批没够时是 0） */
+      uploaded: number;
+      /** 还没上传的张数 */
+      pending: number;
+      cleaned: number;
+      /** 云端上传失败时的错误（本地截图仍然是好的） */
+      uploadError: string | null;
+    }>("timemachine_capture", {
+      instanceId,
+      trigger: trigger ?? null,
+    }),
+  /** 后端权威的"正在运行"实例列表（前端只记得本次会话启动过的） */
+  timemachineRunningInstances: () => invoke<string[]>("timemachine_running_instances"),
+  timemachineList: (instanceId: string) =>
+    invoke<{ shots: CloudSnapshot[] }>("timemachine_list", { instanceId }),
+  /** 时间轴总览页：本地 + 云端合并后的全部截图（云端那半是网络请求 → 顶部加载条） */
+  timemachineListAll: () =>
+    invoke<{ shots: TimelineShot[] }>("timemachine_list_all", undefined, { net: true }),
+  timemachineDelete: (releaseId: number) => invoke<void>("timemachine_delete", { releaseId }),
+  /** 删除一张记忆点（本地文件 + 已上传的云端附件） */
+  timemachineDeleteShot: (instanceId: string, file: string, releaseId: number, assetId: number) =>
+    invoke<void>("timemachine_delete_shot", { instanceId, file, releaseId, assetId }),
+  /** 手动上传待传截图；instanceId 留空＝所有有积压的实例 */
+  timemachineFlush: (instanceId?: string) =>
+    invoke<{ uploaded: number; failures: string[] }>("timemachine_flush", {
+      instanceId: instanceId ?? null,
+    }),
+  /** 取某张截图"那一刻"的日志（在 shots.json 附件里，按需下载；老快照返回空串） */
+  timemachineShotLog: (releaseId: number, file: string) =>
+    invoke<string>("timemachine_shot_log", { releaseId, file }),
+  /** 下载某张截图到本地缓存，返回可直接显示的本地路径 */
+  timemachineDownload: (releaseId: number, assetId: number) =>
+    invoke<string>("timemachine_download", { releaseId, assetId }),
+  timemachineSetConfig: (patch: Record<string, unknown>) =>
+    invoke<void>("timemachine_set_config", { patch }),
+  timemachineLocalShots: (instanceId: string) =>
+    invoke<string[]>("timemachine_local_shots", { instanceId }),
 
   // ---- 云存档同步（GitHub）----
   cloudSyncStatus: () =>
@@ -465,6 +559,13 @@ export const api = {
     invoke<{ translations: Record<string, string>; failed: string[]; rateLimited: boolean }>(
       "translate_mod_descriptions",
       { provider, slugs }
+    ),
+  /** 批量翻译模组名（英文 → 中文社区称呼）；未配置 AI 翻译服务时 unsupported=true */
+  translateModNames: (names: string[]) =>
+    invoke<{ translations: Record<string, string>; unsupported: boolean; error?: string | null }>(
+      "translate_mod_names",
+      { names },
+      { net: true }
     ),
   reportStaleTranslation: (provider: string, slug: string) =>
     invoke<string>("report_translation_stale", { provider, slug }, { net: true }),

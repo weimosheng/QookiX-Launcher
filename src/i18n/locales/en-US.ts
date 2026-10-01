@@ -38,6 +38,8 @@ import toolboxEn from "./_fragments/toolbox.en";
 import seedMapEn from "./_fragments/seedMap.en";
 import settingsEn from "./_fragments/settings.en";
 import nbtEn from "./_fragments/nbt.en";
+import keybind from "./_fragments/keybind.en";
+import timemachine from "./_fragments/timemachine.en";
 
 export default {
   ...home,
@@ -64,6 +66,7 @@ export default {
     multiplayer: "Multiplayer",
     skins: "Skins",
     toolbox: "Toolbox",
+    timemachine: "Time Machine",
     settings: "Settings",
     news: "News",
     downloads: "Downloads",
@@ -74,6 +77,7 @@ export default {
     serverDetail: "Server details",
     seedMap: "Seed map",
     schematicPreview: "Schematic Workshop",
+    timemachine: "Time Machine",
     newInstance: "New instance",
   },
   format: {
@@ -167,6 +171,8 @@ export default {
   ...newsEn,
   ...toolboxEn,
   ...seedMapEn,
+  keybind,
+  timemachine,
   // NBT save editor strings (own namespace: all keys are nbt.xxx)
   nbt: nbtEn,
 };

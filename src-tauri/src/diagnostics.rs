@@ -110,7 +110,8 @@ fn now_secs() -> u64 {
 
 /// 读取文件尾部 N 行（大日志只取尾部，避免报告膨胀）
 fn tail_lines(path: &Path, n: usize) -> Option<String> {
-    let content = std::fs::read_to_string(path).ok()?;
+    // read_to_string 会在 GBK 日志上直接失败（老版本 MC），这里按字节读再解码
+    let content = crate::util::decode_text(&std::fs::read(path).ok()?);
     let lines: Vec<&str> = content.lines().collect();
     let start = lines.len().saturating_sub(n);
     let tail = lines[start..].join("\n");

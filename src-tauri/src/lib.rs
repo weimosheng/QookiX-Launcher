@@ -5,16 +5,19 @@ mod instance_share;
 mod crash;
 mod db;
 mod diagnostics;
+mod timemachine;
 mod curseforge;
 mod deps;
 mod download;
 mod fsutil;
 mod install;
 mod instances;
+mod keybinds_lang;
 mod java;
 mod launch;
 mod mcmeta;
 mod nbt;
+mod options;
 mod mcping;
 mod mcmod;
 mod mirror;
@@ -144,6 +147,20 @@ pub fn run() {
             cloud_sync::cloud_sync_upload,
             cloud_sync::cloud_sync_restore,
             cloud_sync::cloud_sync_delete,
+            // 时光机（独立仓库的截图回顾）
+            timemachine::timemachine_status,
+            timemachine::timemachine_init_repo,
+            timemachine::timemachine_capture,
+            timemachine::timemachine_running_instances,
+            timemachine::timemachine_list,
+            timemachine::timemachine_list_all,
+            timemachine::timemachine_delete,
+            timemachine::timemachine_delete_shot,
+            timemachine::timemachine_flush,
+            timemachine::timemachine_shot_log,
+            timemachine::timemachine_download,
+            timemachine::timemachine_set_config,
+            timemachine::timemachine_local_shots,
             cloud_sync::cloud_sync_set_auto,
             cloud_sync::cloud_sync_set_keep,
             // nbt 存档编辑
@@ -168,6 +185,11 @@ pub fn run() {
             commands::nbt_delete_chunk_node,
             commands::nbt_map_bounds,
             commands::nbt_render_map,
+            // options.txt 按键绑定
+            commands::options_list_keybinds,
+            commands::options_set_keybinds,
+            // 按键动作中文名（读客户端与模组语言文件）
+            commands::keybind_action_labels,
             // settings & java
             commands::get_settings,
             commands::set_settings,
@@ -237,6 +259,7 @@ pub fn run() {
   commands::resolve_missing_mods,
   commands::resolve_dependency_tree,
   commands::translate_mod_descriptions,
+  commands::translate_mod_names,
   commands::translate_project_body,
   commands::report_translation_stale,
   commands::report_translation_quality,
@@ -260,6 +283,7 @@ pub fn run() {
             commands::restore_world_backup,
             commands::delete_world_backup,
             commands::playtime_stats,
+            commands::play_sessions,
             commands::export_instance_pack,
             commands::export_preview,
             commands::identify_manual_mods,

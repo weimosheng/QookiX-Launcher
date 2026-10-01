@@ -20,6 +20,7 @@ const router = createRouter({
     { path: "/toolbox/seed", name: "toolbox-seed", component: () => import("./views/SeedMapView.vue"), meta: { titleKey: "page.seedMap", icon: "tool" } },
     { path: "/toolbox/schematic", name: "toolbox-schematic", component: () => import("./views/SchematicPreviewView.vue"), meta: { titleKey: "page.schematicPreview", icon: "tool" } },
     { path: "/toolbox/nbt", name: "toolbox-nbt", component: () => import("./views/NBTEditorView.vue"), meta: { titleKey: "nbt.nbtTitle", icon: "tool" } },
+    { path: "/timemachine", name: "timemachine", component: () => import("./views/TimeMachineView.vue"), meta: { titleKey: "nav.timemachine", icon: "clock" } },
     { path: "/skins", name: "skins", component: () => import("./views/SkinView.vue"), meta: { titleKey: "nav.skins", icon: "user" } },
   ],
 });
