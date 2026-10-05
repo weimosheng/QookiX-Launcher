@@ -70,6 +70,36 @@ pub async fn launch_game(
     // (idempotent; also covers instances patched before this fix)
     crate::install::normalize_natives_args(&mut version_json);
 
+    // 旧版 forge_patch 不合并 vanilla 的 arguments.jvm，导致 NeoForge/Forge
+    // 版本 json 丢失 -cp ${classpath}，Java 启动报 ClassNotFoundException。
+    // 检测到这种情况自动重新安装修复，无需用户手动操作。
+    if !crate::install::version_json_has_classpath(&version_json) {
+        let _ = app.emit("launch://log", serde_json::json!({
+            "instanceId": &instance.id, "stream": "out",
+            "line": "[修复] 版本元数据缺少 classpath 参数，正在重新安装游戏文件…"
+        }));
+        crate::install::install_game(app.clone(), state, instance).await?;
+        let text = std::fs::read_to_string(&version_path).map_err(|e| e.to_string())?;
+        version_json = serde_json::from_str(&text).map_err(|e| format!("版本元数据损坏: {e}"))?;
+        crate::install::normalize_natives_args(&mut version_json);
+    }
+
+    // NeoForge 26.x 的 patched client jar（minecraft-client-patched）由 installer
+    // 的 processors 链生成。如果 processors 未执行（如旧版 full_ver 不匹配导致
+    // installer 路径错误而被跳过），patched jar 缺失，启动报
+    // "The patched Minecraft jar is missing"。检测并自动修复。
+    let libs_dir = crate::paths::libraries_dir(state);
+    if let Some(missing) = crate::install::version_json_missing_local_lib(&version_json, &libs_dir) {
+        let _ = app.emit("launch::log", serde_json::json!({
+            "instanceId": &instance.id, "stream": "out",
+            "line": format!("[修复] 本地库 {missing} 缺失，正在重新执行安装任务…")
+        }));
+        crate::install::install_game(app.clone(), state, instance).await?;
+        let text = std::fs::read_to_string(&version_path).map_err(|e| e.to_string())?;
+        version_json = serde_json::from_str(&text).map_err(|e| format!("版本元数据损坏: {e}"))?;
+        crate::install::normalize_natives_args(&mut version_json);
+    }
+
     let _ = app.emit("launch://progress", serde_json::json!({ "step": "正在检查 Java 运行时…", "progress": 40 }));
     let java = match pick_java(&app, state, instance, &version_json).await {
         Ok(j) => j,

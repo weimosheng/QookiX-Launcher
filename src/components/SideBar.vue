@@ -54,6 +54,7 @@ const sidebarRef = ref<HTMLElement | null>(null);
 
 // 新闻可隐藏：settings.show_news 为 false 时不显示该导航项（默认显示）
 const nav = computed(() => {
+  const hidden = new Set(settingsStore.settings?.hidden_nav_items ?? []);
   const list = [
     { name: "home", label: t("nav.home"), icon: IconHome, to: "/" },
     { name: "browse", label: t("nav.browse"), icon: IconCompass, to: "/browse" },
@@ -67,7 +68,7 @@ const nav = computed(() => {
   if (settingsStore.settings?.show_news ?? true) {
     list.push({ name: "news", label: t("nav.news"), icon: IconNewspaper, to: "/news" });
   }
-  return list;
+  return list.filter((n) => n.name === "home" || n.name === "settings" || !hidden.has(n.name));
 });
 
 // —— 侧边栏固定实例 ——

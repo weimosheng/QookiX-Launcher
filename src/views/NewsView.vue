@@ -31,7 +31,7 @@ onMounted(async () => {
 
 <template>
   <div class="news-view">
-    <div class="news-header">
+    <div class="news-header glass">
       <h1>{{ t("news.title") }}</h1>
       <button class="refresh-btn" :disabled="newsStore.loading" @click="refresh">
         <IconRefresh class="btn-icon" />
@@ -68,6 +68,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 18px 24px;
   margin-bottom: 20px;
 }
 .news-header h1 {
@@ -102,7 +103,7 @@ onMounted(async () => {
 }
 .loading,
 .empty {
-  padding: 60px;
+  padding: 48px 24px;
   text-align: center;
   color: var(--text-3);
   border-radius: 14px;

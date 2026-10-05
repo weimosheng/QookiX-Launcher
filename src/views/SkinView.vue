@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
-import { NTabs, NTabPane, NInput, NButton, NSwitch, NModal, useMessage } from "naive-ui";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { NInput, NButton, NSwitch, NModal, useMessage } from "naive-ui";
 import { useI18n } from "vue-i18n";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
@@ -8,6 +8,7 @@ import { fmtSize as formatSize } from "../utils/format";
 import { useSkinRenderer, type AnimationKind } from "../composables/useSkinRenderer";
 import { loadOfflineSkin, saveOfflineSkinCache } from "../composables/useOfflineSkin";
 import { useAccountsStore } from "../stores/accounts";
+import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import SkinThumb from "../components/SkinThumb.vue";
 import { BUILTIN_SKINS } from "../assets/builtin-skins";
 import {
@@ -60,6 +61,28 @@ const applying = ref(false);
 const skinVariant = ref<"classic" | "slim">("classic");
 const currentAccount = computed(() => accounts.current);
 const isCurrentMs = computed(() => currentAccount.value?.type === "microsoft");
+
+const animSegRef = ref<HTMLElement | null>(null);
+const modelSegRef = ref<HTMLElement | null>(null);
+const skinTabSegRef = ref<HTMLElement | null>(null);
+const { indicatorStyle: animSegStyle, refresh: refreshAnimSeg } = useSlidingIndicator(
+  animSegRef,
+  () => Array.from(animSegRef.value?.querySelectorAll<HTMLElement>("button") ?? []),
+  () => (["idle", "walk", "run", "none"] as AnimationKind[]).indexOf(renderer.animation.value),
+);
+const { indicatorStyle: modelSegStyle, refresh: refreshModelSeg } = useSlidingIndicator(
+  modelSegRef,
+  () => Array.from(modelSegRef.value?.querySelectorAll<HTMLElement>("button") ?? []),
+  () => (skinVariant.value === "classic" ? 0 : 1),
+);
+const { indicatorStyle: skinTabSegStyle, refresh: refreshSkinTabSeg } = useSlidingIndicator(
+  skinTabSegRef,
+  () => Array.from(skinTabSegRef.value?.querySelectorAll<HTMLElement>("button") ?? []),
+  () => (tab.value === "saved" ? 0 : 1),
+);
+watch(() => renderer.animation.value, () => nextTick(() => refreshAnimSeg()));
+watch(skinVariant, () => nextTick(() => refreshModelSeg()));
+watch(tab, () => nextTick(() => refreshSkinTabSeg()));
 
 const lastAppliedSrc = ref<string | null>(null);
 const appliedToCurrent = computed(() => {
@@ -621,7 +644,8 @@ onMounted(async () => {
         </div>
         <div class="anim-row">
           <span class="anim-label">{{ t("skin.action") }}</span>
-          <div class="seg">
+          <div ref="animSegRef" class="seg">
+            <div class="indicator" :style="animSegStyle"></div>
             <button :class="{ active: renderer.animation.value === 'idle' }" @click="setAnim('idle')">{{ t("skin.animIdle") }}</button>
             <button :class="{ active: renderer.animation.value === 'walk' }" @click="setAnim('walk')">{{ t("skin.animWalk") }}</button>
             <button :class="{ active: renderer.animation.value === 'run' }" @click="setAnim('run')">{{ t("skin.animRun") }}</button>
@@ -648,7 +672,8 @@ onMounted(async () => {
           </button>
         </div>
         <div class="apply-row">
-          <div class="seg">
+          <div ref="modelSegRef" class="seg">
+            <div class="indicator" :style="modelSegStyle"></div>
             <button :class="{ active: skinVariant === 'classic' }" @click="setSkinModel('classic')">{{ t("skin.modelClassic") }}</button>
             <button :class="{ active: skinVariant === 'slim' }" @click="setSkinModel('slim')">{{ t("skin.modelSlim") }}</button>
           </div>
@@ -663,8 +688,12 @@ onMounted(async () => {
       </section>
 
       <section class="tabs-pane glass">
-        <n-tabs v-model:value="tab" type="line" animated class="sk-tabs">
-          <n-tab-pane name="saved" :tab="t('skin.tabSaved')">
+        <div ref="skinTabSegRef" class="seg skin-tab-seg">
+          <div class="indicator" :style="skinTabSegStyle"></div>
+          <button :class="{ active: tab === 'saved' }" @click="tab = 'saved'">{{ t("skin.tabSaved") }}</button>
+          <button :class="{ active: tab === 'official' }" @click="tab = 'official'">{{ t("skin.tabOfficial") }}</button>
+        </div>
+        <div v-if="tab === 'saved'" class="tab-content">
             <div class="tab-toolbar">
               <span class="tab-count">{{ t("skin.skinCount", { n: skins.length }) }}</span>
               <div class="toolbar-right">
@@ -709,9 +738,9 @@ onMounted(async () => {
                 </button>
               </div>
             </div>
-          </n-tab-pane>
+        </div>
 
-          <n-tab-pane name="official" :tab="t('skin.tabOfficial')">
+        <div v-else class="tab-content">
             <div class="tab-toolbar">
               <span class="tab-count">{{ t("skin.minecraftDefault") }}</span>
             </div>
@@ -739,8 +768,7 @@ onMounted(async () => {
                 </div>
               </div>
             </div>
-          </n-tab-pane>
-        </n-tabs>
+        </div>
       </section>
     </div>
 
@@ -1082,13 +1110,23 @@ onMounted(async () => {
   color: var(--text-3);
 }
 .seg {
+  position: relative;
   display: flex;
   background: var(--w-05);
   border-radius: 8px;
   padding: 3px;
   gap: 2px;
 }
+.seg .indicator {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  pointer-events: none;
+}
 .seg button {
+  position: relative;
   border: none;
   background: transparent;
   color: var(--text-3);
@@ -1104,7 +1142,6 @@ onMounted(async () => {
   color: var(--text-1);
 }
 .seg button.active {
-  background: var(--accent-soft);
   color: var(--accent);
 }
 .anim-label {
@@ -1146,9 +1183,20 @@ onMounted(async () => {
   padding: 16px 18px;
   min-height: 540px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
-.sk-tabs {
-  height: 100%;
+.skin-tab-seg {
+  align-self: flex-start;
+  margin-bottom: 12px;
+}
+.skin-tab-seg button {
+  padding: 6px 16px;
+  font-size: 13px;
+}
+.tab-content {
+  flex: 1;
+  overflow-y: auto;
 }
 .tab-toolbar {
   display: flex;

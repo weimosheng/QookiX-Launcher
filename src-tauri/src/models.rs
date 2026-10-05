@@ -92,6 +92,9 @@ pub struct Settings {
     pub show_sidebar_collapse_btn: bool,
     /// 新闻页面与侧边栏新闻入口是否显示
     pub show_news: bool,
+    /// 用户在设置页选择隐藏的侧边栏导航项 name 列表
+    #[serde(default)]
+    pub hidden_nav_items: Vec<String>,
     /// 用户点击「忽略此版本」后记录的版本号。启动时若为同一版本则不再弹窗提示，
     /// 出现更新的版本时恢复提醒。
     pub dismissed_update_version: Option<String>,
@@ -150,6 +153,7 @@ impl Default for Settings {
             show_home_hero: false,
             show_sidebar_collapse_btn: false,
             show_news: true,
+            hidden_nav_items: Vec::new(),
             dismissed_update_version: None,
             auto_update: false,
             update_source: "bucket".into(),

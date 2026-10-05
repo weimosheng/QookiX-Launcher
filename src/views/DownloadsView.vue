@@ -129,7 +129,7 @@ const { onEnter: onExpandEnter, onLeave: onExpandLeave } = useHeightTransition({
 
 <template>
   <div class="dl-view">
-    <div ref="tabBox" class="tabs">
+    <div ref="tabBox" class="tabs glass">
       <div class="indicator" :style="tabIndicatorStyle"></div>
       <button :class="{ active: activeTab === 'active' }" @click="activeTab = 'active'">
         {{ t('downloads.tab.active') }} <span v-if="activeTasks.length" class="tab-count">{{ activeTasks.length }}</span>
@@ -272,25 +272,27 @@ const { onEnter: onExpandEnter, onLeave: onExpandLeave } = useHeightTransition({
 <style scoped>
 .tabs {
   position: relative;
-  display: flex;
+  display: inline-flex;
   gap: 4px;
   margin-bottom: 16px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0;
+  padding: 5px;
+  align-self: flex-start;
 }
 .tabs .indicator {
   position: absolute;
-  top: 2px;
-  bottom: 2px;
-  border-radius: 8px;
+  top: 5px;
+  bottom: 5px;
+  border-radius: 9px;
   background: var(--accent-soft);
   pointer-events: none;
 }
 .tabs button {
+  position: relative;
   border: none;
   background: transparent;
   color: var(--text-3);
   padding: 8px 18px;
+  border-radius: 9px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -322,7 +324,7 @@ const { onEnter: onExpandEnter, onLeave: onExpandLeave } = useHeightTransition({
   background: var(--w-05);
   color: var(--text-1);
   border-radius: 9px;
-  padding: 8px 14px;
+  padding: 9px 18px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -332,11 +334,11 @@ const { onEnter: onExpandEnter, onLeave: onExpandLeave } = useHeightTransition({
   background: var(--w-10);
 }
 .btn:disabled {
-  opacity: 0.4;
+  opacity: 0.5;
   cursor: default;
 }
 .empty {
-  padding: 60px;
+  padding: 48px 24px;
   text-align: center;
   color: var(--text-3);
   display: flex;
@@ -345,7 +347,7 @@ const { onEnter: onExpandEnter, onLeave: onExpandLeave } = useHeightTransition({
   gap: 12px;
 }
 .empty-icon {
-  font-size: 34px;
+  font-size: 36px;
   color: var(--text-3);
   opacity: 0.6;
 }

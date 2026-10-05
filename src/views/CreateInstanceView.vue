@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { fmtBytes } from "../utils/format";
 import { isAprilFools } from "../utils/versions";
 import { useRouter } from "vue-router";
@@ -12,6 +12,7 @@ import { useInstancesStore } from "../stores/instances";
 import AppIcon from "../components/AppIcon.vue";
 import IconPickerDialog from "../components/IconPickerDialog.vue";
 import { IconChevronLeft, IconFolder, IconPlus } from "../components/icons";
+import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import type { Loader } from "../types";
 
 const router = useRouter();
@@ -20,6 +21,13 @@ const message = useMessage();
 const { t } = useI18n();
 
 const mode = ref<"fresh" | "import" | "importmc">("fresh");
+const modeSegRef = ref<HTMLElement | null>(null);
+const { indicatorStyle: modeSegStyle, refresh: refreshModeSeg } = useSlidingIndicator(
+  modeSegRef,
+  () => Array.from(modeSegRef.value?.querySelectorAll<HTMLElement>("button") ?? []),
+  () => (["fresh", "import", "importmc"] as const).indexOf(mode.value),
+);
+watch(mode, () => nextTick(() => refreshModeSeg()));
 
 // ---- fresh create ----
 const name = ref("");
@@ -417,7 +425,8 @@ onUnmounted(() => {
       <IconChevronLeft /> {{ t("createInstance.backToInstances") }}
     </button>
 
-    <div class="mode-tabs glass">
+    <div ref="modeSegRef" class="mode-tabs glass">
+      <div class="indicator" :style="modeSegStyle"></div>
       <button :class="{ active: mode === 'fresh' }" @click="mode = 'fresh'">{{ t("createInstance.modeFresh") }}</button>
       <button :class="{ active: mode === 'import' }" @click="mode = 'import'">{{ t("createInstance.modeImport") }}</button>
       <button :class="{ active: mode === 'importmc' }" @click="mode = 'importmc'">{{ t("createInstance.modeImportMc") }}</button>
@@ -678,12 +687,22 @@ onUnmounted(() => {
   background: var(--w-06);
 }
 .mode-tabs {
+  position: relative;
   display: inline-flex;
   gap: 4px;
   padding: 5px;
   align-self: flex-start;
 }
+.mode-tabs .indicator {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  pointer-events: none;
+}
 .mode-tabs button {
+  position: relative;
   border: none;
   background: transparent;
   color: var(--text-2);
@@ -695,7 +714,6 @@ onUnmounted(() => {
   font-family: inherit;
 }
 .mode-tabs button.active {
-  background: var(--accent-soft);
   color: var(--accent);
 }
 .fresh,
@@ -981,8 +999,8 @@ onUnmounted(() => {
   gap: 8px;
   border: none;
   border-radius: 10px;
-  padding: 10px 22px;
-  font-size: 14px;
+  padding: 9px 18px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
@@ -996,7 +1014,7 @@ onUnmounted(() => {
   filter: brightness(1.08);
 }
 .btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
 }
 .btn.big {
   padding: 13px 26px;

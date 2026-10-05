@@ -143,14 +143,39 @@ async fn install_game_inner(
     emit_progress(&app, task_id, "manifest", "获取 Minecraft 版本信息…", 0, 0, instance, &source);
 
     let existing_json = crate::paths::resolve_version_dir(state, &instance.id).join(format!("{}.json", instance.id));
-    let (patched, patched_path) = match std::fs::read_to_string(&existing_json)
+    let existing_json_obj = std::fs::read_to_string(&existing_json)
         .ok()
-        .and_then(|t| serde_json::from_str::<VersionJson>(&t).ok())
-    {
-        Some(json) => (json, existing_json),
-        None => {
+        .and_then(|t| serde_json::from_str::<VersionJson>(&t).ok());
+    // Forge/NeoForge：若对应 installer jar 不在预期路径，旧 json 不能复用——
+    // 必须重跑 forge_patch 下载 installer 并重新生成版本 json，否则后续 processors
+    // 因 installer 缺失被跳过，client jar 不到位，启动报 ClassNotFoundException。
+    // 典型触发场景：修复 neoforge_full_ver 归一化后，旧实例的 installer 仍躺在
+    // 旧路径，新路径下不存在。
+    // Forge/NeoForge：提前解析加载器版本（loader_version 为空时取最新），
+    // need_repatch 检查与 processors 路径必须用同一 full_ver，否则 installer
+    // 文件名不一致 → processors 被跳过 → patched client jar 缺失。
+    let loader_ver = if matches!(instance.loader, LoaderType::Forge | LoaderType::NeoForge) {
+        Some(resolve_loader_version(state, instance).await?)
+    } else {
+        None
+    };
+    let loader_full = loader_ver.as_deref().map(|v| loader_full_ver(instance, v));
+
+    let need_repatch = loader_full.is_some() && {
+        let full_ver = loader_full.as_deref().unwrap();
+        let tool_name = if instance.loader == LoaderType::NeoForge { "neoforge" } else { "forge" };
+        let installer_path =
+            state.root.join("runtimes").join(format!("{tool_name}-{full_ver}-installer.jar"));
+        // installer 不存在 → 重跑；
+        // 或旧 json 缺 classpath 参数（旧版 forge_patch 不合并 vanilla arguments）→ 重跑。
+        !installer_path.exists()
+            || existing_json_obj.as_ref().map_or(false, |j| !version_json_has_classpath(j))
+    };
+    let (patched, patched_path) = match (existing_json_obj, need_repatch) {
+        (Some(json), false) => (json, existing_json),
+        _ => {
             let vanilla = mcmeta::fetch_version_json(state, &instance.mc_version).await?;
-            let patched = patch_version(&app, state, &vanilla, instance).await?;
+            let patched = patch_version(&app, state, &vanilla, instance, task_id, &source).await?;
             let patched_path = mcmeta::cache_version_json(state, &patched).await?;
             (patched, patched_path)
         }
@@ -175,16 +200,7 @@ async fn install_game_inner(
     }
 
 // ---- Forge 1.17+ 新版安装器：原版 jar 就位后执行 processors 任务链 ----
-    if matches!(instance.loader, LoaderType::Forge | LoaderType::NeoForge) {
-        let full_ver = if instance.loader == LoaderType::NeoForge {
-            instance.loader_version.clone().unwrap_or_default()
-        } else {
-            format!(
-                "{}-{}",
-                instance.mc_version,
-                instance.loader_version.clone().unwrap_or_default()
-            )
-        };
+    if let Some(full_ver) = &loader_full {
         let tool_name = if instance.loader == LoaderType::NeoForge { "neoforge" } else { "forge" };
         let installer_path =
             state.root.join("runtimes").join(format!("{tool_name}-{full_ver}-installer.jar"));
@@ -604,6 +620,8 @@ pub(crate) async fn patch_version(
     state: &AppState,
     vanilla: &VersionJson,
     instance: &Instance,
+    task_id: u64,
+    source: &str,
 ) -> Result<VersionJson, String> {
     let mut patched = vanilla.clone();
     match instance.loader {
@@ -615,10 +633,10 @@ pub(crate) async fn patch_version(
             patched = quilt_patch(state, vanilla, instance).await?;
         }
         LoaderType::Forge => {
-            patched = forge_patch(app, state, vanilla, instance, false).await?;
+            patched = forge_patch(app, state, vanilla, instance, false, task_id, source).await?;
         }
         LoaderType::NeoForge => {
-            patched = forge_patch(app, state, vanilla, instance, true).await?;
+            patched = forge_patch(app, state, vanilla, instance, true, task_id, source).await?;
         }
     }
     patched.id = instance.id.clone();
@@ -1028,17 +1046,96 @@ fn maven_artifact_path(coord: &str) -> Option<PathBuf> {
     Some(p)
 }
 
+/// NeoForge loader_version 归一化成 maven 坐标完整版本段。
+/// 兼容两种来源：新建实例被截断的纯 build number "65"，
+/// 以及 modpack 导入/已安装实例的完整版本号 "21.1.65"。
+/// 检查版本 json 的 jvm 参数是否包含 `${classpath}` 占位符。
+/// 旧版 forge_patch 不合并 vanilla 的 arguments.jvm，导致 NeoForge/Forge
+/// 版本 json 丢失 `-cp ${classpath}`，Java 启动时没有 classpath。
+/// legacy 版本（用 minecraftArguments 字符串）不检查，返回 true。
+pub fn version_json_has_classpath(json: &VersionJson) -> bool {
+    let Some(args) = &json.arguments else {
+        return true;
+    };
+    let Some(jvm) = &args.jvm else {
+        return true;
+    };
+    jvm.iter().any(|av| match av {
+        ArgumentValue::Str(s) => s.contains("${classpath}"),
+        ArgumentValue::Rule(r) => match &r.value {
+            ArgumentValueInner::Str(s) => s.contains("${classpath}"),
+            ArgumentValueInner::List(l) => l.iter().any(|s| s.contains("${classpath}")),
+        },
+    })
+}
+
+/// 检查版本 json 中 processor 生成的本地库（url 为 None 且无 downloads.artifact）
+/// 是否存在于 libraries 目录。这些库（如 `minecraft-client-patched`）只能由
+/// Forge/NeoForge installer 的 processors 链生成，不能从远程下载。如果缺失，
+/// 说明 processors 未执行或执行不完整，需要重新运行 `install_game`。
+///
+/// 返回缺失的第一个库的 maven 坐标（用于日志提示），全部存在则返回 None。
+pub fn version_json_missing_local_lib(json: &VersionJson, libs_dir: &std::path::Path) -> Option<String> {
+    for lib in &json.libraries {
+        // 只检查无下载来源的本地库（processor 产物）
+        if lib.url.is_some() {
+            continue;
+        }
+        if let Some(dl) = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()) {
+            let _ = dl;
+            continue;
+        }
+        if let Some(rel) = crate::models::maven_to_path(&lib.name) {
+            let path = libs_dir.join(&rel);
+            if !path.exists() {
+                return Some(lib.name.clone());
+            }
+        }
+    }
+    None
+}
+
+fn neoforge_full_ver(mc_version: &str, loader_version: &str) -> String {
+    if loader_version.contains('.') {
+        loader_version.to_string()
+    } else {
+        let mc_prefix = mc_version.strip_prefix("1.").unwrap_or(mc_version);
+        format!("{mc_prefix}.{loader_version}")
+    }
+}
+
+/// 解析加载器版本：instance.loader_version 为空时自动取最新稳定版。
+/// `install_game_inner`（need_repatch / processors 路径）与 `forge_patch`
+/// 必须用同一逻辑，否则 installer 文件名不一致 → processors 被跳过。
+async fn resolve_loader_version(state: &AppState, instance: &Instance) -> Result<String, String> {
+    match instance.loader_version.clone() {
+        Some(v) if !v.is_empty() => Ok(v),
+        _ => {
+            let vs = loader_versions(state, instance.loader, &instance.mc_version).await?;
+            vs.into_iter().next().ok_or_else(|| "未找到可用的加载器版本".to_string())
+        }
+    }
+}
+
+/// 由加载器版本计算 installer 文件名里的 full_ver（与 forge_patch 一致）。
+fn loader_full_ver(instance: &Instance, version: &str) -> String {
+    if instance.loader == LoaderType::NeoForge {
+        neoforge_full_ver(&instance.mc_version, version)
+    } else {
+        format!("{}-{}", instance.mc_version, version)
+    }
+}
+
 async fn forge_patch(
     app: &tauri::AppHandle,
     state: &AppState,
     vanilla: &VersionJson,
     instance: &Instance,
     is_neoforge: bool,
+    task_id: u64,
+    source: &str,
 ) -> Result<VersionJson, String> {
-    let version = instance
-        .loader_version
-        .clone()
-        .ok_or("缺少加载器版本")?;
+    let version = resolve_loader_version(state, instance).await?;
 
     let (base_url, artifact, installer_name) = if is_neoforge {
         (
@@ -1056,7 +1153,7 @@ async fn forge_patch(
     // Forge / NeoForge 安装器走 maven 仓库，镜像站统一挂在 `/maven/` 下
     let base_url = crate::mirror::rewrite(state, base_url);
     let full_ver = if is_neoforge {
-        version.clone()
+        neoforge_full_ver(&instance.mc_version, &version)
     } else {
         format!("{}-{}", instance.mc_version, version)
     };
@@ -1073,16 +1170,27 @@ async fn forge_patch(
             size: None,
             label: format!("{installer_name} 安装器"),
         };
-        let source = format!("加载器：{installer_name} {full_ver}");
-        let mut ctx = TaskCtx::new(app, state, instance, &source);
-        ctx.emit(
+        emit_progress(
+            app,
+            task_id,
             "loader",
             &format!("正在下载 {installer_name} {full_ver} 安装器…"),
             0,
             1,
+            instance,
+            source,
         );
-        download_many(app.clone(), state, ctx.id, "loader", vec![item]).await?;
-        ctx.finish_ok(&format!("{installer_name} {full_ver} 安装器就绪"));
+        download_many(app.clone(), state, task_id, "loader", vec![item]).await?;
+        emit_progress(
+            app,
+            task_id,
+            "loader",
+            &format!("{installer_name} {full_ver} 安装器就绪"),
+            1,
+            1,
+            instance,
+            source,
+        );
     }
 
     let profile_bytes = crate::util::read_zip_entry(&installer_path, "install_profile.json")
@@ -1124,8 +1232,59 @@ async fn forge_patch(
             .map_err(|e| format!("读取版本 json（{entry}）失败: {e}"))?;
         serde_json::from_slice::<serde_json::Value>(&bytes).map_err(|e| format!("解析版本 json 失败: {e}"))?
     };
-    let mut patched: VersionJson = serde_json::from_value(version_info)
+    let loader_version_json: VersionJson = serde_json::from_value(version_info)
         .map_err(|e| format!("解析 Forge 版本信息失败: {e}"))?;
+
+    // 新版安装器（spec 1，Forge ≥1.17 / NeoForge）的 version.json 用 inheritsFrom
+    // 继承 vanilla，只覆盖 mainClass/arguments 并追加 libraries。不能直接用
+    // loader_version_json 覆盖 vanilla——否则 vanilla 的 arguments.jvm（含
+    // -cp ${classpath}）丢失，Java 启动时没有 classpath，报
+    // ClassNotFoundException: net.neoforged.fml.startup.Client。
+    // 老式安装器（spec 0，≤1.16）的 versionInfo 是自包含的完整版本 json，
+    // 不继承 vanilla，直接用。
+    let mut patched = if is_legacy_spec0 {
+        loader_version_json
+    } else {
+        let mut base = vanilla.clone();
+        base.main_class = loader_version_json.main_class.clone();
+        base.inherits_from = loader_version_json.inherits_from.clone();
+        // 合并 arguments。正常情况下加载器的 version.json 用 inheritsFrom 继承
+        // vanilla，只含追加项（--add-opens / --fml.neoForgeVersion 等），vanilla
+        // 的 jvm/game args 在前（含 -cp ${classpath}、--username 等），加载器的
+        // 追加在后。
+        // 但 NeoForge 26.x 的 version.json 虽然带 inheritsFrom，arguments.game
+        // 却包含完整的 vanilla game args——直接 extend 会和 vanilla 的重复，导致
+        // "Duplicate entries for username" 错误。检测：如果加载器的 args 含
+        // vanilla 标志性参数（--username / -cp），说明是完整列表，直接替换。
+        if let Some(loader_args) = &loader_version_json.arguments {
+            let args = base.arguments.get_or_insert_with(|| Arguments { game: None, jvm: None });
+            if let Some(loader_jvm) = &loader_args.jvm {
+                let is_full_jvm = loader_jvm.iter().any(|av| {
+                    matches!(av, ArgumentValue::Str(s) if s == "-cp" || s == "${classpath}")
+                });
+                if is_full_jvm {
+                    args.jvm = Some(loader_jvm.clone());
+                } else {
+                    args.jvm.get_or_insert_with(Vec::new).extend(loader_jvm.iter().cloned());
+                }
+            }
+            if let Some(loader_game) = &loader_args.game {
+                let is_full_game = loader_game.iter().any(|av| {
+                    matches!(av, ArgumentValue::Str(s) if s == "--username")
+                });
+                if is_full_game {
+                    args.game = Some(loader_game.clone());
+                } else {
+                    args.game.get_or_insert_with(Vec::new).extend(loader_game.iter().cloned());
+                }
+            }
+        }
+        // 追加加载器的 libraries（universal/client 在后续逻辑继续 push）
+        for lib in &loader_version_json.libraries {
+            base.libraries.push(lib.clone());
+        }
+        base
+    };
 
     // 新版安装器：forge 本体 jar（universal / client）不在 version.json 的库列表里。
     //   - universal：install_profile.libraries 提供，downloads 元数据齐全；
@@ -1173,6 +1332,28 @@ async fn forge_patch(
                 extract: None,
             });
         }
+      }
+      // NeoForge 26.x：install_profile.json 没有 path 字段，patched client jar
+      // 由 processors 生成，坐标在 data.PATCHED.client 里（如
+      // [net.neoforged:minecraft-client-patched:26.3.0.48-beta]）。必须加到
+      // libraries 才能进 classpath，否则启动报 patched Minecraft jar is missing。
+      if let Some(patched_coord) = profile
+          .get("data")
+          .and_then(|d| d.get("PATCHED"))
+          .and_then(|p| p.get("client"))
+          .and_then(|c| c.as_str())
+          .and_then(|s| s.strip_prefix('[').and_then(|s| s.strip_suffix(']')))
+      {
+          if crate::models::maven_to_path(patched_coord).is_some() {
+              patched.libraries.push(Library {
+                  name: patched_coord.to_string(),
+                  url: None,
+                  downloads: None,
+                  rules: None,
+                  natives: None,
+                  extract: None,
+              });
+          }
       }
     }
 
@@ -1293,13 +1474,12 @@ pub async fn loader_versions(
             if loader == LoaderType::Forge {
                 Ok(sort_mc_versions(versions, &prefix))
             } else {
-                // neoforge: strip the mc prefix from the version string, newest first
-                let stripped: Vec<String> = versions
+                // neoforge: 保留完整版本号（如 "21.1.65"），newest first
+                let kept: Vec<String> = versions
                     .into_iter()
                     .filter(|v| v.starts_with(&prefix))
-                    .map(|v| v[prefix.len()..].to_string())
                     .collect();
-                Ok(crate::util::sort_version_desc(stripped))
+                Ok(crate::util::sort_version_desc(kept))
             }
         }
         LoaderType::Vanilla => Ok(vec![]),

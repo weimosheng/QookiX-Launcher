@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -31,6 +31,7 @@ import {
   IconUploadCloud,
 } from "../components/icons";
 import { fmtDuration } from "../utils/format";
+import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import type { PlaySession, TimelineShot } from "../types";
 
 const { t } = useI18n();
@@ -103,6 +104,13 @@ const viewOptions = computed<{ label: string; value: "stream" | "session" | "day
   { label: t("timemachine.viewLog"), value: "session" },
   { label: t("timemachine.viewDay"), value: "day" },
 ]);
+const segRef = ref<HTMLElement | null>(null);
+const { indicatorStyle: segStyle, refresh: refreshSeg } = useSlidingIndicator(
+  segRef,
+  () => Array.from(segRef.value?.querySelectorAll<HTMLElement>(".seg button") ?? []),
+  () => viewOptions.value.findIndex((v) => v.value === viewMode.value)
+);
+watch(viewMode, () => nextTick(() => refreshSeg()));
 /** 控制台抽屉 */
 const ctlOpen = ref(false);
 /** 卡片密度：舒适 / 紧凑（记住上次的选择） */
@@ -233,12 +241,6 @@ const filteredShots = computed(() =>
       (!filterTrigger.value || s.trigger === filterTrigger.value)
   )
 );
-
-/** 页面副标题："142 张截图 · 3 个世界" */
-const summaryCount = computed(() => ({
-  shots: shots.value.length,
-  worlds: new Set(shots.value.map((s) => s.instanceId)).size,
-}));
 
 /** 一场游玩的窗口（含"没记录结束"的封口规则） */
 interface SessionWindow {
@@ -981,61 +983,53 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="tm">
+  <div id="timemachine-root" class="timemachine-view">
     <!-- 顶部工具栏：视图切换 + 快捷操作 + 控制台 -->
-    <header class="tm-top">
-      <div class="tm-title">
-        <span class="tm-name">{{ t("nav.timemachine") }}</span>
-        <span v-if="shots.length" class="tm-sub">
-          {{ t("timemachine.summary", summaryCount) }}
-        </span>
-      </div>
-      <div class="tm-tools">
+    <div class="toolbar">
+      <button
+        v-if="pending > 0 && cloudEnabled"
+        class="btn pending"
+        :class="{ spin: flushing }"
+        :title="t('timemachine.pendingN', { n: pending })"
+        :disabled="flushing"
+        @click="flushNow"
+      >
+        <IconUploadCloud />
+        {{ t("timemachine.pendingN", { n: pending }) }}
+      </button>
+      <div ref="segRef" class="seg">
+        <div class="indicator" :style="segStyle"></div>
         <button
-          v-if="pending > 0 && cloudEnabled"
-          class="btn pending"
-          :class="{ spin: flushing }"
-          :title="t('timemachine.pendingN', { n: pending })"
-          :disabled="flushing"
-          @click="flushNow"
+          v-for="v in viewOptions"
+          :key="v.value"
+          :class="{ active: viewMode === v.value }"
+          @click="viewMode = v.value"
         >
-          <IconUploadCloud />
-          {{ t("timemachine.pendingN", { n: pending }) }}
-        </button>
-        <div class="seg">
-          <button
-            v-for="v in viewOptions"
-            :key="v.value"
-            class="seg-i"
-            :class="{ on: viewMode === v.value }"
-            @click="viewMode = v.value"
-          >
-            {{ v.label }}
-          </button>
-        </div>
-        <button class="btn ic" :title="t('timemachine.refresh')" :disabled="busy" @click="loadShots()">
-          <IconRefresh />
-        </button>
-        <button
-          class="btn"
-          :disabled="busy"
-          :title="
-            captureInstance
-              ? t('timemachine.captureTarget', { name: instanceName(captureInstance) })
-              : t('timemachine.captureAuto')
-          "
-          @click="testCapture"
-        >
-          <IconCamera /> {{ t("timemachine.testCapture") }}
-        </button>
-        <button class="btn" @click="ctlOpen = true">
-          <IconSliders /> {{ t("timemachine.console") }}
+          {{ v.label }}
         </button>
       </div>
-    </header>
+      <button class="btn ic" :title="t('timemachine.refresh')" :disabled="busy" @click="loadShots()">
+        <IconRefresh />
+      </button>
+      <button
+        class="btn"
+        :disabled="busy"
+        :title="
+          captureInstance
+            ? t('timemachine.captureTarget', { name: instanceName(captureInstance) })
+            : t('timemachine.captureAuto')
+        "
+        @click="testCapture"
+      >
+        <IconCamera /> {{ t("timemachine.testCapture") }}
+      </button>
+      <button class="btn" @click="ctlOpen = true">
+        <IconSliders /> {{ t("timemachine.console") }}
+      </button>
+    </div>
 
     <!-- 开了云保存但还没授权：引导先连 GitHub（纯本地模式不需要授权） -->
-    <section v-if="!loading && cloudEnabled && !connected" class="gate">
+    <section v-if="!loading && cloudEnabled && !connected" class="gate glass">
       <div class="gate-ico"><IconGithub /></div>
       <p class="gate-t">{{ t("timemachine.needGithub") }}</p>
       <p class="gate-p">{{ t("timemachine.needGithubHint") }}</p>
@@ -1047,7 +1041,7 @@ onBeforeUnmount(() => {
 
     <template v-else>
       <!-- 封面：最近一次冒险 -->
-      <section v-if="heroShot && heroInfo" ref="heroEl" class="hero">
+      <section v-if="heroShot && heroInfo" ref="heroEl" class="hero glass">
         <img v-if="heroCover" :src="heroCover" class="hero-img" alt="" />
         <div v-else class="hero-ph"></div>
         <div class="hero-veil"></div>
@@ -1080,9 +1074,9 @@ onBeforeUnmount(() => {
       </section>
 
       <!-- 空态 -->
-      <section v-else-if="!loading" class="empty">
-        <div class="empty-ico"><IconCamera /></div>
-        <p class="empty-t">{{ t("timemachine.emptyTitle") }}</p>
+      <section v-else-if="!loading" class="empty glass">
+        <div class="empty-icon"><IconCamera /></div>
+        <p>{{ t("timemachine.emptyTitle") }}</p>
         <div class="steps">
           <span><b>1</b> {{ t("timemachine.step1") }}</span>
           <span><b>2</b> {{ t("timemachine.step2") }}</span>
@@ -1095,14 +1089,14 @@ onBeforeUnmount(() => {
 
       <!-- 筛选 chips -->
       <div v-if="shots.length" class="filters">
-        <button class="chip" :class="{ on: !filterTrigger }" @click="filterTrigger = ''">
+        <button class="chip" :class="{ active: !filterTrigger }" @click="filterTrigger = ''">
           {{ t("timemachine.allTriggers") }}
         </button>
         <button
           v-for="tr in triggerTypes"
           :key="tr"
           class="chip"
-          :class="[triggerClass(tr), { on: filterTrigger === tr }]"
+          :class="[triggerClass(tr), { active: filterTrigger === tr }]"
           @click="filterTrigger = filterTrigger === tr ? '' : tr"
         >
           {{ triggerLabel(tr) }}
@@ -1444,37 +1438,14 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.tm {
+.timemachine-view {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding-bottom: 10px;
+  gap: 16px;
 }
 
 /* ---------------- 顶部工具栏 ---------------- */
-.tm-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.tm-title {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
-}
-.tm-name {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-1);
-}
-.tm-sub {
-  font-size: 12px;
-  color: var(--text-3);
-}
-.tm-tools {
+.toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1486,13 +1457,14 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  /* 统一高度：图标按钮的内容比文字矮，不锁死高度会"小一圈" */
-  min-height: 34px;
-  font-size: 12px;
-  padding: 6px 12px;
+  min-height: 38px;
+  font-size: 13px;
+  padding: 9px 18px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: var(--w-04);
+  background: var(--panel);
+  backdrop-filter: blur(var(--glass-blur, 8px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 8px));
   color: var(--text-2);
   cursor: pointer;
   transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
@@ -1507,7 +1479,8 @@ onBeforeUnmount(() => {
   cursor: default;
 }
 .btn.ic {
-  min-width: 34px;
+  width: 38px;
+  height: 38px;
   padding: 0 9px;
 }
 .btn.primary,
@@ -1538,33 +1511,36 @@ onBeforeUnmount(() => {
 
 /* 视图切换胶囊 */
 .seg {
+  position: relative;
   display: flex;
-  gap: 2px;
+  background: var(--panel);
+  backdrop-filter: blur(var(--glass-blur, 8px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 8px));
+  border-radius: 9px;
   padding: 3px;
-  border-radius: 999px;
-  background: var(--w-06);
-  border: 1px solid var(--border);
+  min-height: 38px;
 }
-.seg-i {
-  display: inline-flex;
-  align-items: center;
-  /* 和 .btn 同高（3+3 的外壳内边距 + 2 边框 = 34px） */
-  min-height: 26px;
-  border: 0;
+.seg .indicator {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  pointer-events: none;
+}
+.seg button {
+  border: none;
   background: transparent;
   color: var(--text-3);
-  font-size: 12px;
-  padding: 0 14px;
-  border-radius: 999px;
+  padding: 6px 18px;
+  border-radius: 7px;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
+  font-family: inherit;
 }
-.seg-i:hover {
-  color: var(--text-1);
-}
-.seg-i.on {
-  background: var(--accent);
-  color: #fff;
+.seg button.active {
+  color: var(--accent);
 }
 
 /* ---------------- 未授权引导 / 空态 ---------------- */
@@ -1575,14 +1551,11 @@ onBeforeUnmount(() => {
   align-items: center;
   text-align: center;
   gap: 10px;
-  padding: 46px 24px;
-  border-radius: 16px;
-  border: 1px solid var(--border);
-  background: var(--w-02);
+  padding: 48px 24px;
   animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .gate-ico,
-.empty-ico {
+.empty-icon {
   width: 52px;
   height: 52px;
   border-radius: 16px;
@@ -1592,8 +1565,12 @@ onBeforeUnmount(() => {
   place-items: center;
   font-size: 24px;
 }
-.gate-t,
-.empty-t {
+.gate-t {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-1);
+}
+.empty > p {
   margin: 0;
   font-size: 14px;
   color: var(--text-1);
@@ -1621,7 +1598,7 @@ onBeforeUnmount(() => {
   color: var(--text-3);
   padding: 5px 12px;
   border-radius: 999px;
-  background: var(--w-04);
+  background: var(--panel);
   border: 1px solid var(--border);
 }
 .steps b {
@@ -1638,13 +1615,10 @@ onBeforeUnmount(() => {
 /* ---------------- 封面 ---------------- */
 .hero {
   position: relative;
-  border-radius: 16px;
   overflow: hidden;
   min-height: 208px;
-  border: 1px solid var(--border);
   display: flex;
   align-items: flex-end;
-  background: var(--w-06);
 }
 .hero-img {
   position: absolute;
@@ -1657,7 +1631,7 @@ onBeforeUnmount(() => {
 .hero-ph {
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, var(--w-06), var(--w-02));
+  background: var(--panel);
 }
 @keyframes heroIn {
   from {
@@ -1759,27 +1733,27 @@ onBeforeUnmount(() => {
   color: var(--text-1);
   border-color: var(--accent-35);
 }
-.chip.on {
+.chip.active {
   background: var(--accent-soft);
   border-color: var(--accent);
   color: var(--accent);
 }
-.chip.red.on {
+.chip.red.active {
   background: var(--danger-14);
   border-color: var(--danger-40);
   color: #e5534b;
 }
-.chip.gold.on {
+.chip.gold.active {
   background: var(--accent-14);
   border-color: var(--accent-40);
   color: var(--accent);
 }
-.chip.teal.on {
+.chip.teal.active {
   background: var(--success-12);
   border-color: rgba(78, 201, 160, 0.45);
   color: #4ec9a0;
 }
-.chip.purple.on {
+.chip.purple.active {
   background: rgba(127, 119, 221, 0.16);
   border-color: rgba(127, 119, 221, 0.45);
   color: #7f77dd;
@@ -1801,8 +1775,8 @@ onBeforeUnmount(() => {
 /* ---------------- 网格 / 卡片 ---------------- */
 .stream {
   display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
 }
 .timeline {
   position: relative;
@@ -1856,7 +1830,7 @@ onBeforeUnmount(() => {
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 6px;
-  background: var(--w-08);
+  background: var(--panel);
   color: var(--text-2);
 }
 .tl-stats {
@@ -1866,8 +1840,8 @@ onBeforeUnmount(() => {
 }
 .shots {
   display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
 }
 /* 紧凑密度：卡片更小、间距更紧 */
 .stream.compact {
@@ -1906,7 +1880,9 @@ onBeforeUnmount(() => {
   position: relative;
   border-radius: 12px;
   overflow: hidden;
-  background: var(--w-06);
+  background: var(--panel);
+  backdrop-filter: blur(var(--glass-blur, 8px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 8px));
   aspect-ratio: 16 / 9;
   cursor: zoom-in;
   transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease;
@@ -1928,7 +1904,7 @@ onBeforeUnmount(() => {
 .shot-skel {
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, var(--w-04) 0%, var(--w-12) 50%, var(--w-04) 100%);
+  background: linear-gradient(90deg, var(--panel) 0%, var(--panel-hover) 50%, var(--panel) 100%);
   background-size: 220% 100%;
   animation: shimmer 1.5s linear infinite;
 }
@@ -1939,23 +1915,6 @@ onBeforeUnmount(() => {
   to {
     background-position: -120% 0;
   }
-}
-/* --w-* 是白色叠加色，浅色主题下等于隐形：占位面与骨架改用黑色低透明度 */
-:root.light .shot-pic,
-:root.light .hero {
-  background: rgba(0, 0, 0, 0.05);
-}
-:root.light .shot-skel {
-  background: linear-gradient(
-    90deg,
-    rgba(0, 0, 0, 0.04) 0%,
-    rgba(0, 0, 0, 0.1) 50%,
-    rgba(0, 0, 0, 0.04) 100%
-  );
-  background-size: 220% 100%;
-}
-:root.light .tl-inst {
-  background: rgba(0, 0, 0, 0.05);
 }
 .shot-badge {
   position: absolute;
@@ -2174,7 +2133,7 @@ onBeforeUnmount(() => {
   gap: 10px;
   padding: 6px 8px;
   border-radius: 8px;
-  background: var(--w-04);
+  background: var(--panel);
 }
 .c-info {
   flex: 1;

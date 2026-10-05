@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { fmtBytes } from "../utils/format";
 import { CORE_COLORS, CORE_LABELS } from "../utils/cores";
@@ -12,6 +12,7 @@ import { api } from "../api";
 import { useAccountsStore } from "../stores/accounts";
 import { useServersStore } from "../stores/servers";
 import type { ServerCore, TerracottaDownloadProgress, TerracottaInfo } from "../types";
+import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import {
   IconBox,
   IconCheck,
@@ -38,6 +39,13 @@ const servers = useServersStore();
 const message = useMessage();
 
 const tab = ref<"servers" | "rooms">("servers");
+const tabSegRef = ref<HTMLElement | null>(null);
+const { indicatorStyle: tabSegStyle, refresh: refreshTabSeg } = useSlidingIndicator(
+  tabSegRef,
+  () => Array.from(tabSegRef.value?.querySelectorAll<HTMLElement>("button") ?? []),
+  () => (tab.value === "servers" ? 0 : 1),
+);
+watch(tab, () => nextTick(() => refreshTabSeg()));
 
 // ---- 版本清单 ----
 const versions = ref<{ id: string; type: string; releaseTime: string }[]>([]);
@@ -443,7 +451,8 @@ onUnmounted(() => stopTcPoll());
 
 <template>
   <div id="mp-root" class="mp-view">
-    <div id="mp-tabs" class="mode-tabs glass">
+    <div id="mp-tabs" ref="tabSegRef" class="mode-tabs glass">
+      <div class="indicator" :style="tabSegStyle"></div>
       <button :class="{ active: tab === 'servers' }" @click="tab = 'servers'">
         <IconServer /> {{ t('multiplayer.tab.servers') }}
       </button>
@@ -880,12 +889,22 @@ onUnmounted(() => stopTcPoll());
   gap: 18px;
 }
 .mode-tabs {
+  position: relative;
   display: inline-flex;
   gap: 4px;
   padding: 5px;
   align-self: flex-start;
 }
+.mode-tabs .indicator {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  pointer-events: none;
+}
 .mode-tabs button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -900,7 +919,6 @@ onUnmounted(() => stopTcPoll());
   font-family: inherit;
 }
 .mode-tabs button.active {
-  background: var(--accent-soft);
   color: var(--accent);
 }
 .btn {
@@ -941,7 +959,7 @@ onUnmounted(() => stopTcPoll());
   background: var(--danger-26);
 }
 .btn:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 .grid {
@@ -1074,7 +1092,7 @@ onUnmounted(() => stopTcPoll());
   border-color: var(--danger-50);
 }
 .empty {
-  padding: 56px 30px;
+  padding: 48px 24px;
   text-align: center;
   display: flex;
   flex-direction: column;

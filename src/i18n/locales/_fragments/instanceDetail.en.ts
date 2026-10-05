@@ -24,6 +24,8 @@ export default {
   gameNotInstalledDesc: "Install MC {version} to launch (mods are not affected)",
   installing: "Installing…",
   installGame: "Install game",
+  installFailed: "Installation failed",
+  reinstall: "Reinstall",
   symlinkBadge: "Symlinked instance",
   symlinkNoticePrefix: "This instance is imported via symlink. Changes to mods, saves and other files will directly affect the original directory",
   symlinkNoticeSource: " (source: {path})",

@@ -53,6 +53,24 @@ const router = useRouter();
 const onboarding = useOnboarding();
 const { t } = useI18n();
 
+const NAV_TOGGLE_ITEMS = [
+  "browse",
+  "instances",
+  "multiplayer",
+  "skins",
+  "toolbox",
+  "timemachine",
+] as const;
+function navVisible(name: string): boolean {
+  return !(settings.settings?.hidden_nav_items ?? []).includes(name);
+}
+function toggleNav(name: string) {
+  const cur = new Set(settings.settings?.hidden_nav_items ?? []);
+  if (cur.has(name)) cur.delete(name);
+  else cur.add(name);
+  settings.patch({ hidden_nav_items: Array.from(cur) });
+}
+
 const checking = ref(false);
 const showDiag = ref(false);
 const cloudOpen = ref(false);
@@ -395,6 +413,12 @@ const settingItemsDef: { id: string; cardId: string; tab: string; labelKey: stri
   { id: "a-iface-hero", cardId: "appearance-interface", tab: "appearance", labelKey: "settings.appearance.homeHero", cardTitleKey: "settings.appearance.interface" },
   { id: "a-iface-collapse", cardId: "appearance-interface", tab: "appearance", labelKey: "settings.appearance.sidebarCollapse", cardTitleKey: "settings.appearance.interface" },
   { id: "a-iface-news", cardId: "appearance-interface", tab: "appearance", labelKey: "settings.appearance.sidebarNews", cardTitleKey: "settings.appearance.interface" },
+  { id: "a-iface-nav-browse", cardId: "appearance-interface", tab: "appearance", labelKey: "settings.appearance.nav.browse", cardTitleKey: "settings.appearance.interface" },
+  { id: "a-iface-nav-instances", cardId: "appearance-interface", tab: "appearance", labelKey: "settings.appearance.nav.instances", cardTitleKey: "settings.appearance.interface" },
+  { id: "a-iface-nav-multiplayer", cardId: "appearance-interface", tab: "appearance", labelKey: "settings.appearance.nav.multiplayer", cardTitleKey: "settings.appearance.interface" },
+  { id: "a-iface-nav-skins", cardId: "appearance-interface", tab: "appearance", labelKey: "settings.appearance.nav.skins", cardTitleKey: "settings.appearance.interface" },
+  { id: "a-iface-nav-toolbox", cardId: "appearance-interface", tab: "appearance", labelKey: "settings.appearance.nav.toolbox", cardTitleKey: "settings.appearance.interface" },
+  { id: "a-iface-nav-timemachine", cardId: "appearance-interface", tab: "appearance", labelKey: "settings.appearance.nav.timemachine", cardTitleKey: "settings.appearance.interface" },
   { id: "a-bg", cardId: "appearance-background", tab: "appearance", labelKey: "settings.appearance.background", cardTitleKey: "settings.appearance.background" },
   { id: "a-bg-blur", cardId: "appearance-background", tab: "appearance", labelKey: "settings.appearance.backgroundBlur", cardTitleKey: "settings.appearance.background" },
   { id: "a-bg-dim", cardId: "appearance-background", tab: "appearance", labelKey: "settings.appearance.backgroundDim", cardTitleKey: "settings.appearance.background" },
@@ -1093,6 +1117,22 @@ onUnmounted(() => {
               <span class="knob"></span>
             </button>
           </div>
+          <div class="appearance-divider"></div>
+          <div v-for="name in NAV_TOGGLE_ITEMS" :key="name" class="choice-row">
+            <div class="choice-info">
+              <span class="choice-label">{{ t(`settings.appearance.nav.${name}`) }}</span>
+              <p class="choice-hint">{{ t(`settings.appearance.nav.${name}Hint`) }}</p>
+            </div>
+            <button
+              class="toggle"
+              :class="{ on: navVisible(name) }"
+              role="switch"
+              :aria-checked="navVisible(name)"
+              @click="toggleNav(name)"
+            >
+              <span class="knob"></span>
+            </button>
+          </div>
         </div>
         <div class="card glass" id="appearance-background">
           <h3>{{ t("settings.appearance.background") }}</h3>
@@ -1650,7 +1690,7 @@ onUnmounted(() => {
           <AboutShowcase />
           <div class="about-hero-title">
             <span class="about-name about-hero-name">QookiX Launcher</span>
-            <span class="about-ver">v0.11.0</span>
+            <span class="about-ver">v0.11.1</span>
           </div>
           <p class="about-hero-slogan">{{ t("settings.about.slogan") }}</p>
         </div>
@@ -2112,8 +2152,8 @@ onUnmounted(() => {
   gap: 8px;
   border: none;
   border-radius: 10px;
-  padding: 10px 18px;
-  font-size: 14px;
+  padding: 9px 18px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
@@ -2127,7 +2167,7 @@ onUnmounted(() => {
   filter: brightness(1.08);
 }
 .btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
 }
 .settings-pane > .grid {
   margin-top: 0;
@@ -3172,15 +3212,17 @@ textarea.text-input {
 .mirror-btn {
   font-size: 12px;
   color: var(--text-2);
+  background: transparent;
   padding: 4px 10px;
   border-radius: 7px;
   border: 1px solid var(--border);
   flex-shrink: 0;
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 .mirror-btn:hover {
   color: var(--accent);
   border-color: var(--accent);
+  background: var(--accent-soft);
 }
 .mirror-btn.disabled {
   opacity: 0.5;

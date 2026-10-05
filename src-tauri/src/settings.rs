@@ -282,6 +282,12 @@ pub fn update_settings(state: &AppState, patch: serde_json::Value) -> Result<Set
     if let Some(v) = patch.get("show_news").and_then(|v| v.as_bool()) {
         settings.show_news = v;
     }
+    if let Some(arr) = patch.get("hidden_nav_items").and_then(|v| v.as_array()) {
+        settings.hidden_nav_items = arr
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+    }
     if let Some(v) = patch.get("dismissed_update_version") {
         settings.dismissed_update_version =
             v.as_str().map(|s| s.to_string()).filter(|s| !s.is_empty());

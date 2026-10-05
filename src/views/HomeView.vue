@@ -421,7 +421,7 @@ onMounted(() => {
   border: none;
   border-radius: 10px;
   padding: 9px 18px;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
@@ -434,13 +434,12 @@ onMounted(() => {
 .btn.primary {
   background: linear-gradient(135deg, var(--accent), var(--accent-deep));
   color: #1a1208;
-  box-shadow: 0 6px 22px var(--accent-35);
 }
 .btn.primary:hover {
   filter: brightness(1.08);
 }
 .btn.primary:disabled {
-  opacity: 0.7;
+  opacity: 0.5;
   cursor: default;
 }
 .btn.ghost {
@@ -645,7 +644,7 @@ onMounted(() => {
   color: var(--accent);
 }
 .empty {
-  padding: 40px;
+  padding: 48px 24px;
   text-align: center;
   color: var(--text-3);
   display: flex;

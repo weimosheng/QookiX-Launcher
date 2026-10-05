@@ -5,7 +5,7 @@
  * 安全设计：写回只改提交的字段（后端保证未知字段不丢），
  * 保存前自动单文件备份，游戏运行中或只读时不写盘。
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { NButton, NModal, NProgress, NSelect, NSwitch, useDialog, useMessage } from "naive-ui";
 import { listen } from "@tauri-apps/api/event";
@@ -13,6 +13,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
 import { useInstancesStore } from "../stores/instances";
 import { fmtDate, fmtSize } from "../utils/format";
+import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import type { PlayerSummary, WorldForm, WorldSummary } from "../types";
 import {
   IconBox,
@@ -239,6 +240,24 @@ function back() {
   manual.value = false;
 }
 
+const modeSegRef = ref<HTMLElement | null>(null);
+const tabSegRef = ref<HTMLElement | null>(null);
+const { indicatorStyle: modeSegStyle, refresh: refreshModeSeg } = useSlidingIndicator(
+  modeSegRef,
+  () => Array.from(modeSegRef.value?.querySelectorAll<HTMLElement>("button") ?? []),
+  () => (mode.value === "form" ? 0 : 1)
+);
+const { indicatorStyle: tabSegStyle, refresh: refreshTabSeg } = useSlidingIndicator(
+  tabSegRef,
+  () => Array.from(tabSegRef.value?.querySelectorAll<HTMLElement>("button") ?? []),
+  () => (["world", "chunk", "player", "item"] as Tab[]).indexOf(tab.value)
+);
+watch(mode, () => nextTick(() => refreshModeSeg()));
+watch(tab, () => {
+  nextTick(() => refreshTabSeg());
+  if (tab.value === "world") nextTick(() => refreshModeSeg());
+});
+
 function setMode(m: Mode) {
   mode.value = m;
   localStorage.setItem(MODE_KEY, m);
@@ -431,7 +450,7 @@ watch(instanceId, () => {
 
 <template>
   <div class="nbt-view">
-    <div class="bar">
+    <div class="bar glass">
       <span class="bar-label">{{ t("nbt.selectInstance") }}</span>
       <NSelect
         v-model:value="instanceId"
@@ -511,11 +530,12 @@ watch(instanceId, () => {
           <IconRestore /> {{ t("nbt.backupTitle") }}
         </button>
         <!-- 表单 / 树形 模式切换 -->
-        <div v-if="tab === 'world'" class="seg-group">
-          <button class="seg" :class="{ active: mode === 'form' }" @click="setMode('form')">
+        <div v-if="tab === 'world'" ref="modeSegRef" class="seg">
+          <div class="indicator" :style="modeSegStyle"></div>
+          <button :class="{ active: mode === 'form' }" @click="setMode('form')">
             {{ t("nbt.formMode") }}
           </button>
-          <button class="seg" :class="{ active: mode === 'tree' }" @click="setMode('tree')">
+          <button :class="{ active: mode === 'tree' }" @click="setMode('tree')">
             {{ t("nbt.treeMode") }}
           </button>
         </div>
@@ -524,17 +544,18 @@ watch(instanceId, () => {
       <div v-if="readonlyReason && !running" class="readonly-bar">{{ readonlyReason }}</div>
 
       <!-- 三大分区 -->
-      <div class="tab-group">
-        <button class="seg" :class="{ active: tab === 'world' }" @click="setTab('world')">
+      <div ref="tabSegRef" class="seg">
+        <div class="indicator" :style="tabSegStyle"></div>
+        <button :class="{ active: tab === 'world' }" @click="setTab('world')">
           {{ t("nbt.worldProps") }}
         </button>
-        <button class="seg" :class="{ active: tab === 'chunk' }" @click="setTab('chunk')">
+        <button :class="{ active: tab === 'chunk' }" @click="setTab('chunk')">
           {{ t("nbt.chunks") }}
         </button>
-        <button class="seg" :class="{ active: tab === 'player' }" @click="setTab('player')">
+        <button :class="{ active: tab === 'player' }" @click="setTab('player')">
           <IconUser /> {{ t("nbt.players") }}
         </button>
-        <button class="seg" :class="{ active: tab === 'item' }" @click="setTab('item')">
+        <button :class="{ active: tab === 'item' }" @click="setTab('item')">
           <IconBox /> {{ t("nbt.inventory") }}
         </button>
       </div>
@@ -798,6 +819,7 @@ watch(instanceId, () => {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+  padding: 12px 16px;
 }
 .bar-label {
   font-size: 13px;
@@ -894,28 +916,37 @@ watch(instanceId, () => {
   color: var(--text-2);
   font-size: 12px;
 }
-.seg-group,
-.tab-group {
-  display: flex;
-  gap: 6px;
-}
 .seg {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--text-2);
-  font-size: 12px;
-  font-family: inherit;
-  cursor: pointer;
+  position: relative;
+  display: flex;
+  background: var(--panel);
+  backdrop-filter: blur(var(--glass-blur, 8px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 8px));
+  border-radius: 9px;
+  padding: 3px;
+  min-height: 38px;
 }
-.seg.active {
+.seg .indicator {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 7px;
   background: var(--accent-soft);
+  pointer-events: none;
+}
+.seg button {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  padding: 6px 18px;
+  border-radius: 7px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.seg button.active {
   color: var(--accent);
-  border-color: var(--accent-05);
 }
 .form-body {
   display: flex;
@@ -945,7 +976,7 @@ watch(instanceId, () => {
   padding: 6px 10px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: var(--surface-2);
+  background: var(--w-04);
   color: var(--text-1);
   font-size: 13px;
   font-family: inherit;
@@ -1068,7 +1099,7 @@ watch(instanceId, () => {
   color: var(--text-3);
 }
 .empty {
-  padding: 40px;
+  padding: 48px 24px;
   text-align: center;
   color: var(--text-3);
 }

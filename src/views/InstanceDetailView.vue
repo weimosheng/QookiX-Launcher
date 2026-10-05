@@ -11,6 +11,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useInstancesStore } from "../stores/instances";
+import { useTasksStore } from "../stores/tasks";
 import { useAccountsStore } from "../stores/accounts";
 import { usePinsStore, type PinTarget } from "../stores/pins";
 import { useMessage, NButton, NModal, NPopover } from "naive-ui";
@@ -221,6 +222,24 @@ function openTabFolder() {
 }
 
 // ---- 安装游戏本体（导入分享包后的实例需要）----
+const tasks = useTasksStore();
+const installTask = computed(() =>
+  tasks.taskList.find(
+    (t) => t.instanceId === instanceId && (t.source ?? "").includes("游戏安装")
+  )
+);
+const installPct = computed(() => {
+  const t = installTask.value;
+  if (!t) return 0;
+  if (t.fraction != null) return Math.round(t.fraction * 100);
+  // 下载阶段（libraries / client / loader installer）走 fileDone/fileTotal，
+  // 由 download://progress 事件驱动；install 阶段（natives 解压 / forge processors）
+  // 走 stepDone/stepTotal，由 install://progress 事件驱动。优先用实际文件下载进度，
+  // 否则 libraries 阶段 stepDone 永远 0、进度卡住直到 done 突然 100%。
+  if (t.fileTotal) return Math.round((t.fileDone / t.fileTotal) * 100);
+  if (t.stepTotal) return Math.round((t.stepDone / t.stepTotal) * 100);
+  return 0;
+});
 const installingGame = ref(false);
 async function installGame() {
   installingGame.value = true;
@@ -396,7 +415,38 @@ watch(
       </div>
     </div>
 
-    <div v-if="!instance.installed" class="not-installed glass">
+    <!-- 安装中：显示进度 -->
+    <div v-if="installTask && !installTask.finished" class="not-installed glass installing">
+      <div class="install-progress">
+        <h3>{{ t("instanceDetail.installing") }}</h3>
+        <p class="stage-msg">{{ installTask.message }}</p>
+        <div class="bar">
+          <div class="fill" :style="{ width: installPct + '%' }"></div>
+        </div>
+        <div class="bar-info">
+          <span>{{ installPct }}%</span>
+          <span v-if="installTask.stepTotal">{{ installTask.stepDone }} / {{ installTask.stepTotal }}</span>
+          <span v-else-if="installTask.fileTotal">{{ installTask.fileDone }} / {{ installTask.fileTotal }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 安装失败：显示原因 + 重新安装 -->
+    <div
+      v-else-if="installTask && installTask.finished && installTask.ok === false"
+      class="not-installed glass failed"
+    >
+      <div>
+        <h3>{{ t("instanceDetail.installFailed") }}</h3>
+        <p>{{ installTask.message }}</p>
+      </div>
+      <button class="btn primary" :disabled="installingGame" @click="installGame">
+        <IconPlay /> {{ t("instanceDetail.reinstall") }}
+      </button>
+    </div>
+
+    <!-- 未安装：安装按钮 -->
+    <div v-else-if="!instance.installed" class="not-installed glass">
       <div>
         <h3>{{ t("instanceDetail.gameNotInstalledTitle") }}</h3>
         <p>{{ t("instanceDetail.gameNotInstalledDesc", { version: instance.mc_version }) }}</p>
@@ -636,7 +686,7 @@ watch(
   gap: 7px;
   border: none;
   border-radius: 10px;
-  padding: 9px 16px;
+  padding: 9px 18px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -693,6 +743,49 @@ watch(
   margin: 0;
   color: var(--text-2);
   font-size: 13px;
+}
+.not-installed.installing {
+  border-color: var(--accent-40);
+}
+.not-installed.installing h3 {
+  color: var(--accent);
+}
+.not-installed.failed {
+  border-color: var(--danger-40);
+}
+.not-installed.failed h3 {
+  color: #e5534b;
+}
+.install-progress {
+  flex: 1;
+  min-width: 0;
+}
+.stage-msg {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 8px !important;
+}
+.bar {
+  height: 6px;
+  border-radius: 4px;
+  background: var(--w-08);
+  overflow: hidden;
+}
+.fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--accent-deep), var(--accent));
+  transition: width 0.3s ease;
+}
+.bar-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  gap: 12px;
+  margin-top: 5px;
 }
 .tabs {
   position: relative;
@@ -806,7 +899,7 @@ watch(
   background: var(--k-40);
 }
 .empty {
-  padding: 40px;
+  padding: 48px 24px;
   text-align: center;
   color: var(--text-3);
   display: flex;

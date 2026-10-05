@@ -24,6 +24,8 @@ export default {
   gameNotInstalledDesc: "安装 MC {version} 本体后即可启动（mod 已就绪的不受影响）",
   installing: "安装中…",
   installGame: "安装游戏",
+  installFailed: "安装失败",
+  reinstall: "重新安装",
   symlinkBadge: "符号链接实例",
   symlinkNoticePrefix: "当前实例通过符号链接方式导入，对 mods / 存档等文件所做的更改会直接影响原始目录",
   symlinkNoticeSource: "（来源：{path}）",

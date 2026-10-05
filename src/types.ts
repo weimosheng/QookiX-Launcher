@@ -59,6 +59,8 @@ export interface Settings {
   show_sidebar_collapse_btn: boolean;
   /** 新闻页面与侧边栏新闻入口是否显示（默认 true） */
   show_news: boolean;
+  /** 用户在设置页选择隐藏的侧边栏导航项 name 列表 */
+  hidden_nav_items: string[];
   dismissed_update_version: string | null;
   auto_update: boolean;
   /** 应用自更新源："bucket"（对象存储，默认） | "github"（GitHub Releases 官方源） */

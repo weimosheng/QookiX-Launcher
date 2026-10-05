@@ -481,7 +481,7 @@ async function moveTo(groupId: string | null) {
   gap: 6px;
   border: none;
   border-radius: 10px;
-  padding: 8px 14px;
+  padding: 9px 18px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -590,7 +590,7 @@ async function moveTo(groupId: string | null) {
   color: var(--text-3);
 }
 .empty {
-  padding: 50px;
+  padding: 48px 24px;
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -599,7 +599,7 @@ async function moveTo(groupId: string | null) {
   color: var(--text-3);
 }
 .empty-icon {
-  font-size: 34px;
+  font-size: 36px;
   opacity: 0.6;
 }
 .dialog-body {
@@ -666,7 +666,7 @@ async function moveTo(groupId: string | null) {
   text-align: left;
 }
 .move-item:hover {
-  background: var(--w-09);
+  background: var(--panel-hover);
 }
 .move-item.current {
   border-color: var(--accent);

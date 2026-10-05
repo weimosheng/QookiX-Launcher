@@ -10,6 +10,7 @@ import { api } from "../api";
 import { useServersStore } from "../stores/servers";
 import ServerFileManager from "../components/ServerFileManager.vue";
 import { CORE_COLORS, CORE_LABELS } from "../utils/cores";
+import { useSlidingIndicator } from "../composables/useSlidingIndicator";
 import {
   IconBox,
   IconChevronLeft,
@@ -50,7 +51,15 @@ const tabs = computed(() =>
 );
 watch(tabs, (ts) => {
   if (!ts.some((tb) => tb.key === tab.value) && ts.length > 0) tab.value = ts[0].key;
+  nextTick(() => refreshTabSeg());
 });
+const tabSegRef = ref<HTMLElement | null>(null);
+const { indicatorStyle: tabSegStyle, refresh: refreshTabSeg } = useSlidingIndicator(
+  tabSegRef,
+  () => Array.from(tabSegRef.value?.querySelectorAll<HTMLElement>("button") ?? []),
+  () => tabs.value.findIndex((tb) => tb.key === tab.value),
+);
+watch(tab, () => nextTick(() => refreshTabSeg()));
 
 // ---- 启动设置表单 ----
 const form = ref({
@@ -647,7 +656,8 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="tabs glass">
+    <div ref="tabSegRef" class="tabs glass">
+      <div class="indicator" :style="tabSegStyle"></div>
       <button
         v-for="tabItem in tabs"
         :key="tabItem.key"
@@ -1020,7 +1030,7 @@ onBeforeUnmount(() => {
   gap: 7px;
   border: none;
   border-radius: 10px;
-  padding: 9px 16px;
+  padding: 9px 18px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -1063,16 +1073,26 @@ onBeforeUnmount(() => {
   background: var(--danger-26);
 }
 .btn:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 .tabs {
+  position: relative;
   display: inline-flex;
   gap: 4px;
   padding: 5px;
   align-self: flex-start;
 }
+.tabs .indicator {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  pointer-events: none;
+}
 .tabs button {
+  position: relative;
   border: none;
   background: transparent;
   color: var(--text-2);
@@ -1084,7 +1104,6 @@ onBeforeUnmount(() => {
   font-family: inherit;
 }
 .tabs button.active {
-  background: var(--accent-soft);
   color: var(--accent);
 }
 .panel {
@@ -1196,7 +1215,7 @@ onBeforeUnmount(() => {
   transition: all 0.13s;
 }
 .config-row:hover {
-  background: var(--accent-soft);
+  background: var(--panel-hover);
   border-color: var(--accent-35);
 }
 .config-info {
@@ -1249,7 +1268,7 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 .file-row:hover {
-  background: var(--w-05);
+  background: var(--panel-hover);
 }
 .file-name {
   color: var(--text-1);
