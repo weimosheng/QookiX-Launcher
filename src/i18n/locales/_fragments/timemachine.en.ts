@@ -1,6 +1,13 @@
 /** Time Machine page (cross-instance screenshot timeline) */
 export default {
   settings: "Settings",
+  snapLocal: "Local backup",
+  snapCloud: "Cloud snapshot",
+  restoreHere: "Go back to this moment",
+  restoreTitle: "Go back to this moment",
+  restoreConfirm: "This will overwrite the current save of \"{world}\" with that point in time (the existing world is backed up first, nothing is silently lost). Continue?",
+  restoreDone: "\"{world}\" restored to that moment",
+  cancel: "Cancel",
   enable: "Enable auto capture",
   enabledOn: "Enabled",
   enabledOff: "Disabled",

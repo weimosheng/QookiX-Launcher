@@ -1,6 +1,13 @@
 /** 时光机独立页（跨实例截图时间轴） */
 export default {
   settings: "设置",
+  snapLocal: "本地备份",
+  snapCloud: "云端快照",
+  restoreHere: "回到这一刻",
+  restoreTitle: "回到这一刻",
+  restoreConfirm: "将用「{world}」的这个时间点覆盖当前存档（覆盖前会自动备份现在的世界，不会静默丢档）。确定吗？",
+  restoreDone: "已把「{world}」恢复到那个时间点",
+  cancel: "取消",
   enable: "启用自动截图",
   enabledOn: "已开启",
   enabledOff: "已关闭",

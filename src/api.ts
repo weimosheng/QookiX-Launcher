@@ -46,6 +46,7 @@ import type {
   DiagnosticReport,
   DiagnosticReportEntry,
   TimelineShot,
+  TimelineSnapshot,
   PlaySession,
 } from "./types";
 
@@ -370,6 +371,9 @@ export const api = {
   timemachineRunningInstances: () => invoke<string[]>("timemachine_running_instances"),
   timemachineList: (instanceId: string) =>
     invoke<{ shots: CloudSnapshot[] }>("timemachine_list", { instanceId }),
+  /** 时间轴上的世界快照（本地备份 + 云端快照，跨实例） */
+  timemachineSnapshots: () =>
+    invoke<{ snapshots: TimelineSnapshot[] }>("timemachine_snapshots"),
   /** 时间轴总览页：本地 + 云端合并后的全部截图（云端那半是网络请求 → 顶部加载条） */
   timemachineListAll: () =>
     invoke<{ shots: TimelineShot[] }>("timemachine_list_all", undefined, { net: true }),

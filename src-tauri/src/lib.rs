@@ -154,6 +154,7 @@ pub fn run() {
             timemachine::timemachine_running_instances,
             timemachine::timemachine_list,
             timemachine::timemachine_list_all,
+            timemachine::timemachine_snapshots,
             timemachine::timemachine_delete,
             timemachine::timemachine_delete_shot,
             timemachine::timemachine_flush,

@@ -30,9 +30,9 @@ import {
   IconTrash,
   IconUploadCloud,
 } from "../components/icons";
-import { fmtDuration } from "../utils/format";
+import { fmtDuration, fmtSize } from "../utils/format";
 import { useSlidingIndicator } from "../composables/useSlidingIndicator";
-import type { PlaySession, TimelineShot } from "../types";
+import type { PlaySession, TimelineShot, TimelineSnapshot } from "../types";
 
 const { t } = useI18n();
 const message = useMessage();
@@ -242,6 +242,54 @@ const filteredShots = computed(() =>
   )
 );
 
+// ---- 世界快照（存档时间点，与截图挂在同一条时间轴上）----
+const snapshots = ref<TimelineSnapshot[]>([]);
+/** 正在恢复的快照 key（按钮转圈） */
+const restoringKey = ref<string | null>(null);
+
+function snapKey(s: TimelineSnapshot): string {
+  return `${s.kind}:${s.file ?? s.releaseId ?? 0}:${s.world}`;
+}
+
+const filteredSnapshots = computed(() =>
+  snapshots.value.filter((s) => !filterInstance.value || s.instanceId === filterInstance.value)
+);
+
+async function loadSnapshots() {
+  try {
+    snapshots.value = (await api.timemachineSnapshots()).snapshots;
+  } catch {
+    /* 读不到（未授权 / 无备份）就当没有快照，不影响截图时间轴 */
+  }
+}
+
+/** 回到这一刻：用这份世界快照覆盖当前存档（后端会先自动备份现有世界） */
+function restoreSnapshot(s: TimelineSnapshot) {
+  const world = s.worldName || s.world;
+  dialog.warning({
+    title: t("timemachine.restoreTitle"),
+    content: t("timemachine.restoreConfirm", { world }),
+    positiveText: t("timemachine.restoreHere"),
+    negativeText: t("timemachine.cancel"),
+    onPositiveClick: async () => {
+      const key = snapKey(s);
+      restoringKey.value = key;
+      try {
+        if (s.kind === "local" && s.file && s.instanceId) {
+          await api.restoreWorldBackup(s.instanceId, s.world, s.file);
+        } else if (s.kind === "cloud" && s.releaseId && s.instanceId) {
+          await api.cloudSyncRestore(s.instanceId, world, s.releaseId, s.world);
+        }
+        message.success(t("timemachine.restoreDone", { world }));
+      } catch (e) {
+        message.error(String(e));
+      } finally {
+        restoringKey.value = null;
+      }
+    },
+  });
+}
+
 /** 一场游玩的窗口（含"没记录结束"的封口规则） */
 interface SessionWindow {
   s: PlaySession;
@@ -338,6 +386,8 @@ interface TimelineGroup {
   instance: string | null;
   stats: string;
   shots: TimelineShot[];
+  /** 该分组时间范围内的世界快照（仅按天视图填，用于"回到那一刻"） */
+  snapshots: TimelineSnapshot[];
 }
 
 const timelineGroups = computed<TimelineGroup[]>(() => {
@@ -350,6 +400,7 @@ const timelineGroups = computed<TimelineGroup[]>(() => {
       instance: null,
       stats: t("timemachine.shotCount", { n: g.shots.length }),
       shots: g.shots,
+      snapshots: g.snaps,
     }));
   }
   return sessionGroups.value.map((g) => {
@@ -363,6 +414,7 @@ const timelineGroups = computed<TimelineGroup[]>(() => {
         instance: null,
         stats: t("timemachine.shotCount", { n: g.shots.length }),
         shots: g.shots,
+        snapshots: [],
       };
     }
     const end = g.endedAt ?? s.startedAt;
@@ -380,6 +432,10 @@ const timelineGroups = computed<TimelineGroup[]>(() => {
         adv: countTrigger(g.shots, "advancement"),
       }),
       shots: g.shots,
+      // 这一场游玩期间落下的存档快照
+      snapshots: filteredSnapshots.value.filter(
+        (x) => x.instanceId === s.instanceId && x.createdAt >= s.startedAt && x.createdAt <= end
+      ),
     };
   });
 });
@@ -460,18 +516,26 @@ async function loadSessions() {
   }
 }
 
-/** 按天分组（倒序） */
+/** 按天分组（倒序）：截图 + 该天的世界快照（只有快照、没截图的天也成组） */
 const dayGroups = computed(() => {
-  const map = new Map<string, TimelineShot[]>();
-  for (const s of filteredShots.value) {
-    const k = dayKey(s.createdAt);
-    const list = map.get(k) ?? [];
-    list.push(s);
-    map.set(k, list);
-  }
+  const map = new Map<string, { shots: TimelineShot[]; snaps: TimelineSnapshot[] }>();
+  const ensure = (k: string) => {
+    let g = map.get(k);
+    if (!g) {
+      g = { shots: [], snaps: [] };
+      map.set(k, g);
+    }
+    return g;
+  };
+  for (const s of filteredShots.value) ensure(dayKey(s.createdAt)).shots.push(s);
+  for (const s of filteredSnapshots.value) ensure(dayKey(s.createdAt)).snaps.push(s);
   return [...map.entries()]
     .sort((a, b) => b[0].localeCompare(a[0]))
-    .map(([day, list]) => ({ day, shots: list }));
+    .map(([day, g]) => ({
+      day,
+      shots: g.shots,
+      snaps: g.snaps.sort((a, b) => b.createdAt - a.createdAt),
+    }));
 });
 
 // ---- 滚动揭示 / 回到最新 ----
@@ -946,7 +1010,7 @@ onMounted(async () => {
   await loadStatus();
   await refreshRunning();
   // 本地模式没有云端也要列本地截图，所以这里无条件加载
-  await Promise.all([loadShots(true), loadSessions()]);
+  await Promise.all([loadShots(true), loadSessions(), loadSnapshots()]);
   loading.value = false;
   window.addEventListener("focus", onWindowFocus);
   window.addEventListener("keydown", onKey);
@@ -1008,7 +1072,12 @@ onBeforeUnmount(() => {
           {{ v.label }}
         </button>
       </div>
-      <button class="btn ic" :title="t('timemachine.refresh')" :disabled="busy" @click="loadShots()">
+      <button
+        class="btn ic"
+        :title="t('timemachine.refresh')"
+        :disabled="busy"
+        @click="loadShots(); loadSnapshots()"
+      >
         <IconRefresh />
       </button>
       <button
@@ -1178,6 +1247,29 @@ onBeforeUnmount(() => {
             <span v-if="g.instance" class="tl-inst">{{ g.instance }}</span>
             <span class="tl-stats">{{ g.stats }}</span>
           </div>
+
+          <!-- 这一段时间里的世界快照：点一下就能把存档回到那一刻 -->
+          <div v-if="g.snapshots.length" class="tl-snaps">
+            <div
+              v-for="sn in g.snapshots"
+              :key="snapKey(sn)"
+              class="tl-snap"
+              :class="sn.kind"
+            >
+              <span class="snap-kind">{{ sn.kind === "local" ? t("timemachine.snapLocal") : t("timemachine.snapCloud") }}</span>
+              <span class="snap-world" :title="sn.world">{{ sn.worldName || sn.world }}</span>
+              <span class="snap-meta">{{ fmtSize(sn.size) }}</span>
+              <span class="snap-meta">{{ clock(sn.createdAt) }}</span>
+              <NButton
+                size="tiny"
+                :loading="restoringKey === snapKey(sn)"
+                @click="restoreSnapshot(sn)"
+              >
+                {{ t("timemachine.restoreHere") }}
+              </NButton>
+            </div>
+          </div>
+
           <div class="shots">
             <article
               v-for="(s, si) in g.shots"
@@ -1837,6 +1929,53 @@ onBeforeUnmount(() => {
   margin-left: auto;
   font-size: 11.5px;
   color: var(--text-3);
+}
+/* 时间轴上的世界快照行（存档时间点 → 回到那一刻） */
+.tl-snaps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 10px;
+}
+.tl-snap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--w-04);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-35);
+}
+.tl-snap.cloud {
+  border-left-color: #6aa9ff;
+}
+.snap-kind {
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--w-08);
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.snap-world {
+  font-weight: 600;
+  color: var(--text-1);
+  max-width: 34%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.snap-meta {
+  font-size: 11px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.tl-snap > :last-child {
+  margin-left: auto;
+  flex-shrink: 0;
 }
 .shots {
   display: grid;

@@ -1690,7 +1690,7 @@ onUnmounted(() => {
           <AboutShowcase />
           <div class="about-hero-title">
             <span class="about-name about-hero-name">QookiX Launcher</span>
-            <span class="about-ver">v0.11.1</span>
+            <span class="about-ver">v0.11.2</span>
           </div>
           <p class="about-hero-slogan">{{ t("settings.about.slogan") }}</p>
         </div>

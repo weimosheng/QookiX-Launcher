@@ -1101,6 +1101,94 @@ pub async fn list_all(state: &AppState) -> Result<Value, String> {
     Ok(json!({ "shots": items }))
 }
 
+/// 把 ISO8601（release 的 created_at）转成 unix 秒。
+/// 无 chrono 依赖，用 Howard Hinnant 的 days_from_civil 算法。
+fn iso_to_unix(s: &str) -> u64 {
+    if s.len() < 19 {
+        return 0;
+    }
+    let num = |a: usize, b: usize| -> i64 { s.get(a..b).and_then(|x| x.parse::<i64>().ok()).unwrap_or(0) };
+    let (y, mo, d) = (num(0, 4), num(5, 7), num(8, 10));
+    let (h, mi, sec) = (num(11, 13), num(14, 16), num(17, 19));
+    let y2 = if mo <= 2 { y - 1 } else { y };
+    let era = if y2 >= 0 { y2 } else { y2 - 399 } / 400;
+    let yoe = y2 - era * 400;
+    let mp = (mo + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + doe - 719468;
+    (days * 86400 + h * 3600 + mi * 60 + sec).max(0) as u64
+}
+
+/// 时间轴上的「世界快照」事件：本地备份 + 云端快照（跨实例只读聚合）。
+/// 前端把这些点插进同一条时间轴，并支持"回到那一刻"。
+pub async fn timeline_snapshots(state: &AppState) -> Result<Value, String> {
+    let mut out: Vec<Value> = Vec::new();
+
+    // 1) 本地备份：遍历每个实例 saves 下的世界目录
+    for inst in crate::instances::load_instances(state) {
+        let saves = state.instances_dir().join(&inst.id).join("saves");
+        let Ok(rd) = std::fs::read_dir(&saves) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            if !e.path().is_dir() {
+                continue;
+            }
+            let world = e.file_name().to_string_lossy().to_string();
+            // 恢复时自动生成的 `世界名.bak-时间戳` 备份目录不算世界，跳过
+            if world.contains(".bak-") {
+                continue;
+            }
+            for b in crate::world_backup::list_backups(state, &inst.id, &world) {
+                out.push(json!({
+                    "kind": "local",
+                    "instanceId": inst.id,
+                    "instanceName": inst.name,
+                    "world": world,
+                    "worldName": world,
+                    "createdAt": b.modified,
+                    "size": b.size,
+                    "file": b.filename,
+                }));
+            }
+        }
+    }
+
+    // 2) 云端快照（需要授权；失败时只给本地，不影响时间轴显示）
+    let cs = crate::cloud_sync::store::load(state);
+    if !cs.access_token.is_empty() && !cs.repo_name.is_empty() {
+        if let Ok(token) = auth::ensure_token(state).await {
+            if let Ok(all) = release::list(state, &token, &cs.repo_name, &cs.account).await {
+                for s in all {
+                    out.push(json!({
+                        "kind": "cloud",
+                        "instanceId": s.get("instanceId").cloned().unwrap_or(Value::Null),
+                        "instanceName": s.get("instanceName").cloned().unwrap_or(Value::Null),
+                        "world": s.get("worldId").cloned().unwrap_or(Value::Null),
+                        "worldName": s.get("worldName").cloned().unwrap_or(Value::Null),
+                        "createdAt": iso_to_unix(
+                            s.get("createdAt").and_then(|v| v.as_str()).unwrap_or("")
+                        ),
+                        "size": s.get("assetSize").cloned().unwrap_or(json!(0)),
+                        "releaseId": s.get("releaseId").cloned().unwrap_or(json!(0)),
+                        "assetId": s.get("assetId").cloned().unwrap_or(json!(0)),
+                    }));
+                }
+            }
+        }
+    }
+
+    // 时间倒序
+    out.sort_by(|a, b| {
+        b.get("createdAt")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)
+            .cmp(&a.get("createdAt").and_then(|v| v.as_u64()).unwrap_or(0))
+    });
+    Ok(json!({ "snapshots": out }))
+}
+
 /// 列出某实例的云端记忆点（按时间倒序）
 pub async fn list(state: &AppState, instance_id: &str) -> Result<Value, String> {
     let (token, account, repo_name) = ctx(state).await?;
@@ -1315,6 +1403,12 @@ pub async fn timemachine_list(
 #[tauri::command]
 pub async fn timemachine_list_all(state: State<'_, AppState>) -> Result<Value, String> {
     list_all(&state).await
+}
+
+/// 时间轴上的世界快照事件（本地备份 + 云端快照，跨实例）
+#[tauri::command]
+pub async fn timemachine_snapshots(state: State<'_, AppState>) -> Result<Value, String> {
+    timeline_snapshots(&state).await
 }
 
 #[tauri::command]

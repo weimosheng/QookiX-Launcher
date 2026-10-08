@@ -446,6 +446,24 @@ export interface TimelineShot {
   assetId: number;
 }
 
+/** 时间轴上的世界快照事件（本地备份 / 云端快照），对应"回到那一刻" */
+export interface TimelineSnapshot {
+  kind: "local" | "cloud";
+  instanceId: string | null;
+  instanceName: string | null;
+  /** 世界目录名（云端为 worldId） */
+  world: string;
+  worldName: string | null;
+  /** unix 秒 */
+  createdAt: number;
+  size: number;
+  /** 本地备份文件名（kind=local） */
+  file?: string;
+  /** 云端（kind=cloud） */
+  releaseId?: number;
+  assetId?: number;
+}
+
 /** 单次游玩（启动游戏 → 退出）；「冒险日志」按它把截图分组成"这次游玩" */
 export interface PlaySession {
   id: number;

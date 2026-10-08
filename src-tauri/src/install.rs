@@ -1117,12 +1117,25 @@ async fn resolve_loader_version(state: &AppState, instance: &Instance) -> Result
     }
 }
 
+/// Forge 的版本串规范化：`version` 可能是纯 build 号（`42.0.5`），也可能是
+/// 完整版本名（`1.19.1-42.0.5`，promotions / API 直接给的形态，或用户从
+/// 内容中心保存的值）。后者不能再拼 `mc-` 前缀，否则 maven 路径变成
+/// `1.19.1-1.19.1-42.0.5` → 404。
+fn forge_full_ver(mc_version: &str, version: &str) -> String {
+    let prefix = format!("{mc_version}-");
+    if version.starts_with(&prefix) {
+        version.to_string()
+    } else {
+        format!("{prefix}{version}")
+    }
+}
+
 /// 由加载器版本计算 installer 文件名里的 full_ver（与 forge_patch 一致）。
 fn loader_full_ver(instance: &Instance, version: &str) -> String {
     if instance.loader == LoaderType::NeoForge {
         neoforge_full_ver(&instance.mc_version, version)
     } else {
-        format!("{}-{}", instance.mc_version, version)
+        forge_full_ver(&instance.mc_version, version)
     }
 }
 
@@ -1155,7 +1168,7 @@ async fn forge_patch(
     let full_ver = if is_neoforge {
         neoforge_full_ver(&instance.mc_version, &version)
     } else {
-        format!("{}-{}", instance.mc_version, version)
+        forge_full_ver(&instance.mc_version, &version)
     };
     let installer_url = format!("{base_url}{artifact}/{full_ver}/{installer_name}-{full_ver}-installer.jar");
     let installer_path = state.root.join("runtimes").join(format!("{installer_name}-{full_ver}-installer.jar"));
